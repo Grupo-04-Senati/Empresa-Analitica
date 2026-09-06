@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #2563eb;
+  --color-primary-dark: #1d4ed8;
+  --color-primary-light: #3b82f6;
+  --color-surface: #ffffff;
+  --color-bg: #f8fafc;
+  --color-sidebar: #0b1220;
+  --color-sidebar-hover: #1e293b;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-text-light: #94a3b8;
+  --color-border: #e2e8f0;
+  --color-positive: #059669;
+  --color-negative: #dc2626;
+  --color-warning: #d97706;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+.auth-spinner { animation: spin 0.8s linear infinite; }
+
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+.animate-fade-in { animation: fadeIn 0.25s ease-out; }
+.animate-slide-in { animation: slideIn 0.25s ease-out; }
+.animate-slide-up { animation: slideUp 0.3s ease-out; }
+.animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+.animate-float { animation: float 3s ease-in-out infinite; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+::selection { background: #2563eb20; color: #1e40af; }
+
+:focus-visible { outline: 2px solid #2563eb40; outline-offset: 2px; border-radius: 4px; }
+
+button, a, input, select, textarea { transition: all 0.15s ease; }
+
+.card-hover { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.card-hover:hover { transform: translateY(-1px); box-shadow: 0 4px 12px -2px rgb(0 0 0 / 0.08); }
+
+.glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+
+.glow-border { transition: border-color 0.2s ease; }
+.glow-border:hover { border-color: #2563eb40; }
+
+.overflow-anywhere { overflow-wrap: anywhere; word-break: break-word; }
+
+/* Responsive text */
+@media (max-width: 640px) {
+  html { font-size: 14px; }
+  .text-responsive { font-size: 0.875rem; }
+}
+
+/* Dark mode transitions */
+.dark { color-scheme: dark; }

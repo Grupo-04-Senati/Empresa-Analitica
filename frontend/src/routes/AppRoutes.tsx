@@ -1,0 +1,96 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { DashboardLayout } from '../layouts/dashboard';
+import { useAuth } from '../context/AuthContext';
+import { Loader2 } from 'lucide-react';
+
+import DashboardInicio from '../pages/dashboard';
+import Clientes from '../pages/Clientes';
+import ClientesNuevo from '../pages/ClientesNuevo';
+import ClientesHistorial from '../pages/ClientesHistorial';
+import Auditoria from '../pages/Auditoria';
+import AnalizarComentario from '../pages/AnalizarComentario';
+import Categorias from '../pages/Categorias';
+import Clasificacion from '../pages/Clasificacion';
+import Estadisticas from '../pages/Estadisticas';
+import ConfigCategorias from '../pages/ConfigCategorias';
+import Comentarios from '../pages/Comentarios';
+import Solicitudes from '../pages/Solicitudes';
+import TiempoAtencion from '../pages/TiempoAtencion';
+import PalabrasFrecuentes from '../pages/PalabrasFrecuentes';
+import Interpolacion from '../pages/Interpolacion';
+import Optimizacion from '../pages/Optimizacion';
+import ReportesNLP from '../pages/ReportesNLP';
+import ReportesEstadisticas from '../pages/ReportesEstadisticas';
+import ReportesAtencion from '../pages/ReportesAtencion';
+import Usuarios from '../pages/Usuarios';
+import AdminUsuarios from '../pages/AdminUsuarios';
+import Perfil from '../pages/Perfil';
+import Login from '../pages/Login';
+import Register from '../pages/Register';
+import LimpiezaDatos from '../pages/LimpiezaDatos';
+
+const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-50 flex-col gap-4">
+        <Loader2 size={32} className="auth-spinner text-blue-600" />
+        <p className="text-slate-500 text-sm">Cargando...</p>
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+};
+
+const GuestGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-950 flex-col gap-4">
+        <Loader2 size={32} className="auth-spinner text-blue-500" />
+        <p className="text-slate-500 text-sm">Cargando...</p>
+      </div>
+    );
+  }
+  if (user) return <Navigate to="/" replace />;
+  return <>{children}</>;
+};
+
+export const AppRoutes = () => (
+  <Routes>
+    <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
+    <Route path="/register" element={<GuestGuard><Register /></GuestGuard>} />
+    <Route path="/perfil" element={<AuthGuard><Perfil /></AuthGuard>} />
+
+    <Route path="/" element={<AuthGuard><DashboardLayout /></AuthGuard>}>
+      <Route index element={<DashboardInicio />} />
+      <Route path="clientes" element={<Clientes />} />
+      <Route path="clientes/nuevo" element={<ClientesNuevo />} />
+      <Route path="clientes-historial" element={<ClientesHistorial />} />
+      <Route path="solicitudes" element={<Solicitudes />} />
+      <Route path="comentarios" element={<Comentarios />} />
+      <Route path="tiempo-atencion" element={<TiempoAtencion />} />
+      <Route path="auditoria" element={<Auditoria />} />
+      <Route path="analizar-comentario" element={<AnalizarComentario />} />
+      <Route path="palabras-frecuentes" element={<PalabrasFrecuentes />} />
+      <Route path="categorias" element={<Categorias />} />
+      <Route path="clasificacion" element={<Clasificacion />} />
+      <Route path="estadisticas" element={<Estadisticas />} />
+      <Route path="interpolacion" element={<Interpolacion />} />
+      <Route path="optimizacion" element={<Optimizacion />} />
+      <Route path="reportes" element={<Estadisticas />} />
+      <Route path="reportes/atencion" element={<ReportesAtencion />} />
+      <Route path="reportes/nlp" element={<ReportesNLP />} />
+      <Route path="reportes/estadisticas" element={<ReportesEstadisticas />} />
+      <Route path="usuarios" element={<Usuarios />} />
+      <Route path="admin/usuarios" element={<AdminUsuarios />} />
+      <Route path="configuracion" element={<ConfigCategorias />} />
+      <Route path="limpieza-datos" element={<LimpiezaDatos />} />
+    </Route>
+
+    <Route path="*" element={<Navigate to="/" replace />} />
+  </Routes>
+);
+
+export default AppRoutes;
