@@ -30,22 +30,79 @@ export async function loadFaceModels(): Promise<void> {
   return modelsLoading;
 }
 
+export interface DetectionResult {
+  detection: faceapi.WithFaceDescriptor<faceapi.WithFaceLandmarks<faceapi.WithFaceDetection<{}>>> | null;
+  box: { x: number; y: number; width: number; height: number } | null;
+  score: number;
+}
+
 export async function detectFace(
   input: HTMLVideoElement | HTMLCanvasElement
-): Promise<faceapi.WithFaceDescriptor<faceapi.WithFaceLandmarks<faceapi.WithFaceDetection<{}>>> | null> {
-  const detection = await faceapi
-    .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.3 }))
-    .withFaceLandmarks()
-    .withFaceDescriptor();
-  return detection || null;
+): Promise<DetectionResult> {
+  try {
+    const detection = await (faceapi as any)
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 }))
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+    if (!detection) {
+      return { detection: null, box: null, score: 0 };
+    }
+
+    return {
+      detection,
+      box: detection.detection.box,
+      score: detection.detection.score,
+    };
+  } catch {
+    return { detection: null, box: null, score: 0 };
+  }
+}
+
+export async function detectFaceQuick(
+  input: HTMLVideoElement | HTMLCanvasElement
+): Promise<{ detected: boolean; box: { x: number; y: number; width: number; height: number } | null; score: number }> {
+  try {
+    const detection = await (faceapi as any)
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 256, scoreThreshold: 0.35 }));
+
+    if (!detection || !detection.detection) {
+      return { detected: false, box: null, score: 0 };
+    }
+    return {
+      detected: true,
+      box: detection.detection.box,
+      score: detection.detection.score,
+    };
+  } catch {
+    return { detected: false, box: null, score: 0 };
+  }
 }
 
 export async function captureEmbedding(
   video: HTMLVideoElement
 ): Promise<Float32Array | null> {
-  const detection = await detectFace(video);
-  if (!detection) return null;
-  return detection.descriptor;
+  const result = await detectFace(video);
+  if (!result.detection) return null;
+  return result.detection.descriptor;
+}
+
+export async function captureMultipleEmbeddings(
+  video: HTMLVideoElement,
+  count: number = 3,
+  delayMs: number = 800
+): Promise<Float32Array[]> {
+  const embeddings: Float32Array[] = [];
+  for (let i = 0; i < count; i++) {
+    if (i > 0) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+    const emb = await captureEmbedding(video);
+    if (emb) {
+      embeddings.push(emb);
+    }
+  }
+  return embeddings;
 }
 
 export function averageEmbeddings(embeddings: Float32Array[]): Float32Array {
@@ -134,11 +191,41 @@ export async function matchFaceFromCamera(
   if (!rostros || rostros.length === 0) return null;
 
   let bestMatch: { userId: number; distance: number } | null = null;
-  const THRESHOLD = 0.55;
+  const THRESHOLD = 0.60;
 
   for (const rostro of rostros) {
     const stored = new Float32Array(rostro.embedding as number[]);
     const dist = distance(liveEmbedding, stored);
+    if (dist < THRESHOLD) {
+      if (!bestMatch || dist < bestMatch.distance) {
+        bestMatch = { userId: rostro.usuario_id, distance: dist };
+      }
+    }
+  }
+
+  return bestMatch;
+}
+
+export async function matchFaceMultiCapture(
+  video: HTMLVideoElement
+): Promise<{ userId: number; distance: number } | null> {
+  const embeddings = await captureMultipleEmbeddings(video, 3, 600);
+  if (embeddings.length === 0) return null;
+
+  const avgEmbedding = averageEmbeddings(embeddings);
+
+  const { data: rostros } = await supabase
+    .from('rostros')
+    .select('usuario_id, embedding');
+
+  if (!rostros || rostros.length === 0) return null;
+
+  let bestMatch: { userId: number; distance: number } | null = null;
+  const THRESHOLD = 0.60;
+
+  for (const rostro of rostros) {
+    const stored = new Float32Array(rostro.embedding as number[]);
+    const dist = distance(avgEmbedding, stored);
     if (dist < THRESHOLD) {
       if (!bestMatch || dist < bestMatch.distance) {
         bestMatch = { userId: rostro.usuario_id, distance: dist };

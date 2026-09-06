@@ -4,22 +4,25 @@ declare module 'face-api.js' {
   }
 
   export interface FaceDetection {
+    box: { x: number; y: number; width: number; height: number };
+    score: number;
+  }
+
+  export interface FaceLandmarks68 {
+    positions: Array<{ x: number; y: number }>;
+  }
+
+  export interface WithFaceDetection<T> {
     detection: {
       box: { x: number; y: number; width: number; height: number };
       score: number;
     };
   }
 
-  export interface FaceLandmarks {
-    positions: Array<{ x: number; y: number }>;
-  }
+  export type WithFaceLandmarks<T> = T & {
+    landmarks: { positions: Array<{ x: number; y: number }> };
+  };
 
-  export interface FaceDescriptor {
-    descriptor: Float32Array;
-  }
-
-  export type WithFaceDetection<T> = T & { detection: FaceDetection['detection'] };
-  export type WithFaceLandmarks<T> = T & { landmarks: FaceLandmarks };
   export type WithFaceDescriptor<T> = T & { descriptor: Float32Array };
 
   export const nets: {
@@ -34,6 +37,15 @@ declare module 'face-api.js' {
   ): {
     withFaceLandmarks(): {
       withFaceDescriptor(): Promise<WithFaceDescriptor<WithFaceLandmarks<WithFaceDetection<{}>>> | null>;
+    };
+  };
+
+  export function detectAllFaces(
+    input: HTMLVideoElement | HTMLCanvasElement,
+    options?: TinyFaceDetectorOptions
+  ): {
+    withFaceLandmarks(): {
+      withFaceDescriptors(): Promise<Array<WithFaceDescriptor<WithFaceLandmarks<WithFaceDetection<{}>>>>>;
     };
   };
 }
