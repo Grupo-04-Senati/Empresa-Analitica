@@ -134,7 +134,8 @@ export const Perfil: React.FC = () => {
     setDeleteLoading(true);
     setDeleteMsg('');
     try {
-      const res = await fetch('http://localhost:8001/delete-account', {
+      const API_BASE = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${API_BASE}/delete-account`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: deletePassword, email: user!.email }),

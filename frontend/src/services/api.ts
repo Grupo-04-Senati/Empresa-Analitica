@@ -2,6 +2,10 @@ import { supabase } from './supabase';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+function sanitizeHeader(s: string): string {
+  return s.replace(/[^\x00-\x7F]/g, '');
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -23,12 +27,17 @@ export async function apiFetch<T>(endpoint: string, options?: RequestInit): Prom
   };
   
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers['Authorization'] = sanitizeHeader(`Bearer ${token}`);
+  }
+
+  const sanitizedHeaders: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    sanitizedHeaders[sanitizeHeader(k)] = sanitizeHeader(v);
   }
 
   const res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    headers,
+    headers: sanitizedHeaders,
   });
 
   if (!res.ok) {
