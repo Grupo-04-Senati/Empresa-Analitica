@@ -131,6 +131,50 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, userId, onCaptur
         </div>
 
         <div className="p-5">
+          {/* VIDEO SIEMPRE EN DOM - necesario para que videoRef funcione */}
+          <div className={`relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3] ${step === 'loading' || step === 'error' || step === 'done' ? 'hidden' : ''}`}>
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+              style={{ transform: 'scaleX(-1)' }}
+            />
+
+            {/* Ovalo guia */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className={`w-40 h-48 rounded-[50%] border-[3px] transition-colors ${
+                step === 'capturing' ? 'border-emerald-400' : 'border-white/50'
+              }`} />
+            </div>
+
+            {/* Countdown */}
+            {step === 'capturing' && countdown > 0 && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-6xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
+              </div>
+            )}
+
+            {/* Progress bars */}
+            {step === 'capturing' && (
+              <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2">
+                {[1, 2, 3].map(s => (
+                  <div key={s} className={`w-10 h-2 rounded-full transition-all ${
+                    s < captureStep ? 'bg-emerald-400' : s === captureStep ? 'bg-white animate-pulse' : 'bg-white/30'
+                  }`} />
+                ))}
+              </div>
+            )}
+
+            {/* Processing overlay */}
+            {step === 'processing' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                <Loader2 size={28} className="animate-spin text-white" />
+              </div>
+            )}
+          </div>
+
           {/* LOADING */}
           {step === 'loading' && (
             <div className="flex flex-col items-center py-12 gap-3">
@@ -165,50 +209,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, userId, onCaptur
           {/* CAMERA / CAPTURING / PROCESSING */}
           {(step === 'camera' || step === 'capturing' || step === 'processing') && (
             <>
-              <div className="relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3]">
-                {/* VIDEO - SIEMPRE RENDERIZADO */}
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover"
-                  style={{ transform: 'scaleX(-1)' }}
-                />
-
-                {/* Ovalo guia */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className={`w-40 h-48 rounded-[50%] border-[3px] transition-colors ${
-                    step === 'capturing' ? 'border-emerald-400' : 'border-white/50'
-                  }`} />
-                </div>
-
-                {/* Countdown */}
-                {step === 'capturing' && countdown > 0 && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-6xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
-                  </div>
-                )}
-
-                {/* Progress bars */}
-                {step === 'capturing' && (
-                  <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2">
-                    {[1, 2, 3].map(s => (
-                      <div key={s} className={`w-10 h-2 rounded-full transition-all ${
-                        s < captureStep ? 'bg-emerald-400' : s === captureStep ? 'bg-white animate-pulse' : 'bg-white/30'
-                      }`} />
-                    ))}
-                  </div>
-                )}
-
-                {/* Processing overlay */}
-                {step === 'processing' && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    <Loader2 size={28} className="animate-spin text-white" />
-                  </div>
-                )}
-              </div>
-
               <p className="text-xs text-slate-500 text-center mt-3">
                 {step === 'camera' && mode === 'register' && 'Mira a la camara y presiona el boton.'}
                 {step === 'camera' && mode === 'login' && 'Mira a la camara para identificarte.'}
