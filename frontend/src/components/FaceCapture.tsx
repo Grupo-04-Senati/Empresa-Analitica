@@ -2,9 +2,10 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Camera, X, CheckCircle, AlertCircle, Loader2, Shield, Eye, Scan } from 'lucide-react';
 import {
   loadFaceModels, detectFace, analyzeFaceQuality, checkAngle,
-  registerFaceFromPhotos, matchFaceFromPhotos,
+  matchFaceFromPhotos,
   type FaceQuality,
 } from '../services/faceRecognition';
+import { supabase } from '../services/supabase';
 
 interface FaceCaptureProps {
   mode: 'register' | 'login';
@@ -20,24 +21,24 @@ const ANGLES = [
   { key: 'derecha', label: 'Derecha', instruction: 'Gira a la DERECHA' },
 ];
 
-export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCapture, onLoginMatch, onClose }) => {
+export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, onCapture, onLoginMatch, onClose }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [phase, setPhase] = useState<'loading' | 'scanning' | 'countdown' | 'processing' | 'done' | 'error'>('loading');
+  const phaseRef = useRef('loading');
   const [currentAngle, setCurrentAngle] = useState(0);
+  const angleRef = useRef(0);
   const [countdown, setCountdown] = useState(0);
   const [quality, setQuality] = useState<FaceQuality | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [statusMsg, setStatusMsg] = useState('Buscando rostro...');
+  const [statusMsg, setStatusMsg] = useState('Iniciando camara...');
   const [multiFace, setMultiFace] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const goodFramesRef = useRef(0);
   const photosRef = useRef<Record<string, string>>({});
-  const angleRef = useRef(0);
-  const phaseRef = useRef('loading');
 
   const stopAll = useCallback(() => {
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
@@ -45,49 +46,61 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
   }, []);
 
+  const setPhaseSafe = useCallback((p: typeof phase) => {
+    phaseRef.current = p;
+    setPhase(p);
+  }, []);
+
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
+        setStatusMsg('Cargando modelos de IA...');
         await loadFaceModels();
+        setStatusMsg('Abriendo camara...');
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
         });
         if (!alive) { stream.getTracks().forEach(t => t.stop()); return; }
         streamRef.current = stream;
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-        setPhase('scanning');
-        setStatusMsg('Coloque su rostro frente a la camara');
+        const attachVideo = () => {
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.play().then(() => {
+              if (alive) setPhaseSafe('scanning');
+            }).catch(() => {
+              if (alive) setPhaseSafe('scanning');
+            });
+          } else {
+            setTimeout(attachVideo, 50);
+          }
+        };
+        attachVideo();
       } catch (err: any) {
         if (!alive) return;
         setErrorMsg(err?.name === 'NotAllowedError' ? 'Permiso de camara denegado.' : 'No se pudo acceder a la camara.');
-        setPhase('error');
+        setPhaseSafe('error');
       }
     })();
     return () => { alive = false; stopAll(); };
-  }, [stopAll]);
-
-  useEffect(() => {
-    if ((phase === 'scanning' || phase === 'countdown') && streamRef.current && videoRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().catch(() => {});
-    }
-  }, [phase]);
+  }, [stopAll, setPhaseSafe]);
 
   useEffect(() => {
     if (phase !== 'scanning') return;
     const video = videoRef.current;
     if (!video || !streamRef.current) return;
 
+    if (video.srcObject !== streamRef.current) {
+      video.srcObject = streamRef.current;
+      video.play().catch(() => {});
+    }
+
     goodFramesRef.current = 0;
     let alive = true;
 
     intervalRef.current = setInterval(async () => {
-      if (!alive || !video || video.readyState < 2) return;
+      if (!alive || !video || video.readyState < 2 || phaseRef.current !== 'scanning') return;
       try {
         const det = await detectFace(video);
 
@@ -110,22 +123,20 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         if (!alive) return;
         setQuality(q);
 
-        if (phaseRef.current === 'scanning') {
-          if (q.score >= 0.5) {
-            goodFramesRef.current++;
-            setStatusMsg(q.message || 'Detectando...');
-            if (goodFramesRef.current >= 3) {
-              goodFramesRef.current = 0;
-              setStatusMsg('Posicion correcta - Capturando...');
-              alive = false;
-              if (intervalRef.current) clearInterval(intervalRef.current);
-              setTimeout(() => startCapture(), 300);
-              return;
-            }
-          } else {
-            goodFramesRef.current = Math.max(0, goodFramesRef.current - 1);
-            setStatusMsg(q.message || 'Ajuste su posicion');
+        if (q.score >= 0.5) {
+          goodFramesRef.current++;
+          setStatusMsg(q.message || 'Detectando...');
+          if (goodFramesRef.current >= 3) {
+            goodFramesRef.current = 0;
+            setStatusMsg('Posicion correcta - Capturando...');
+            alive = false;
+            if (intervalRef.current) clearInterval(intervalRef.current);
+            setTimeout(() => doStartCapture(), 300);
+            return;
           }
+        } else {
+          goodFramesRef.current = Math.max(0, goodFramesRef.current - 1);
+          setStatusMsg(q.message || 'Ajuste su posicion');
         }
       } catch {}
     }, 300);
@@ -133,8 +144,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     return () => { alive = false; if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [phase]);
 
-  const startCapture = useCallback(() => {
-    setPhase('countdown');
+  const doStartCapture = useCallback(() => {
+    setPhaseSafe('countdown');
     let c = 3;
     setCountdown(c);
     let angleFailed = false;
@@ -145,7 +156,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         if (angleFailed) {
           setStatusMsg('Angulo incorrecto - intenta de nuevo');
           setCountdown(0);
-          timerRef.current = setTimeout(() => { setPhase('scanning'); goodFramesRef.current = 0; }, 1500);
+          timerRef.current = setTimeout(() => { setPhaseSafe('scanning'); goodFramesRef.current = 0; }, 1500);
           return;
         }
 
@@ -170,11 +181,12 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
         timerRef.current = setTimeout(() => {
           if (angleIdx < ANGLES.length - 1) {
+            angleRef.current = angleIdx + 1;
             setCurrentAngle(angleIdx + 1);
             goodFramesRef.current = 0;
-            setPhase('scanning');
+            setPhaseSafe('scanning');
           } else if (mode === 'register') {
-            setPhase('processing');
+            setPhaseSafe('processing');
             if (onCapture) onCapture(photosRef.current);
           } else {
             doLogin(photosRef.current);
@@ -195,32 +207,32 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       timerRef.current = setTimeout(tick, 700);
     };
     timerRef.current = setTimeout(tick, 700);
-  }, [mode, onCapture]);
+  }, [mode, onCapture, setPhaseSafe]);
 
   const doLogin = useCallback(async (photos: Record<string, string>) => {
-    setPhase('processing');
+    setPhaseSafe('processing');
     try {
       const match = await matchFaceFromPhotos(photos);
       if (match) {
-        const { data: user } = await (await import('../services/supabase')).supabase
+        const { data: user } = await supabase
           .from('usuarios')
           .select('id, nombre')
           .eq('id', match.userId)
           .single();
 
         setSuccessMsg(`Bienvenido ${user?.nombre || 'Usuario'}!`);
-        setPhase('done');
+        setPhaseSafe('done');
         stopAll();
         if (onLoginMatch) onLoginMatch(match.userId, user?.nombre || 'Usuario');
       } else {
         setErrorMsg('Rostro no reconocido. Intenta de nuevo con mejor iluminacion.');
-        setPhase('error');
+        setPhaseSafe('error');
       }
     } catch {
       setErrorMsg('Error al procesar el rostro.');
-      setPhase('error');
+      setPhaseSafe('error');
     }
-  }, [onLoginMatch, stopAll]);
+  }, [onLoginMatch, stopAll, setPhaseSafe]);
 
   const handleClose = () => { stopAll(); onClose(); };
 
@@ -241,7 +253,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           {phase === 'loading' && (
             <div className="flex flex-col items-center py-12 gap-3">
               <Loader2 size={32} className="animate-spin text-blue-600" />
-              <p className="text-sm text-slate-500">Cargando modelos de seguridad...</p>
+              <p className="text-sm text-slate-500">{statusMsg}</p>
             </div>
           )}
 
