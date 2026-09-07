@@ -66,6 +66,26 @@ export const Login: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showFaceLogin, setShowFaceLogin] = useState(false);
+  const [faceChecking, setFaceChecking] = useState(false);
+
+  const handleFaceLogin = useCallback(async () => {
+    setFaceChecking(true);
+    setErrorMsg('');
+    try {
+      const { anyFaceRegistered } = await import('../services/faceRecognition');
+      const hasAny = await anyFaceRegistered();
+      if (!hasAny) {
+        setErrorMsg('No hay usuarios con rostro registrado. Primero debes registrarte con tu rostro desde "Crear Cuenta".');
+        setFaceChecking(false);
+        return;
+      }
+      setShowFaceLogin(true);
+    } catch {
+      setErrorMsg('Error al verificar rostros registrados.');
+    } finally {
+      setFaceChecking(false);
+    }
+  }, []);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -204,11 +224,12 @@ export const Login: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setShowFaceLogin(true)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 hover:border-slate-400 transition-all"
+              onClick={handleFaceLogin}
+              disabled={faceChecking}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 hover:border-slate-400 transition-all disabled:opacity-50"
             >
-              <Scan size={18} />
-              <span>Iniciar sesion con mi rostro</span>
+              {faceChecking ? <Loader2 size={18} className="animate-spin" /> : <Scan size={18} />}
+              <span>{faceChecking ? 'Verificando...' : 'Iniciar sesion con mi rostro'}</span>
             </button>
           </form>
 
@@ -225,13 +246,14 @@ export const Login: React.FC = () => {
       {showFaceLogin && (
         <FaceCapture
           mode="login"
-          onLoginMatch={async (userId) => {
+          onLoginMatch={async (userId, nombre) => {
             setShowFaceLogin(false);
             setIsLoading(true);
             try {
               const res = await loginByUserId(userId);
               if (res.success) {
-                navigate('/');
+                setSuccessMsg(`Bienvenido ${nombre}! Redirigiendo...`);
+                setTimeout(() => navigate('/'), 1500);
               } else {
                 setErrorMsg(res.message || 'Error al iniciar sesion con rostro.');
               }

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { AlertCircle, CheckCircle, Eye, EyeOff, Loader2, BrainCircuit, Shield, Zap, ArrowRight, ArrowLeft, Scan } from 'lucide-react';
+import { AlertCircle, CheckCircle, Eye, EyeOff, Loader2, BrainCircuit, Shield, Zap, ArrowRight, ArrowLeft, Scan, Camera } from 'lucide-react';
 import { FaceCapture } from '../components/FaceCapture';
 
 const Particles = () => {
@@ -17,14 +17,7 @@ const Particles = () => {
     resize();
     window.addEventListener('resize', resize);
     for (let i = 0; i < 60; i++) {
-      particles.push({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        vx: (Math.random() - 0.5) * 0.5,
-        vy: (Math.random() - 0.5) * 0.5,
-        r: Math.random() * 2 + 1,
-        o: Math.random() * 0.5 + 0.2,
-      });
+      particles.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5, r: Math.random() * 2 + 1, o: Math.random() * 0.5 + 0.2 });
     }
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -68,7 +61,7 @@ export const Register: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [enableFace, setEnableFace] = useState(false);
   const [showFaceCapture, setShowFaceCapture] = useState(false);
-  const [registeredUserId, setRegisteredUserId] = useState<number | null>(null);
+  const [capturedFacePhotos, setCapturedFacePhotos] = useState<Record<string, string> | null>(null);
 
   const handleRegister = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,26 +71,11 @@ export const Register: React.FC = () => {
       setErrorMsg('Por favor llena todos los campos.');
       return;
     }
-    if (nombre.trim().length < 2) {
-      setErrorMsg('El nombre debe tener al menos 2 caracteres.');
-      return;
-    }
-    if (nombre.trim().length > 100) {
-      setErrorMsg('El nombre no puede exceder 100 caracteres.');
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setErrorMsg('Ingresa un correo electronico valido.');
-      return;
-    }
-    if (password.length < 6) {
-      setErrorMsg('La contrasena debe tener al menos 6 caracteres.');
-      return;
-    }
-    if (password.length > 128) {
-      setErrorMsg('La contrasena no puede exceder 128 caracteres.');
-      return;
-    }
+    if (nombre.trim().length < 2) { setErrorMsg('El nombre debe tener al menos 2 caracteres.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setErrorMsg('Ingresa un correo electronico valido.'); return; }
+    if (password.length < 6) { setErrorMsg('La contrasena debe tener al menos 6 caracteres.'); return; }
+    if (enableFace && !capturedFacePhotos) { setErrorMsg('Primero toma las fotos de tu rostro.'); return; }
+
     setIsLoading(true);
     try {
       const result = await registerUser({
@@ -106,26 +84,43 @@ export const Register: React.FC = () => {
         password,
         rol: 'USUARIO',
       });
-      if (result.success) {
-        if (enableFace && result.userId) {
-          setRegisteredUserId(result.userId);
-          setShowFaceCapture(true);
-          setIsLoading(false);
-          return;
+      if (result.success && result.userId) {
+        if (enableFace && capturedFacePhotos) {
+          console.log('[Register] Enviando rostro. userId:', result.userId);
+          try {
+            const { registerFaceFromPhotos } = await import('../services/faceRecognition');
+            const faceResult = await registerFaceFromPhotos(result.userId, {
+              frontal: capturedFacePhotos.frontal,
+              izquierda: capturedFacePhotos.izquierda,
+              derecha: capturedFacePhotos.derecha,
+            });
+            console.log('[Register] Face result:', faceResult);
+            if (!faceResult.success) {
+              setSuccessMsg('Cuenta creada pero el rostro fallo: ' + (faceResult.error || 'error'));
+              setTimeout(() => navigate('/login'), 3000);
+              return;
+            }
+            setSuccessMsg('Cuenta y rostro registrados! Ya puedes iniciar sesion con tu cara.');
+          } catch (faceErr: any) {
+            console.error('[Register] Face error:', faceErr);
+            setSuccessMsg('Cuenta creada pero error procesando rostro: ' + faceErr.message);
+            setTimeout(() => navigate('/login'), 3000);
+            return;
+          }
+        } else {
+          setSuccessMsg('Cuenta creada! Ahora puedes iniciar sesion con tu correo y contrasena.');
         }
-        setSuccessMsg('Cuenta creada! Revisa tu correo para confirmar tu email.');
-        setTimeout(() => navigate('/login'), 3000);
-      } else if (enableFace && result.message?.includes('ya esta registrado')) {
-        setErrorMsg('Ya tienes cuenta. Inicia sesion y ve a tu Perfil para activar el reconocimiento facial.');
+        setTimeout(() => navigate('/login'), 2500);
       } else {
         setErrorMsg(result.message || 'Error al crear la cuenta.');
       }
-    } catch {
-      setErrorMsg('Error de conexion. Intenta de nuevo.');
+    } catch (err: any) {
+      console.error('[Register] Error completo:', err);
+      setErrorMsg('Error de conexion: ' + (err?.message || 'desconocido'));
     } finally {
       setIsLoading(false);
     }
-  }, [nombre, email, password, registerUser, navigate, enableFace]);
+  }, [nombre, email, password, registerUser, navigate, enableFace, capturedFacePhotos]);
 
   const features = [
     { icon: <BrainCircuit size={20} />, title: 'NLP Avanzado', desc: 'Analiza sentimiento y categoriza comentarios automaticamente' },
@@ -205,40 +200,16 @@ export const Register: React.FC = () => {
           <form onSubmit={handleRegister} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Nombre completo</label>
-              <input
-                type="text"
-                value={nombre}
-                onChange={(e) => setNombre(e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, ''))}
-                placeholder="Tu nombre"
-                maxLength={100}
-                autoComplete="name"
-                className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
-              />
+              <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, ''))} placeholder="Tu nombre" maxLength={100} autoComplete="name" className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Correo Electronico</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="tu@empresa.com"
-                maxLength={200}
-                autoComplete="email"
-                className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
-              />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@empresa.com" maxLength={200} autoComplete="email" className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Contrasena</label>
               <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Minimo 6 caracteres"
-                  maxLength={128}
-                  autoComplete="new-password"
-                  className="w-full px-4 py-2.5 pr-11 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
-                />
+                <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimo 6 caracteres" maxLength={128} autoComplete="new-password" className="w-full px-4 py-2.5 pr-11 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
                 <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -253,29 +224,28 @@ export const Register: React.FC = () => {
               <p className="text-[11px] text-slate-400 mt-1">Entre mas caracteres, mas segura sera tu contrasena</p>
             </div>
             <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setEnableFace(!enableFace)}
-                className={`relative w-10 h-5 rounded-full transition-colors ${
-                  enableFace ? 'bg-blue-600' : 'bg-slate-300'
-                }`}
-              >
-                <div
-                  className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                    enableFace ? 'translate-x-5' : 'translate-x-0.5'
-                  }`}
-                />
+              <button type="button" onClick={() => { setEnableFace(!enableFace); setCapturedFacePhotos(null); }} className={`relative w-10 h-5 rounded-full transition-colors ${enableFace ? 'bg-blue-600' : 'bg-slate-300'}`}>
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enableFace ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </button>
               <div className="flex items-center gap-2">
                 <Scan size={16} className="text-slate-500" />
                 <span className="text-sm text-slate-700">Activar inicio de sesion con rostro</span>
               </div>
             </div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm hover:from-blue-500 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-500/25"
-            >
+            {enableFace && (
+              <div className="space-y-2">
+                <button type="button" onClick={() => setShowFaceCapture(true)} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-blue-300 bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100 transition-all">
+                  <Camera size={16} />
+                  {capturedFacePhotos ? 'Volver a Capturar Rostro (3 Angulos)' : 'Tomar Fotos de mi Rostro'}
+                </button>
+                {capturedFacePhotos && (
+                  <p className="text-xs text-green-600 text-center flex items-center justify-center gap-1">
+                    <CheckCircle size={12} /> Fotos listas — haz clic en "Crear Cuenta" para registrarte
+                  </p>
+                )}
+              </div>
+            )}
+            <button type="submit" disabled={isLoading} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm hover:from-blue-500 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-500/25">
               {isLoading ? <Loader2 size={18} className="animate-spin" /> : <><span>Crear Cuenta</span><ArrowRight size={16} /></>}
             </button>
           </form>
@@ -287,20 +257,11 @@ export const Register: React.FC = () => {
         </div>
       </div>
 
-      {showFaceCapture && registeredUserId && (
+      {showFaceCapture && (
         <FaceCapture
           mode="register"
-          userId={registeredUserId}
-          onCapture={() => {
-            setShowFaceCapture(false);
-            setSuccessMsg('Cuenta y rostro registrados! Revisa tu correo para confirmar tu email.');
-            setTimeout(() => navigate('/login'), 3000);
-          }}
-          onClose={() => {
-            setShowFaceCapture(false);
-            setSuccessMsg('Cuenta creada! Revisa tu correo para confirmar tu email.');
-            setTimeout(() => navigate('/login'), 3000);
-          }}
+          onCapture={(photos) => { setCapturedFacePhotos(photos); setShowFaceCapture(false); }}
+          onClose={() => setShowFaceCapture(false)}
         />
       )}
     </div>
