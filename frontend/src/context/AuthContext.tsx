@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, auth } from '../services/supabase';
 
 export type UserRole = 'admin' | 'analista' | 'supervisor' | 'usuario' | 'ADMIN' | 'ANALISTA' | 'SUPERVISOR' | 'USUARIO';
@@ -34,7 +34,6 @@ function isAdminRole(rol: string): boolean {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const registeringRef = useRef(false);
 
   useEffect(() => {
     const initSession = async () => {
@@ -77,7 +76,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initSession();
 
     const { data: { subscription } } = auth.onAuthStateChange(async (_event, session) => {
-      if (registeringRef.current) return;
       if (session?.user?.email) {
         const email = session.user.email.toLowerCase();
         const { data: profile } = await supabase
@@ -107,25 +105,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanEmail = data.email.trim().toLowerCase();
     const rolAsignado = data.rol ? data.rol.toUpperCase() : 'USUARIO';
 
-    registeringRef.current = true;
-
-    const existingUser = await supabase.from('usuarios').select('id').eq('email', cleanEmail).maybeSingle();
-
-    const { error: authError } = await auth.signUp({
+    const { data: authData, error: authError } = await auth.signUp({
       email: cleanEmail,
       password: data.password,
       options: { data: { nombre: data.nombre.trim(), rol: rolAsignado } },
     });
 
-    if (authError && !authError.message.includes('already registered')) {
-      registeringRef.current = false;
+    if (authError) {
+      if (authError.message.includes('already registered')) {
+        return { success: false, message: 'Este correo ya está registrado.' };
+      }
       return { success: false, message: authError.message };
-    }
-
-    if (existingUser.data) {
-      await auth.signOut();
-      registeringRef.current = false;
-      return { success: true, userId: existingUser.data.id };
     }
 
     const { data: dbData, error: dbError } = await supabase.from('usuarios').insert({
@@ -134,19 +124,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       password_hash: 'auth_managed',
       rol: rolAsignado,
       activo: true,
-    }).select('id').single();
+    }).select('id')
+      .single();
 
     if (dbError) {
       console.error('DB insert error:', dbError.message);
       await auth.signOut();
-      registeringRef.current = false;
       return { success: false, message: 'Error al crear perfil: ' + dbError.message };
     }
 
-    await auth.signOut();
-    registeringRef.current = false;
-
-    return { success: true, userId: dbData.id };
+    return { success: true, userId: dbData?.id };
   }, []);
 
   const loginUser = useCallback(async (email: string, password: string) => {

@@ -134,7 +134,8 @@ export const Perfil: React.FC = () => {
     setDeleteLoading(true);
     setDeleteMsg('');
     try {
-      const res = await fetch('/delete-account', {
+      const API_BASE = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${API_BASE}/delete-account`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: deletePassword, email: user!.email }),
@@ -147,7 +148,8 @@ export const Perfil: React.FC = () => {
       }
       await logout();
       navigate('/login');
-    } catch {
+    } catch (err: any) {
+      console.error('Delete error:', err);
       setDeleteMsg('Error de conexion con el servidor');
     } finally {
       setDeleteLoading(false);
@@ -440,28 +442,12 @@ export const Perfil: React.FC = () => {
       {showFaceCapture && user && (
         <FaceCapture
           mode="register"
-          usuarioId={Number(user.id)}
-          onCapture={async (photos) => {
-            try {
-              const res = await fetch('/face/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ usuario_id: Number(user.id), frontal: photos.frontal, izquierda: photos.izquierda, derecha: photos.derecha }),
-              });
-              const data = await res.json();
-              if (res.ok) {
-                setFaceRegistered(true);
-                setAlerta('Rostro registrado correctamente');
-                setTimeout(() => setAlerta(''), 3500);
-              } else {
-                setAlerta('Error: ' + (data.detail || 'No se pudo registrar'));
-                setTimeout(() => setAlerta(''), 3500);
-              }
-            } catch {
-              setAlerta('Error de conexion');
-              setTimeout(() => setAlerta(''), 3500);
-            }
+          userId={Number(user.id)}
+          onCapture={() => {
             setShowFaceCapture(false);
+            setFaceRegistered(true);
+            setAlerta('Rostro registrado correctamente');
+            setTimeout(() => setAlerta(''), 3500);
           }}
           onClose={() => setShowFaceCapture(false)}
         />

@@ -17,14 +17,6 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
-      '/face': {
-        target: 'http://localhost:8001',
-        changeOrigin: true,
-      },
-      '/delete-account': {
-        target: 'http://localhost:8001',
-        changeOrigin: true,
-      },
     },
   },
 });
