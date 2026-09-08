@@ -22,6 +22,7 @@ import {
   ClipboardList,
   MessageSquare,
   Clock,
+  Activity,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '@/services/supabase';
@@ -97,6 +98,7 @@ const menuData: MenuItem[] = [
       { label: 'Usuarios', path: '/usuarios', adminOnly: true },
       { label: 'Categorias', path: '/configuracion', adminOnly: true },
       { label: 'Auditoria', path: '/auditoria', adminOnly: true },
+      { label: 'Notificaciones', path: '/notificaciones', adminOnly: true },
     ],
   },
 ];
@@ -117,39 +119,57 @@ export const DashboardLayout = () => {
   });
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [notificaciones, setNotificaciones] = useState<{ id: number; texto: string; tipo: string; fecha: string }[]>([]);
+  const [notificaciones, setNotificaciones] = useState<{ id: number; titulo: string; mensaje: string; tipo: string; enlace: string | null; leida: boolean; created_at: string }[]>([]);
   const [showNotif, setShowNotif] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    const fetchAvatar = async () => {
+      if (!user) return;
+      try {
+        const { data } = await supabase.from('usuarios').select('avatar_url').eq('email', user.email).maybeSingle();
+        if (data?.avatar_url) setAvatarUrl(data.avatar_url);
+      } catch {}
+    };
+    fetchAvatar();
+  }, [user]);
+
+  useEffect(() => {
+    fetchNotificaciones();
     const channel = supabase
-      .channel('comentarios-pendientes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comentarios' }, () => {
+      .channel('notificaciones-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notificaciones' }, () => {
         fetchNotificaciones();
       })
       .subscribe();
-
-    fetchNotificaciones();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [user]);
 
   const fetchNotificaciones = async () => {
+    if (!user) return;
     try {
       const { data } = await supabase
-        .from('comentarios')
-        .select('id, contenido, canal, estado, fecha')
-        .eq('estado', 'pendiente')
-        .order('fecha', { ascending: false })
-        .limit(5);
-      if (data) {
-        setNotificaciones(data.map((c: any) => ({
-          id: c.id,
-          texto: `Comentario pendiente via ${c.canal || 'web'}: "${c.contenido?.slice(0, 60)}..."`,
-          tipo: 'pendiente',
-          fecha: c.fecha,
-        })));
-      }
+        .from('notificaciones')
+        .select('id, titulo, mensaje, tipo, enlace, leida, created_at, destinatario, eliminada')
+        .eq('destinatario', user.email)
+        .eq('eliminada', false)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (data) setNotificaciones(data);
     } catch {}
   };
+
+  const markAsRead = async (id: number) => {
+    await supabase.from('notificaciones').update({ leida: true }).eq('id', id);
+    setNotificaciones((prev) => prev.map((n) => n.id === id ? { ...n, leida: true } : n));
+  };
+
+  const deleteNotif = async (id: number) => {
+    await supabase.from('notificaciones').update({ leida: true, eliminada: true }).eq('id', id);
+    setNotificaciones((prev) => prev.filter((n) => n.id === id));
+  };
+
+  const unreadCount = notificaciones.filter((n) => !n.leida).length;
 
   useEffect(() => {
     menuData.forEach((section) => {
@@ -285,44 +305,45 @@ export const DashboardLayout = () => {
             <div className="relative">
               <button type="button" onClick={() => setShowNotif(!showNotif)} className="cursor-pointer rounded-xl border-none bg-slate-100/80 p-2 text-slate-500 hover:bg-slate-200 relative transition-all">
                 <Bell size={18} />
-                {notificaciones.length > 0 && (
+                {unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center shadow-lg shadow-red-500/30">
-                    {notificaciones.length}
+                    {unreadCount}
                   </span>
                 )}
               </button>
               {showNotif && (
-                <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl border border-slate-200 shadow-2xl shadow-slate-200/50 z-50 overflow-hidden">
+                <div className="absolute right-0 top-full mt-2 w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl shadow-slate-200/50 z-50 overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                     <span className="text-sm font-semibold text-slate-700">Notificaciones</span>
-                    <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{notificaciones.length} pendientes</span>
+                    <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{unreadCount} sin leer</span>
                   </div>
-                  <div className="max-h-64 overflow-y-auto">
+                  <div className="max-h-80 overflow-y-auto">
                     {notificaciones.length === 0 ? (
                       <div className="px-4 py-8 text-center text-sm text-slate-400">Sin notificaciones</div>
                     ) : (
                       notificaciones.map((n) => (
-                        <div key={n.id} className="px-4 py-3 border-b border-slate-50 hover:bg-slate-50/50 transition-colors flex items-start gap-3">
-                          <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
-                          <div>
-                            <p className="text-xs text-slate-700 leading-relaxed">{n.texto}</p>
-                            <p className="text-[10px] text-slate-400 mt-1">{new Date(n.fecha).toLocaleString('es-ES')}</p>
+                        <div key={n.id} onClick={() => { if (n.enlace) { navigate(n.enlace); setShowNotif(false); } if (!n.leida) markAsRead(n.id); }} className={`px-4 py-3 border-b border-slate-50 transition-colors flex items-start gap-3 ${n.leida ? 'bg-white hover:bg-slate-50/50' : 'bg-blue-50/50 hover:bg-blue-50'} cursor-pointer`}>
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${n.tipo === 'usuario' ? 'bg-emerald-100 text-emerald-600' : n.tipo === 'sistema' ? 'bg-blue-100 text-blue-600' : n.tipo === 'alerta' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
+                            {n.tipo === 'usuario' ? <Users size={14} /> : n.tipo === 'sistema' ? <Activity size={14} /> : <AlertTriangle size={14} />}
                           </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs leading-relaxed ${n.leida ? 'text-slate-500' : 'text-slate-700 font-medium'}`}>{n.titulo}</p>
+                            <p className="text-[11px] text-slate-400 mt-0.5 truncate">{n.mensaje}</p>
+                            <p className="text-[10px] text-slate-400 mt-1">{new Date(n.created_at).toLocaleString('es-ES')}</p>
+                          </div>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); deleteNotif(n.id); }} className="text-slate-300 hover:text-red-500 transition-colors p-1 shrink-0">
+                            <X size={12} />
+                          </button>
                         </div>
                       ))
                     )}
                   </div>
-                  {notificaciones.length > 0 && (
-                    <Link to="/solicitudes" onClick={() => setShowNotif(false)} className="block px-4 py-3 text-center text-xs font-semibold text-blue-600 hover:bg-blue-50/50 transition-colors no-underline border-t border-slate-100">
-                      Ver todas las solicitudes
-                    </Link>
-                  )}
                 </div>
               )}
             </div>
 
             <button type="button" onClick={() => navigate('/perfil')} className="flex h-9 w-9 cursor-pointer items-center justify-center overflow-hidden rounded-xl border-none bg-gradient-to-br from-blue-600 to-blue-700 text-[13px] font-bold text-white shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 transition-all" title="Ver Perfil">
-              {getInitials()}
+              {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : getInitials()}
             </button>
           </div>
         </header>
