@@ -8,7 +8,9 @@ from app.services import nltk_service
 from app.services.supabase_client import get_supabase
 from app.services.audit_service import registrar_auditoria, get_client_ip
 from app.core.deps import get_current_user
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post("/analizar", response_model=AnalisisResponse)
@@ -21,19 +23,20 @@ async def centro_inteligente(db: AsyncSession = Depends(get_db)):
         total_clientes = (await db.execute(select(func.count(Cliente.id)))).scalar() or 0
         total_comentarios = (await db.execute(select(func.count(Comentario.id)))).scalar() or 0
         procesados = (await db.execute(select(func.count(Comentario.id)).where(Comentario.procesado == True))).scalar() or 0
-        promedio = (await db.execute(select(func.avg(TiempoAtencion.tiempo_minutos)))).scalar() or 16.4
+        promedio = (await db.execute(select(func.avg(TiempoAtencion.tiempo_minutos)))).scalar() or 0
         return {
             "clientes": total_clientes,
             "comentarios": total_comentarios,
             "promedioRespuesta": round(float(promedio), 1),
-            "procesados": round((procesados / total_comentarios * 100), 1) if total_comentarios > 0 else 94.0,
+            "procesados": round((procesados / total_comentarios * 100), 1) if total_comentarios > 0 else 0,
         }
-    except Exception:
+    except Exception as e:
+        logger.error("Error en centro-inteligente: %s", e)
         return {
-            "clientes": 24,
-            "comentarios": 142,
-            "promedioRespuesta": 16.4,
-            "procesados": 92.5,
+            "clientes": 0,
+            "comentarios": 0,
+            "promedioRespuesta": 0,
+            "procesados": 0,
         }
 
 @router.get("/comentarios")
@@ -58,7 +61,8 @@ async def listar_comentarios_nlp(db: AsyncSession = Depends(get_db)):
             }
             for c in comentarios
         ]
-    except Exception:
+    except Exception as e:
+        logger.error("Error en listar_comentarios_nlp: %s", e)
         return []
 
 @router.get("/categorias")
@@ -77,13 +81,9 @@ async def listar_categorias_dist(db: AsyncSession = Depends(get_db)):
             }
             for i, r in enumerate(rows) if r[0]
         ]
-    except Exception:
-        return [
-            {"nombre": "SOPORTE", "porcentaje": 42.0, "color": "#2563eb", "total": 42},
-            {"nombre": "VENTAS", "porcentaje": 28.0, "color": "#059669", "total": 28},
-            {"nombre": "FELICITACION", "porcentaje": 18.0, "color": "#d97706", "total": 18},
-            {"nombre": "RECLAMO", "porcentaje": 12.0, "color": "#dc2626", "total": 12}
-        ]
+    except Exception as e:
+        logger.error("Error en listar_categorias_dist: %s", e)
+        return []
 
 @router.get("/palabras-frecuentes")
 async def palabras_frecuentes_get(db: AsyncSession = Depends(get_db)):
@@ -91,21 +91,16 @@ async def palabras_frecuentes_get(db: AsyncSession = Depends(get_db)):
         res = await db.execute(select(Comentario.contenido).limit(100))
         textos = [r[0] for r in res.all() if r[0]]
         if not textos:
-            textos = ["servicio excelente", "atención rápida", "soporte técnico", "factura y precios"]
+            return []
         freqs = nltk_service.calcular_frecuencias(textos)
         colors = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#0891b2', '#ec4899']
         return [
             {"palabra": item["palabra"], "frecuencia": item["frecuencia"], "color": colors[i % len(colors)]}
             for i, item in enumerate(freqs[:15])
         ]
-    except Exception:
-        return [
-            {"palabra": "servicio", "frecuencia": 34, "color": "#2563eb"},
-            {"palabra": "atención", "frecuencia": 28, "color": "#059669"},
-            {"palabra": "rápido", "frecuencia": 21, "color": "#d97706"},
-            {"palabra": "excelente", "frecuencia": 18, "color": "#7c3aed"},
-            {"palabra": "soporte", "frecuencia": 15, "color": "#0891b2"},
-        ]
+    except Exception as e:
+        logger.error("Error en palabras_frecuentes_get: %s", e)
+        return []
 
 @router.post("/palabras-frecuentes")
 async def palabras_frecuentes(textos: list[str], user: dict = Depends(get_current_user)):
@@ -114,15 +109,47 @@ async def palabras_frecuentes(textos: list[str], user: dict = Depends(get_curren
 @router.post("/clasificar")
 async def clasificar(req: dict, user: dict = Depends(get_current_user)):
     if "texto" in req:
-        return nltk_service.clasificar(req["texto"])
+        resultado_entrenado = nltk_service.clasificar_con_entrenamiento(req["texto"])
+        resultado_keyword = nltk_service.analizar_texto(req["texto"])
+        return {
+            "texto": req["texto"],
+            "categoria_entrenada": resultado_entrenado["categoria"],
+            "confianza_entrenada": resultado_entrenado["confianza"],
+            "distribucion": resultado_entrenado["distribucion"],
+            "metodo": resultado_entrenado["metodo"],
+            "categoria_keyword": resultado_keyword["categoria"],
+            "sentimiento": resultado_keyword["sentimiento"],
+            "tokens": resultado_keyword["tokens"],
+            "palabras_frecuentes": resultado_keyword["palabras_frecuentes"],
+        }
     elif "comentarios" in req:
         resultado = []
         for c in req.get("comentarios", []):
             texto = c.get("texto") or c.get("contenido") or ""
-            analisis = nltk_service.analizar_texto(texto)
+            analisis = nltk_service.clasificar_con_entrenamiento(texto)
             c["categoria"] = analisis["categoria"]
             c["confianza"] = analisis["confianza"]
-            c["sentimiento"] = analisis["sentimiento"]
             resultado.append(c)
         return resultado
     return {"mensaje": "Especifique texto o lista de comentarios"}
+
+@router.post("/buscar-servicio")
+async def buscar_servicio(req: dict, user: dict = Depends(get_current_user)):
+    consulta = req.get("consulta", "")
+    if not consulta.strip():
+        return {"resultados": [], "mensaje": "Ingrese una consulta para buscar servicios"}
+    resultados = nltk_service.buscar_servicio(consulta)
+    return {
+        "consulta": consulta,
+        "resultados": resultados,
+        "total": len(resultados),
+    }
+
+@router.get("/evaluar-clasificador")
+async def evaluar_clasificador(user: dict = Depends(get_current_user)):
+    try:
+        resultado = nltk_service.evaluar_clasificador()
+        return resultado
+    except Exception as e:
+        logger.error("Error evaluando clasificador: %s", e)
+        raise HTTPException(status_code=500, detail=f"Error al evaluar clasificador: {str(e)}")

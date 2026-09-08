@@ -276,12 +276,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return;
     const updates: Record<string, unknown> = {};
     if (data.nombre) updates.nombre = data.nombre;
-    if (data.rol) updates.rol = data.rol;
-    if (data.activo !== undefined) updates.activo = data.activo;
     updates.updated_at = new Date().toISOString();
 
     await supabase.from('usuarios').update(updates).eq('email', user.email);
-    const newUser = { ...user, ...data };
+    const newUser = { ...user, nombre: data.nombre || user.nombre };
     setUser(newUser);
   }, [user]);
 

@@ -1,7 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = 'https://poikhicityheikmnfltb.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_sFwL6DfMfZ307T93i_Pr4w_22ZAiTl1';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error('Missing Supabase environment variables');
+}
 
 function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   if (init?.headers) {

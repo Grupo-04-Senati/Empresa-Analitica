@@ -1,6 +1,9 @@
 from fastapi import Request
 from app.services.supabase_client import get_supabase
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 def registrar_auditoria(
     usuario_id: int,
@@ -22,7 +25,7 @@ def registrar_auditoria(
             "created_at": datetime.utcnow().isoformat()
         }).execute()
     except Exception as e:
-        print(f"Error en auditoría: {e}")
+        logger.warning("Error en auditoría: %s", e)
 
 def get_client_ip(request: Request) -> str:
     forwarded = request.headers.get("X-Forwarded-For")

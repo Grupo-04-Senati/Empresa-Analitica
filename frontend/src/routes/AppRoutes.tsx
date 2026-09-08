@@ -28,6 +28,7 @@ import Perfil from '../pages/Perfil';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
 import LimpiezaDatos from '../pages/LimpiezaDatos';
+import Notificaciones from '../pages/Notificaciones';
 
 const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -86,6 +87,7 @@ export const AppRoutes = () => (
       <Route path="usuarios" element={<Usuarios />} />
       <Route path="admin/usuarios" element={<AdminUsuarios />} />
       <Route path="configuracion" element={<ConfigCategorias />} />
+      <Route path="notificaciones" element={<Notificaciones />} />
       <Route path="limpieza-datos" element={<LimpiezaDatos />} />
     </Route>
 

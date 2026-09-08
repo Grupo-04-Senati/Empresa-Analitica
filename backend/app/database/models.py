@@ -16,6 +16,7 @@ class Usuario(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
     auditorias = relationship("Auditoria", back_populates="usuario")
+    notificaciones = relationship("Notificacion", back_populates="usuario")
 
 class Cliente(Base):
     __tablename__ = "clientes"
@@ -120,3 +121,26 @@ class Auditoria(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     usuario = relationship("Usuario", back_populates="auditorias")
+
+class Notificacion(Base):
+    __tablename__ = "notificaciones"
+    id = Column(BigInteger, primary_key=True, index=True)
+    usuario_id = Column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"))
+    titulo = Column(String(200), nullable=False)
+    mensaje = Column(Text, nullable=False)
+    tipo = Column(String(30), default="info")
+    leida = Column(Boolean, default=False)
+    accion_url = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    usuario = relationship("Usuario", back_populates="notificaciones")
+
+class Servicio(Base):
+    __tablename__ = "servicios"
+    id = Column(BigInteger, primary_key=True, index=True)
+    nombre = Column(String(200), nullable=False)
+    descripcion = Column(Text)
+    keywords = Column(JSON)
+    categoria = Column(String(50))
+    activo = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

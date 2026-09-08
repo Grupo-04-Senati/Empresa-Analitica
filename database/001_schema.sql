@@ -115,6 +115,29 @@ CREATE TABLE IF NOT EXISTS auditoria (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 10. NOTIFICACIONES
+CREATE TABLE IF NOT EXISTS notificaciones (
+    id BIGSERIAL PRIMARY KEY,
+    usuario_id BIGINT REFERENCES usuarios(id) ON DELETE CASCADE,
+    titulo VARCHAR(200) NOT NULL,
+    mensaje TEXT NOT NULL,
+    tipo VARCHAR(30) DEFAULT 'info',
+    leida BOOLEAN DEFAULT FALSE,
+    accion_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 11. SERVICIOS
+CREATE TABLE IF NOT EXISTS servicios (
+    id BIGSERIAL PRIMARY KEY,
+    nombre VARCHAR(200) NOT NULL,
+    descripcion TEXT,
+    keywords JSONB,
+    categoria VARCHAR(50),
+    activo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ============================================================
 -- INDICES
 -- ============================================================
@@ -129,3 +152,6 @@ CREATE INDEX IF NOT EXISTS idx_auditoria_usuario ON auditoria(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_auditoria_fecha ON auditoria(created_at);
 CREATE INDEX IF NOT EXISTS idx_usuarios_email ON usuarios(email);
 CREATE INDEX IF NOT EXISTS idx_usuarios_rol ON usuarios(rol);
+CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario ON notificaciones(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_notificaciones_leida ON notificaciones(leida);
+CREATE INDEX IF NOT EXISTS idx_servicios_categoria ON servicios(categoria);
