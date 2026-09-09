@@ -5,9 +5,9 @@ const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const sb = createClient(URL, KEY);
 
-const UMBRAL = 0.45;
-const UMBRAL_GAP = 0.08;
-const MIN_MATCHES = 2;
+const UMBRAL = 0.35;
+const UMBRAL_GAP = 0.15;
+const MIN_MATCHES = 3;
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -117,16 +117,17 @@ module.exports = async function handler(req, res) {
             if (!stored) continue;
             const dist = cosineDistance(loginEmb, stored);
             if (!userScores[uid]) userScores[uid] = [];
-            userScores[uid].push(dist);
+            userScores[uid].push({ dist, angle: key, loginIdx: embeddings.indexOf(loginEmb) });
           }
         }
       }
 
       const results = [];
-      for (const [uid, dists] of Object.entries(userScores)) {
-        const matches = dists.filter(d => d <= UMBRAL);
-        if (matches.length >= MIN_MATCHES) {
-          results.push({ userId: Number(uid), bestDist: Math.min(...matches), matchCount: matches.length });
+      for (const [uid, matches] of Object.entries(userScores)) {
+        const closeMatches = matches.filter(m => m.dist <= UMBRAL);
+        if (closeMatches.length >= MIN_MATCHES) {
+          const bestDist = Math.min(...closeMatches.map(m => m.dist));
+          results.push({ userId: Number(uid), bestDist, matchCount: closeMatches.length });
         }
       }
 

@@ -490,8 +490,8 @@ export async function registerFace(
   }
 }
 
-const UMBRAL_EMBEDDING = 0.45;
-const MIN_MATCHES = 2;
+const UMBRAL_EMBEDDING = 0.35;
+const MIN_MATCHES = 3;
 
 export async function loginByFace(
   photos: Record<string, string>
@@ -563,7 +563,7 @@ export async function loginByFace(
 
     results.sort((a, b) => a.bestDist - b.bestDist);
 
-    if (results.length > 1 && (results[1].bestDist - results[0].bestDist) < 0.08) {
+    if (results.length > 1 && (results[1].bestDist - results[0].bestDist) < 0.15) {
       return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
     }
 
