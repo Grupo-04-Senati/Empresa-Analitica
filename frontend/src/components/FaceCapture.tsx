@@ -172,6 +172,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
             setCurrentAngle(angleIdx + 1);
             goodFramesRef.current = 0;
             setPhase('scanning');
+          } else if (mode === 'login') {
+            doLogin(newPhotos);
           } else if (mode === 'register' && usuarioId) {
             setPhase('processing');
             doRegister(newPhotos);
@@ -199,7 +201,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       timerRef.current = setTimeout(tick, 700);
     };
     timerRef.current = setTimeout(tick, 700);
-  }, [mode, onCapture, usuarioId]);
+  }, [mode, onCapture, usuarioId, doLogin]);
 
   const doRegister = useCallback(async (photos: Record<string, string>) => {
     setPhase('processing');
