@@ -6,6 +6,5 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/face.js" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
-  ],
-  "includeFiles": ["models/**"]
+  ]
 }
