@@ -4,7 +4,6 @@ import {
   Search,
   Plus,
   Edit3,
-  Trash2,
   Building2,
   Mail,
   Phone,
@@ -156,18 +155,6 @@ export const Clientes = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('¿Eliminar este cliente permanentemente?')) return;
-    setError('');
-    try {
-      await supabase.from('rostros').delete().eq('usuario_id', id);
-      await supabase.from('usuarios').delete().eq('id', id);
-      fetchClientes();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al eliminar cliente');
-    }
-  };
-
   const handleToggleActive = async (c: ClienteDB) => {
     const nuevoEstado = !c.activo;
     const accionText = nuevoEstado ? 'reactivar' : 'desactivar';
@@ -312,9 +299,6 @@ export const Clientes = () => {
                             </button>
                             <button onClick={() => handleToggleActive(c)} className={`rounded-lg p-1.5 transition ${c.activo ? 'text-slate-400 hover:bg-amber-50 hover:text-amber-600' : 'text-slate-400 hover:bg-emerald-50 hover:text-emerald-600'}`} title={c.activo ? 'Desactivar' : 'Reactivar'}>
                               <span className="text-xs font-semibold">{c.activo ? 'Desactivar' : 'Activar'}</span>
-                            </button>
-                            <button onClick={() => handleDelete(c.id)} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600" title="Eliminar">
-                              <Trash2 size={16} />
                             </button>
                           </div>
                         </td>
