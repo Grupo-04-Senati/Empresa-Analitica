@@ -40,8 +40,10 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'POST' && action === 'register') {
     try {
+      console.log('[face] register body:', JSON.stringify({ usuario_id: req.body?.usuario_id, hasEmbeddings: !!req.body?.embeddings, embeddingsKeys: req.body?.embeddings ? Object.keys(req.body.embeddings) : null }));
       const { usuario_id, embeddings } = req.body;
       if (!usuario_id || !embeddings) {
+        console.log('[face] register FAIL: usuario_id=', usuario_id, 'embeddings=', embeddings);
         return res.status(400).json({ error: 'Faltan datos' });
       }
 
@@ -72,8 +74,10 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'POST' && action === 'login') {
     try {
+      console.log('[face] login body:', JSON.stringify({ hasEmbeddings: !!req.body?.embeddings, count: req.body?.embeddings?.length }));
       const { embeddings } = req.body;
       if (!embeddings || embeddings.length === 0) {
+        console.log('[face] login FAIL: embeddings=', embeddings);
         return res.status(400).json({ error: 'Faltan embeddings' });
       }
 
