@@ -10,6 +10,8 @@ export interface UserProfile {
   email: string;
   rol: UserRole;
   activo: boolean;
+  telefono?: string;
+  empresa?: string;
 }
 
 interface AuthContextType {
@@ -18,7 +20,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isCliente: boolean;
   canEdit: boolean;
-  registerUser: (data: { nombre: string; email: string; password: string; rol?: UserRole }) => Promise<{ success: boolean; message?: string; userId?: number }>;
+  registerUser: (data: { nombre: string; email: string; password: string; rol?: UserRole; telefono?: string; empresa?: string }) => Promise<{ success: boolean; message?: string; userId?: number }>;
   loginUser: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
   loginByUserId: (userId: number) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
@@ -48,7 +50,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const email = session.user.email.toLowerCase();
           const { data: profile } = await supabase
             .from('usuarios')
-            .select('id, nombre, email, rol, activo')
+            .select('id, nombre, email, rol, activo, telefono, empresa')
             .eq('email', email)
             .maybeSingle();
           if (profile) {
@@ -58,6 +60,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               email,
               rol: (profile.rol as UserRole) || 'usuario',
               activo: profile.activo ?? true,
+              telefono: profile.telefono || undefined,
+              empresa: profile.empresa || undefined,
             });
             return;
           }
@@ -68,7 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const parsed: UserProfile = JSON.parse(raw);
           const { data: profile } = await supabase
             .from('usuarios')
-            .select('id, nombre, email, rol, activo')
+            .select('id, nombre, email, rol, activo, telefono, empresa')
             .eq('id', Number(parsed.id))
             .maybeSingle();
           if (profile && profile.activo) {
@@ -79,6 +83,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               email: profile.email.toLowerCase(),
               rol: (profile.rol as UserRole) || 'usuario',
               activo: true,
+              telefono: profile.telefono || undefined,
+              empresa: profile.empresa || undefined,
             });
             return;
           }
@@ -102,7 +108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const email = session.user.email.toLowerCase();
         const { data: profile } = await supabase
           .from('usuarios')
-          .select('id, nombre, email, rol, activo')
+          .select('id, nombre, email, rol, activo, telefono, empresa')
           .eq('email', email)
           .maybeSingle();
         if (profile) {
@@ -112,6 +118,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             email,
             rol: (profile.rol as UserRole) || 'usuario',
             activo: profile.activo ?? true,
+            telefono: profile.telefono || undefined,
+            empresa: profile.empresa || undefined,
           });
           localStorage.removeItem(FACE_KEY);
         }
@@ -172,7 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { dead = true; clearInterval(interval); };
   }, [user?.id]);
 
-  const registerUser = useCallback(async (data: { nombre: string; email: string; password: string; rol?: UserRole }) => {
+  const registerUser = useCallback(async (data: { nombre: string; email: string; password: string; rol?: UserRole; telefono?: string; empresa?: string }) => {
     const cleanEmail = data.email.trim().toLowerCase();
     const rolAsignado = data.rol ? data.rol.toUpperCase() : 'USUARIO';
 
@@ -202,6 +210,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       password_hash: 'auth_managed',
       rol: rolAsignado,
       activo: true,
+      telefono: data.telefono?.trim() || null,
+      empresa: data.empresa?.trim() || null,
     }).select('id').single();
 
     if (dbError) {
@@ -250,7 +260,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     let { data: profile } = await supabase
       .from('usuarios')
-      .select('id, nombre, email, rol, activo')
+      .select('id, nombre, email, rol, activo, telefono, empresa')
       .eq('email', cleanEmail)
       .maybeSingle();
 
@@ -265,7 +275,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           rol: 'USUARIO',
           activo: true,
         })
-        .select('id, nombre, email, rol, activo')
+        .select('id, nombre, email, rol, activo, telefono, empresa')
         .maybeSingle();
 
       if (insertErr) {
@@ -292,6 +302,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email: cleanEmail,
       rol: (profile.rol as UserRole) || 'usuario',
       activo: true,
+      telefono: profile.telefono || undefined,
+      empresa: profile.empresa || undefined,
     };
 
     setUser(userProfile);
@@ -302,7 +314,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginByUserId = useCallback(async (userId: number) => {
     const { data: profile } = await supabase
       .from('usuarios')
-      .select('id, nombre, email, rol, activo')
+      .select('id, nombre, email, rol, activo, telefono, empresa')
       .eq('id', userId)
       .maybeSingle();
 
@@ -320,6 +332,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email: profile.email.toLowerCase(),
       rol: (profile.rol as UserRole) || 'usuario',
       activo: true,
+      telefono: profile.telefono || undefined,
+      empresa: profile.empresa || undefined,
     };
 
     localStorage.setItem(FACE_KEY, JSON.stringify(userProfile));
@@ -345,6 +359,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (data.nombre) updates.nombre = data.nombre;
     if (data.rol) updates.rol = data.rol;
     if (data.activo !== undefined) updates.activo = data.activo;
+    if (data.telefono !== undefined) updates.telefono = data.telefono;
+    if (data.empresa !== undefined) updates.empresa = data.empresa;
     updates.updated_at = new Date().toISOString();
 
     await supabase.from('usuarios').update(updates).eq('email', user.email);

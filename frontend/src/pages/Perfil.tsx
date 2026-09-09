@@ -16,6 +16,8 @@ export const Perfil: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [nombre, setNombre] = useState('');
+  const [telefono, setTelefono] = useState('');
+  const [empresa, setEmpresa] = useState('');
   const [alerta, setAlerta] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -23,6 +25,8 @@ export const Perfil: React.FC = () => {
   useEffect(() => {
     if (user) {
       setNombre(user.nombre || '');
+      setTelefono(user.telefono || '');
+      setEmpresa(user.empresa || '');
       fetchAvatar();
     }
   }, [user]);
@@ -91,11 +95,11 @@ export const Perfil: React.FC = () => {
     if (!nombre.trim()) { setAlerta('El nombre no puede estar vacio'); setTimeout(() => setAlerta(''), 3500); return; }
     if (nombre.trim().length < 2) { setAlerta('El nombre debe tener al menos 2 caracteres'); setTimeout(() => setAlerta(''), 3500); return; }
     const nombreAnterior = user?.nombre || '';
-    await updateUser({ nombre: nombre.trim() });
+    await updateUser({ nombre: nombre.trim(), telefono: telefono.trim(), empresa: empresa.trim() });
     const { data: authData } = await supabase.auth.getUser();
     const currentMeta = authData?.user?.user_metadata || {};
     await supabase.auth.updateUser({ data: { ...currentMeta, nombre: nombre.trim() } });
-    logAudit({ usuario_id: Number(user?.id) || undefined, usuario_email: user?.email, accion: 'UPDATE', tabla: 'usuarios', registro_id: Number(user?.id) || undefined, modulo: 'Perfil', detalles: `Nombre cambiado de "${nombreAnterior}" a "${nombre.trim()}"`, datos_anteriores: { nombre: nombreAnterior }, datos_nuevos: { nombre: nombre.trim() } });
+    logAudit({ usuario_id: Number(user?.id) || undefined, usuario_email: user?.email, accion: 'UPDATE', tabla: 'usuarios', registro_id: Number(user?.id) || undefined, modulo: 'Perfil', detalles: `Perfil actualizado: "${nombreAnterior}" a "${nombre.trim()}"`, datos_anteriores: { nombre: nombreAnterior }, datos_nuevos: { nombre: nombre.trim() } });
     setIsModalOpen(false);
     setAlerta('Informacion actualizada correctamente');
     setTimeout(() => setAlerta(''), 3500);
@@ -317,6 +321,14 @@ export const Perfil: React.FC = () => {
                   <div className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-50 font-medium">{user?.email || 'No especificado'}</div>
                 </div>
                 <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Telefono</label>
+                  <div className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-50 font-medium">{user?.telefono || 'No especificado'}</div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Empresa</label>
+                  <div className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-50 font-medium">{user?.empresa || 'No especificado'}</div>
+                </div>
+                <div>
                   <label className="block text-xs font-semibold text-slate-400 mb-1">Rol Asignado</label>
                   <div className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-50 font-medium">{user?.rol || 'usuario'}</div>
                 </div>
@@ -355,6 +367,14 @@ export const Perfil: React.FC = () => {
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 mb-1">Nombre</label>
                   <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, ''))} maxLength={100} className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-sky-400 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-400/50 transition-all" required />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Telefono</label>
+                  <input type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value.replace(/[^0-9]/g, ''))} maxLength={15} className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-slate-600 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-400/50 transition-all" placeholder="999888777" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Empresa</label>
+                  <input type="text" value={empresa} onChange={(e) => setEmpresa(e.target.value)} maxLength={200} className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-slate-600 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-400/50 transition-all" placeholder="Nombre de tu empresa" />
                 </div>
                 <div className="flex gap-3 justify-end pt-2">
                   <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 text-sm hover:bg-slate-700 transition-colors">Cancelar</button>
