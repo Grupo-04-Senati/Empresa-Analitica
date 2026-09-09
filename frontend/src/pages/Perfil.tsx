@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '@/services/supabase';
-import { User, Shield, Bell, Activity, LogOut, Edit3, Save, X, CheckCircle, ArrowLeft, Eye, EyeOff, Camera, AlertTriangle, Trash2, Scan } from 'lucide-react';
+import { logAudit } from '../services/audit';
+import { User, Shield, Bell, LogOut, Edit3, Save, X, CheckCircle, ArrowLeft, Eye, EyeOff, Camera, AlertTriangle, Trash2, Scan } from 'lucide-react';
 import { FaceCapture } from '../components/FaceCapture';
-import { hasFaceRegistered } from '../services/faceRecognition';
+import { hasFaceRegistered, registerFace } from '../services/faceRecognition';
 
 export const Perfil: React.FC = () => {
   const navigate = useNavigate();
@@ -36,11 +37,6 @@ export const Perfil: React.FC = () => {
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-    if (file.size > 2 * 1024 * 1024) {
-      setAlerta('La imagen no puede exceder 2MB');
-      setTimeout(() => setAlerta(''), 3500);
-      return;
-    }
     if (!file.type.startsWith('image/')) {
       setAlerta('Solo se permiten archivos de imagen');
       setTimeout(() => setAlerta(''), 3500);
@@ -48,17 +44,41 @@ export const Perfil: React.FC = () => {
     }
     setUploading(true);
     try {
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        const base64 = ev.target?.result as string;
-        await supabase.from('usuarios').update({ avatar_url: base64 }).eq('email', user.email);
-        setAvatarUrl(base64);
+      const compressed = await new Promise<string>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX = 200;
+          let w = img.width, h = img.height;
+          if (w > h) { if (w > MAX) { h = (h * MAX) / w; w = MAX; } }
+          else { if (h > MAX) { w = (w * MAX) / h; h = MAX; } }
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.6));
+        };
+        img.onerror = () => reject(new Error('Error cargando imagen'));
+        img.src = URL.createObjectURL(file);
+      });
+
+      const { error } = await supabase.from('usuarios').update({ avatar_url: compressed }).eq('email', user.email);
+      if (error) {
+        console.error('[avatar] DB error:', error);
+        setAlerta('Error guardando en base de datos');
         setUploading(false);
-        setAlerta('Foto de perfil actualizada');
         setTimeout(() => setAlerta(''), 3500);
-      };
-      reader.readAsDataURL(file);
-    } catch {
+        return;
+      }
+
+      await supabase.auth.updateUser({ data: { avatar_url: compressed } });
+      logAudit({ usuario_id: Number(user?.id) || undefined, usuario_email: user?.email, accion: 'UPDATE', tabla: 'usuarios', registro_id: Number(user?.id) || undefined, modulo: 'Perfil', detalles: 'Foto de perfil actualizada' });
+      setAvatarUrl(compressed);
+      setUploading(false);
+      setAlerta('Foto de perfil actualizada');
+      setTimeout(() => setAlerta(''), 3500);
+    } catch (err) {
+      console.error('[avatar] Error:', err);
       setUploading(false);
       setAlerta('Error al subir la imagen');
       setTimeout(() => setAlerta(''), 3500);
@@ -69,7 +89,12 @@ export const Perfil: React.FC = () => {
     e.preventDefault();
     if (!nombre.trim()) { setAlerta('El nombre no puede estar vacio'); setTimeout(() => setAlerta(''), 3500); return; }
     if (nombre.trim().length < 2) { setAlerta('El nombre debe tener al menos 2 caracteres'); setTimeout(() => setAlerta(''), 3500); return; }
+    const nombreAnterior = user?.nombre || '';
     await updateUser({ nombre: nombre.trim() });
+    const { data: authData } = await supabase.auth.getUser();
+    const currentMeta = authData?.user?.user_metadata || {};
+    await supabase.auth.updateUser({ data: { ...currentMeta, nombre: nombre.trim() } });
+    logAudit({ usuario_id: Number(user?.id) || undefined, usuario_email: user?.email, accion: 'UPDATE', tabla: 'usuarios', registro_id: Number(user?.id) || undefined, modulo: 'Perfil', detalles: `Nombre cambiado de "${nombreAnterior}" a "${nombre.trim()}"`, datos_anteriores: { nombre: nombreAnterior }, datos_nuevos: { nombre: nombre.trim() } });
     setIsModalOpen(false);
     setAlerta('Informacion actualizada correctamente');
     setTimeout(() => setAlerta(''), 3500);
@@ -88,7 +113,6 @@ export const Perfil: React.FC = () => {
   const [passMsg, setPassMsg] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [notifSettings, setNotifSettings] = useState({ email: true, web: true, pendientes: true });
-  const [auditLog, setAuditLog] = useState<{ accion: string; tabla: string; created_at: string }[]>([]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -98,16 +122,14 @@ export const Perfil: React.FC = () => {
   const [faceRegistered, setFaceRegistered] = useState(false);
 
   useEffect(() => {
-    const fetchAudit = async () => {
+    const fetchFace = async () => {
       if (!user) return;
       try {
-        const { data } = await supabase.from('auditoria').select('accion, tabla, created_at').order('created_at', { ascending: false }).limit(10);
-        if (data) setAuditLog(data as any[]);
         const hasFace = await hasFaceRegistered(Number(user.id));
         setFaceRegistered(hasFace);
       } catch { /* empty */ }
     };
-    fetchAudit();
+    fetchFace();
   }, [user]);
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -118,6 +140,7 @@ export const Perfil: React.FC = () => {
     try {
       const { error } = await supabase.auth.updateUser({ password: newPass });
       if (error) { setPassMsg('Error: ' + error.message); return; }
+      logAudit({ usuario_id: Number(user?.id) || undefined, usuario_email: user?.email, accion: 'UPDATE', tabla: 'usuarios', registro_id: Number(user?.id) || undefined, modulo: 'Perfil', detalles: 'Contrasena cambiada' });
       setPassMsg('Contrasena actualizada correctamente');
       setTimeout(() => { setPassMsg(''); setShowPassModal(false); setNewPass(''); setConfirmPass(''); }, 2000);
     } catch { setPassMsg('Error al actualizar contrasena'); }
@@ -133,24 +156,67 @@ export const Perfil: React.FC = () => {
     if (!deleteConfirm) { setDeleteMsg('Debes confirmar que entiendes la accion'); return; }
     setDeleteLoading(true);
     setDeleteMsg('');
+
     try {
-      const API_BASE = import.meta.env.VITE_API_URL || '';
-      const res = await fetch(`${API_BASE}/delete-account`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: deletePassword, email: user!.email }),
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user!.email,
+        password: deletePassword,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setDeleteMsg(data.detail || 'Error al eliminar');
+      if (signInError) {
+        setDeleteMsg('Contrasena incorrecta');
         setDeleteLoading(false);
         return;
       }
+
+      const uid = Number(user!.id);
+
+      const { data: rostros } = await supabase.from('rostros').select('id').eq('usuario_id', uid);
+      if (rostros && rostros.length > 0) {
+        await supabase.from('rostros').delete().eq('usuario_id', uid);
+      }
+
+      const { data: auditoria } = await supabase.from('auditoria').select('id').eq('usuario_id', uid);
+      if (auditoria && auditoria.length > 0) {
+        await supabase.from('auditoria').delete().eq('usuario_id', uid);
+      }
+
+      const { data: optimizaciones } = await supabase.from('optimizaciones').select('id').eq('usuario_id', uid);
+      if (optimizaciones && optimizaciones.length > 0) {
+        await supabase.from('optimizaciones').delete().eq('usuario_id', uid);
+      }
+
+      await supabase.from('usuarios').delete().eq('id', uid);
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const serviceKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
+      if (supabaseUrl && serviceKey) {
+        try {
+          const listRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+            headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+          });
+          const listData = await listRes.json();
+          console.log('[delete] Auth list status:', listRes.status, listData);
+          if (listRes.ok) {
+            const authUser = listData.users?.find((u: any) => u.email === user!.email);
+            if (authUser) {
+              const delRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${authUser.id}`, {
+                method: 'DELETE',
+                headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+              });
+              console.log('[delete] Auth delete status:', delRes.status, await delRes.text());
+            } else {
+              console.log('[delete] Auth user not found for:', user!.email);
+            }
+          }
+        } catch (e) { console.error('[delete] Auth deletion error:', e); }
+      } else {
+        console.log('[delete] Missing supabaseUrl or serviceKey');
+      }
+
       await logout();
       navigate('/login');
-    } catch (err: any) {
-      console.error('Delete error:', err);
-      setDeleteMsg('Error de conexion con el servidor');
+    } catch {
+      setDeleteMsg('Error al eliminar la cuenta');
     } finally {
       setDeleteLoading(false);
     }
@@ -162,7 +228,6 @@ export const Perfil: React.FC = () => {
     { icon: Scan, title: 'Reconocimiento Facial', desc: faceRegistered ? 'Tu rostro esta registrado. Puedes reemplazarlo.' : 'Configura el inicio de sesion con tu rostro.', onClick: () => setShowFaceCapture(true) },
     { icon: Shield, title: 'Roles & Permisos', desc: `Tu rol actual: ${user?.rol || 'usuario'}. Solo los administradores pueden gestionar roles.`, onClick: () => {} },
     { icon: Bell, title: 'Notificaciones', desc: 'Configura alertas para solicitudes pendientes y reportes.', onClick: () => {} },
-    { icon: Activity, title: 'Actividad de Sesion', desc: `${auditLog.length} registros de actividad recientes.`, onClick: () => {} },
   ];
 
   return (
@@ -270,6 +335,22 @@ export const Perfil: React.FC = () => {
                 <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-200 transition-colors p-1"><X size={18} /></button>
               </div>
               <form onSubmit={handleSave} className="flex flex-col gap-4">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative group">
+                    <div className="w-20 h-20 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-3xl border-2 border-sky-400 overflow-hidden">
+                      {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : getInitials()}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      disabled={uploading}
+                    >
+                      <Camera size={18} className="text-white" />
+                    </button>
+                  </div>
+                  <span className="text-xs text-slate-400">{uploading ? 'Subiendo...' : 'Click para cambiar foto'}</span>
+                </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 mb-1">Nombre</label>
                   <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, ''))} maxLength={100} className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-sky-400 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-400/50 transition-all" required />
@@ -394,28 +475,6 @@ export const Perfil: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/60 rounded-2xl border border-slate-700/80 p-5 backdrop-blur-md">
-          <div className="flex items-center gap-2 mb-4">
-            <Activity size={18} className="text-sky-400" />
-            <h4 className="text-sm font-semibold text-slate-50">Actividad Reciente</h4>
-          </div>
-          {auditLog.length === 0 ? (
-            <p className="text-xs text-slate-400 text-center py-4">Sin registros de actividad aun</p>
-          ) : (
-            <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
-              {auditLog.map((log, i) => (
-                <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-900/50 border border-slate-700/50">
-                  <span className="w-2 h-2 rounded-full bg-sky-400 shrink-0" />
-                  <div>
-                    <p className="text-xs text-slate-300">{log.accion} en {log.tabla}</p>
-                    <p className="text-[10px] text-slate-500">{new Date(log.created_at).toLocaleString('es-ES')}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div className="bg-gradient-to-br from-red-950/30 to-slate-900/60 rounded-2xl border border-red-500/20 p-5 backdrop-blur-md">
           <div className="flex items-center gap-3 mb-3">
             <div className="bg-red-500/10 p-2 rounded-lg border border-red-500/20">
@@ -442,12 +501,23 @@ export const Perfil: React.FC = () => {
       {showFaceCapture && user && (
         <FaceCapture
           mode="register"
-          userId={Number(user.id)}
-          onCapture={() => {
+          usuarioId={Number(user.id)}
+          onCapture={async (photos) => {
+            try {
+              const result = await registerFace(Number(user.id), photos);
+              if (result.ok) {
+                setFaceRegistered(true);
+                setAlerta('Rostro registrado correctamente');
+                setTimeout(() => setAlerta(''), 3500);
+              } else {
+                setAlerta('Error: ' + (result.error || 'No se pudo registrar'));
+                setTimeout(() => setAlerta(''), 3500);
+              }
+            } catch {
+              setAlerta('Error de conexion');
+              setTimeout(() => setAlerta(''), 3500);
+            }
             setShowFaceCapture(false);
-            setFaceRegistered(true);
-            setAlerta('Rostro registrado correctamente');
-            setTimeout(() => setAlerta(''), 3500);
           }}
           onClose={() => setShowFaceCapture(false)}
         />

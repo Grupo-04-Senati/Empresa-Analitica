@@ -119,10 +119,30 @@ async def clasificar(req: dict, user: dict = Depends(get_current_user)):
         resultado = []
         for c in req.get("comentarios", []):
             texto = c.get("texto") or c.get("contenido") or ""
-            analisis = nltk_service.analizar_texto(texto)
+            analisis = nltk_service.clasificar(texto)
             c["categoria"] = analisis["categoria"]
             c["confianza"] = analisis["confianza"]
             c["sentimiento"] = analisis["sentimiento"]
             resultado.append(c)
         return resultado
     return {"mensaje": "Especifique texto o lista de comentarios"}
+
+
+@router.post("/buscar-servicios")
+async def buscar_servicios(req: dict, user: dict = Depends(get_current_user)):
+    consulta = req.get("consulta", "")
+    if not consulta:
+        return {"servicios": [], "tokens": []}
+    tokens = nltk_service.normalizar_texto_busqueda(consulta)
+    servicios = nltk_service.buscar_servicios(consulta)
+    return {"consulta": consulta, "tokens": tokens, "servicios": servicios}
+
+
+@router.get("/clasificador-info")
+async def clasificador_info():
+    return {
+        "metodo": "Naive Bayes (NLTK)",
+        "precision": round(nltk_service.precision_nb * 100, 1),
+        "ejemplos_entrenamiento": len(nltk_service.DATOS_ENTRENAMIENTO),
+        "categorias": list(nltk_service.CATEGORIA_KEYWORDS.keys()),
+    }

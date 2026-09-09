@@ -5,8 +5,10 @@ import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import SnowballStemmer
+from nltk.classify import NaiveBayesClassifier
+from nltk.classify.util import accuracy
 
-for resource in ["punkt", "punkt_tab", "stopwords", "vader_lexicon"]:
+for resource in ["punkt", "punkt_tab", "stopwords", "vader_lexicon", "movie_reviews"]:
     try:
         nltk.download(resource, quiet=True)
     except Exception:
@@ -182,6 +184,153 @@ def calcular_frecuencias(textos: list[str]) -> list[dict]:
     freq = Counter(all_tokens)
     return [{"palabra": p, "frecuencia": f} for p, f in freq.most_common(20)]
 
+# --- Ejercicio 5: Clasificador Naive Bayes entrenado ---
+
+DATOS_ENTRENAMIENTO = [
+    # VENTAS
+    ("quiero comprar un plan empresarial", "VENTAS"),
+    ("cuanto cuesta el servicio mensual", "VENTAS"),
+    ("necesito una cotizacion para mi empresa", "VENTAS"),
+    ("que planes de suscripcion ofrecen", "VENTAS"),
+    ("dame informacion de precios y descuentos", "VENTAS"),
+    ("quiero contratar el plan premium", "VENTAS"),
+    ("hay promociones para nuevos clientes", "VENTAS"),
+    ("necesito generar una factura", "VENTAS"),
+    ("cual es el costo del plan basico", "VENTAS"),
+    ("quisiera hablar con un asesor comercial", "VENTAS"),
+    ("envieme el presupuesto actualizado", "VENTAS"),
+    ("que beneficios incluye el plan gold", "VENTAS"),
+    ("quiero升级mi plan actual", "VENTAS"),
+    ("necesito un devis para el servicio", "VENTAS"),
+    ("cuanto vale la licencia anual", "VENTAS"),
+    # SOPORTE
+    ("no puedo ingresar a mi cuenta", "SOPORTE"),
+    ("olvide mi contrasena y no puedo acceder", "SOPORTE"),
+    ("el sistema presenta un error constante", "SOPORTE"),
+    ("necesito ayuda tecnica con la plataforma", "SOPORTE"),
+    ("la aplicacion se cierra sola", "SOPORTE"),
+    ("no me funciona el login", "SOPORTE"),
+    ("tengo un problema con mi acceso", "SOPORTE"),
+    ("el botón de enviar no responde", "SOPORTE"),
+    ("como configuro mi perfil", "SOPORTE"),
+    ("necesito soporte con la configuracion", "SOPORTE"),
+    ("la pantalla se ve corrupta", "SOPORTE"),
+    ("hay un bug en el modulo de reportes", "SOPORTE"),
+    ("no carga la pagina principal", "SOPORTE"),
+    ("mi conexion con el servidor falla", "SOPORTE"),
+    ("necesito recuperar mi cuenta bloqueada", "SOPORTE"),
+    # RECLAMO
+    ("el servicio es muy lento y pesimo", "RECLAMO"),
+    ("estoy muy molesto con la atencion recibida", "RECLAMO"),
+    ("esto es inaceptable y quiero hablar con un supervisor", "RECLAMO"),
+    ("llevo esperando tres horas y nada", "RECLAMO"),
+    ("el producto llego danado y defectuoso", "RECLAMO"),
+    ("nunca me han dado una respuesta satisfactoria", "RECLAMO"),
+    ("quiero presentar una queja formal", "RECLAMO"),
+    ("esto es un desastre total", "RECLAMO"),
+    ("el servicio al cliente es horrible", "RECLAMO"),
+    ("voy a cancelar mi suscripcion por mal servicio", "RECLAMO"),
+    ("tardaron demasiado en resolver mi problema", "RECLAMO"),
+    ("la calidad ha bajado muchisimo", "RECLAMO"),
+    ("no cumplieron con lo prometido", "RECLAMO"),
+    ("esto es una estafa total", "RECLAMO"),
+    ("la demora es inaceptable", "RECLAMO"),
+    # FELICITACION
+    ("excelente servicio, muy satisfecho", "FELICITACION"),
+    ("gracias por la rapida atencion", "FELICITACION"),
+    ("el equipo fue muy amable y eficiente", "FELICITACION"),
+    ("recomiendo totalmente este servicio", "FELICITACION"),
+    ("todo perfecto, sin problemas", "FELICITACION"),
+    ("me encanta la plataforma, es intuitiva", "FELICITACION"),
+    ("gran experiencia con el soporte tecnico", "FELICITACION"),
+    ("muy buen servicio, lo recomiendo", "FELICITACION"),
+    ("la atención fue impecable", "FELICITACION"),
+    ("resolvieron mi problema rapido y bien", "FELICITACION"),
+    ("excelente calidad y precio", "FELICITACION"),
+    ("super Felicitaciones al equipo", "FELICITACION"),
+    ("me gusto mucho el trato recibido", "FELICITACION"),
+    ("son los mejores del mercado", "FELICITACION"),
+    ("agradecido con el servicio brindado", "FELICITACION"),
+]
+
+def _extraer_features(texto: str) -> dict:
+    norm = normalize_text(texto)
+    tokens = tokenizar_seguro(norm)
+    stop_words = obtener_stopwords()
+    tokens_limpios = [t for t in tokens if t.isalpha() and t not in stop_words and len(t) > 2]
+    features = {}
+    for token in tokens_limpios:
+        features[f"contains({token})"] = True
+    return features
+
+def _entrenar_clasificador():
+    features_labeled = [(_extraer_features(texto), cat) for texto, cat in DATOS_ENTRENAMIENTO]
+    train_set = features_labeled[:int(len(features_labeled) * 0.8)]
+    test_set = features_labeled[int(len(features_labeled) * 0.8):]
+    classifier = NaiveBayesClassifier.train(train_set)
+    acc = accuracy(classifier, test_set) if test_set else 0.0
+    return classifier, acc
+
+clasificador_nb, precision_nb = _entrenar_clasificador()
+
+def clasificar_nb(texto: str) -> dict:
+    if not texto or not texto.strip():
+        return {"categoria": "CONSULTA", "confianza": 80.0, "metodo": "naive_bayes", "detalles": {}}
+    features = _extraer_features(texto)
+    prob_dist = clasificador_nb.prob_classify(features)
+    categoria = prob_dist.max()
+    confianza = round(prob_dist.prob(categoria) * 100, 1)
+    detalles = {cat: round(prob_dist.prob(cat) * 100, 1) for cat in prob_dist.samples()}
+    return {"categoria": categoria, "confianza": confianza, "metodo": "naive_bayes", "detalles": detalles}
+
 def clasificar(texto: str) -> dict:
-    return analizar_texto(texto)
+    nb_result = clasificar_nb(texto)
+    analisis = analizar_texto(texto)
+    return {
+        "categoria": nb_result["categoria"],
+        "confianza": nb_result["confianza"],
+        "metodo": "naive_bayes",
+        "detalles_probabilidad": nb_result["detalles"],
+        "sentimiento": analisis["sentimiento"],
+        "tokens": analisis["tokens"],
+        "keywords": analisis["keywords"],
+    }
+
+
+# --- Ejercicio 6: Buscador inteligente de servicios ---
+
+SERVICIOS_EMPRESA = [
+    {"id": 1, "nombre": "Soporte Tecnico", "descripcion": "Ayuda con problemas tecnicos, errores del sistema, configuracion y acceso", "categoria": "SOPORTE", "keywords": ["error", "bug", "problema", "acceso", "login", "contrasena", "sistema", "configurar", "pantalla", "ayuda", "tecnico", "computadora", "equipo", "dispositivo", "impresora", "red", "internet", "conexion", "servidor"]},
+    {"id": 2, "nombre": "Atencion al Cliente", "descripcion": "Consultas generales, informacion y seguimiento de casos", "categoria": "SOPORTE", "keywords": ["consulta", "informacion", "seguimiento", "caso", "duda", "pregunta", "ayuda", "orientacion", "detalles"]},
+    {"id": 3, "nombre": "Planes y Precios", "descripcion": "Informacion sobre planes de suscripcion, costos y facturacion", "categoria": "VENTAS", "keywords": ["precio", "costo", "plan", "suscripcion", "factura", "pago", "cotizar", "presupuesto", "tarifa", "cuota"]},
+    {"id": 4, "nombre": "Consultas Comerciales", "descripcion": "Asesoria comercial, negociaciones y propuestas empresariales", "categoria": "VENTAS", "keywords": ["comprar", "contratar", "asesor", "comercial", "negocio", "empresa", "descuento", "oferta", "promocion"]},
+    {"id": 5, "nombre": "Quejas y Reclamos", "descripcion": "Registro y gestion de quejas, reclamos y solicitudes de mejora", "categoria": "RECLAMO", "keywords": ["queja", "reclamo", "molesto", "problema", "insatisfecho", "cancelar", "devolver"]},
+    {"id": 6, "nombre": "Sugerencias", "descripcion": "Recepcion de sugerencias y feedback para mejorar el servicio", "categoria": "FELICITACION", "keywords": ["sugerencia", "idea", "mejorar", "feedback", "opinion", "recomendar"]},
+]
+
+def normalizar_texto_busqueda(texto: str) -> list[str]:
+    norm = normalize_text(texto)
+    tokens = tokenizar_seguro(norm)
+    stop_words = obtener_stopwords()
+    return [t for t in tokens if t.isalpha() and t not in stop_words and len(t) > 2]
+
+def buscar_servicios(consulta: str) -> list[dict]:
+    tokens_consulta = normalizar_texto_busqueda(consulta)
+    if not tokens_consulta:
+        return []
+    resultados = []
+    for servicio in SERVICIOS_EMPRESA:
+        tokens_keywords = [normalize_text(k) for k in servicio["keywords"]]
+        tokens_desc = normalizar_texto_busqueda(servicio["descripcion"])
+        tokens_servicio = set(tokens_keywords + tokens_desc)
+        coincidencias = set(tokens_consulta) & tokens_servicio
+        if coincidencias:
+            score = len(coincidencias) / max(len(tokens_consulta), 1)
+            resultados.append({**servicio, "score": round(score, 2), "coincidencias": list(coincidencias)})
+    resultados.sort(key=lambda x: x["score"], reverse=True)
+    if not resultados:
+        for servicio in SERVICIOS_EMPRESA:
+            if any(t in servicio["categoria"].lower() for t in tokens_consulta):
+                resultados.append({**servicio, "score": 0.1, "coincidencias": [servicio["categoria"].lower()]})
+    return resultados
 

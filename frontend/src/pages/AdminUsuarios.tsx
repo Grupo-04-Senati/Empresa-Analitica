@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Users, Shield, Mail, Search, Edit3, ChevronDown, Loader2, CheckCircle, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { apiGet, apiPut } from '../services/api';
+import { supabase } from '../services/supabase';
+import { logAudit } from '../services/audit';
 
 interface UsuarioRow {
   id: number;
@@ -12,7 +13,7 @@ interface UsuarioRow {
   created_at: string;
 }
 
-const roles = ['ADMIN', 'ANALISTA', 'SUPERVISOR', 'USUARIO'];
+const roles = ['ADMIN', 'USUARIO'];
 const roleColors: Record<string, string> = {
   ADMIN: 'bg-emerald-50 text-emerald-700',
   ANALISTA: 'bg-blue-50 text-blue-700',
@@ -38,8 +39,12 @@ export const AdminUsuarios = () => {
   const fetchUsuarios = async () => {
     setLoading(true);
     try {
-      const data = await apiGet<UsuarioRow[]>('/api/admin/usuarios');
-      setUsuarios(data);
+      const { data, error } = await supabase
+        .from('usuarios')
+        .select('id, nombre, email, rol, activo, created_at')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setUsuarios(data || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar usuarios');
     } finally {
@@ -61,7 +66,19 @@ export const AdminUsuarios = () => {
     setError('');
     setSuccess('');
     try {
-      await apiPut(`/api/admin/usuarios/${usuarioId}/rol`, { nuevo_rol: newRole });
+      const usuario = usuarios.find((u) => u.id === usuarioId);
+      const rolAnterior = usuario?.rol || 'desconocido';
+      await supabase.from('usuarios').update({ rol: newRole }).eq('id', usuarioId);
+      logAudit({
+        accion: 'UPDATE',
+        tabla: 'usuarios',
+        registro_id: usuarioId,
+        usuario_email: usuario?.email,
+        modulo: 'Admin',
+        detalles: `Rol cambiado de "${rolAnterior}" a "${newRole}" para ${usuario?.email || usuarioId}`,
+        datos_anteriores: { rol: rolAnterior },
+        datos_nuevos: { rol: newRole },
+      });
       setSuccess('Rol actualizado correctamente');
       setEditingId(null);
       setNewRole('');

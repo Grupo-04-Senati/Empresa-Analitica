@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, type FormEvent } from 'react';
 import { MessageSquare, Plus, Send, Trash2, Filter, X, BrainCircuit, Loader2 } from 'lucide-react';
 import { supabase } from '@/services/supabase';
-import { apiPost } from '@/services/api';
+import { edgeFunction } from '@/services/edge';
 import type { ComentarioDB, ClienteDB } from '@/types';
 
 const canalOptions = ['web', 'email', 'telefono', 'chat', 'redes'];
@@ -64,7 +64,7 @@ export const Comentarios = () => {
 
       if (autoProcesar && newComment?.id) {
         try {
-          await apiPost(`/api/comentarios/${newComment.id}/procesar`);
+          await edgeFunction('comentarios-procesar', { comentario_id: newComment.id });
         } catch (procErr) {
           console.warn('Auto-procesamiento falló:', procErr);
         }

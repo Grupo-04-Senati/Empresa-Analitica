@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, auth } from '../services/supabase';
+import { logAudit } from '../services/audit';
 
 export type UserRole = 'admin' | 'analista' | 'supervisor' | 'usuario' | 'ADMIN' | 'ANALISTA' | 'SUPERVISOR' | 'USUARIO';
 
@@ -34,6 +35,7 @@ function isAdminRole(rol: string): boolean {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const registeringRef = useRef(false);
 
   useEffect(() => {
     const initSession = async () => {
@@ -76,6 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initSession();
 
     const { data: { subscription } } = auth.onAuthStateChange(async (_event, session) => {
+      if (registeringRef.current) return;
       if (session?.user?.email) {
         const email = session.user.email.toLowerCase();
         const { data: profile } = await supabase
@@ -101,21 +104,89 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { subscription?.unsubscribe(); };
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    let dead = false;
+
+    const checkUserExists = async () => {
+      if (dead) return;
+      try {
+        const { data: sessionData } = await auth.getSession();
+        if (!sessionData.session) {
+          dead = true;
+          console.log('[auth] SESSION DEAD -> signing out');
+          setUser(null);
+          window.location.replace('/login');
+          return;
+        }
+
+        const { data: authUser } = await auth.getUser();
+        if (!authUser.user) {
+          dead = true;
+          console.log('[auth] AUTH USER GONE -> signing out');
+          setUser(null);
+          await supabase.auth.signOut();
+          window.location.replace('/login');
+          return;
+        }
+
+        const { data } = await supabase
+          .from('usuarios')
+          .select('id')
+          .eq('email', user.email)
+          .maybeSingle();
+        if (!data && !dead) {
+          dead = true;
+          console.log('[auth] TABLE USER GONE -> cleaning auth + signing out');
+          const adminKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+          if (adminKey && supabaseUrl && authUser.user) {
+            await fetch(`${supabaseUrl}/auth/v1/admin/users/${authUser.user.id}`, {
+              method: 'DELETE',
+              headers: { apikey: adminKey, Authorization: `Bearer ${adminKey}` },
+            });
+          }
+          setUser(null);
+          await supabase.auth.signOut();
+          window.location.replace('/login');
+        }
+      } catch (e) {
+        console.log('[auth] check error:', e);
+      }
+    };
+
+    checkUserExists();
+    const interval = setInterval(checkUserExists, 3000);
+
+    return () => {
+      dead = true;
+      clearInterval(interval);
+    };
+  }, [user?.id]);
+
   const registerUser = useCallback(async (data: { nombre: string; email: string; password: string; rol?: UserRole }) => {
     const cleanEmail = data.email.trim().toLowerCase();
     const rolAsignado = data.rol ? data.rol.toUpperCase() : 'USUARIO';
 
-    const { data: authData, error: authError } = await auth.signUp({
+    registeringRef.current = true;
+
+    const existingUser = await supabase.from('usuarios').select('id').eq('email', cleanEmail).maybeSingle();
+
+    const { error: authError } = await auth.signUp({
       email: cleanEmail,
       password: data.password,
       options: { data: { nombre: data.nombre.trim(), rol: rolAsignado } },
     });
 
-    if (authError) {
-      if (authError.message.includes('already registered')) {
-        return { success: false, message: 'Este correo ya está registrado.' };
-      }
+    if (authError && !authError.message.includes('already registered')) {
+      registeringRef.current = false;
       return { success: false, message: authError.message };
+    }
+
+    if (existingUser.data) {
+      await auth.signOut();
+      registeringRef.current = false;
+      return { success: true, userId: existingUser.data.id };
     }
 
     const { data: dbData, error: dbError } = await supabase.from('usuarios').insert({
@@ -124,16 +195,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       password_hash: 'auth_managed',
       rol: rolAsignado,
       activo: true,
-    }).select('id')
-      .single();
+    }).select('id').single();
 
     if (dbError) {
       console.error('DB insert error:', dbError.message);
       await auth.signOut();
+      registeringRef.current = false;
       return { success: false, message: 'Error al crear perfil: ' + dbError.message };
     }
 
-    return { success: true, userId: dbData?.id };
+    try {
+      await supabase.from('notificaciones').insert({
+        tipo: 'usuario',
+        titulo: 'Nuevo usuario registrado',
+        mensaje: `${data.nombre.trim()} se ha unido a la plataforma (${cleanEmail})`,
+        enlace: '/usuarios',
+        leida: false,
+        usuario_email: null,
+      });
+    } catch {}
+
+    logAudit({ accion: 'REGISTER', tabla: 'usuarios', registro_id: dbData.id, usuario_email: cleanEmail, modulo: 'Auth', detalles: `Nuevo registro: ${data.nombre.trim()} (${cleanEmail})`, datos_nuevos: { nombre: data.nombre.trim(), email: cleanEmail, rol: rolAsignado } });
+
+    await auth.signOut();
+    registeringRef.current = false;
+
+    return { success: true, userId: dbData.id };
   }, []);
 
   const loginUser = useCallback(async (email: string, password: string) => {
@@ -145,7 +232,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     if (authError) {
-      return { success: false, message: 'Correo o contraseña incorrectos.' };
+      const msg = authError.message || '';
+      if (msg.includes('Invalid login') || msg.includes('invalid_credentials') || msg.includes('Invalid email')) {
+        const { data: check } = await supabase.from('usuarios').select('id').eq('email', cleanEmail).maybeSingle();
+        if (!check) {
+          return { success: false, message: 'Esta cuenta no existe. Crea una cuenta nueva.' };
+        }
+      }
+      return { success: false, message: 'Correo o contrasena incorrectos.' };
     }
 
     let { data: profile } = await supabase
@@ -195,6 +289,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     setUser(userProfile);
+    logAudit({ accion: 'LOGIN', tabla: 'usuarios', registro_id: profile.id, usuario_email: cleanEmail, modulo: 'Auth', detalles: `Login exitoso: ${cleanEmail}` });
     return { success: true };
   }, []);
 
@@ -214,63 +309,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const API_BASE = import.meta.env.VITE_API_URL || '';
-      const isDev = import.meta.env.DEV;
-      const apiBase = isDev ? '' : API_BASE;
-
-      const res = await fetch(`${apiBase}/api/auth/face-login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId }),
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: profile.email,
+        options: { shouldCreateUser: false },
       });
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        console.error('Face login backend error:', errorData);
-        const userProfile: UserProfile = {
-          id: String(profile.id),
-          nombre: profile.nombre || profile.email.split('@')[0],
-          email: profile.email.toLowerCase(),
-          rol: (profile.rol as UserRole) || 'usuario',
-          activo: true,
-        };
-        setUser(userProfile);
-        return { success: true };
+      if (!otpError) {
+        logAudit({ accion: 'LOGIN', tabla: 'usuarios', registro_id: profile.id, usuario_email: profile.email, modulo: 'Auth', detalles: 'Login facial - magic link enviado a: ' + profile.email });
+        return { success: true, message: `Se envio un enlace de sesion a ${profile.email}. Revisa tu correo.` };
       }
-
-      const data = await res.json();
-      if (data.action_link) {
-        window.location.href = data.action_link;
-        return { success: true, message: 'Iniciando sesion...' };
-      }
-
-      const userProfile: UserProfile = {
-        id: String(profile.id),
-        nombre: profile.nombre || profile.email.split('@')[0],
-        email: profile.email.toLowerCase(),
-        rol: (profile.rol as UserRole) || 'usuario',
-        activo: true,
-      };
-      setUser(userProfile);
-      return { success: true };
-    } catch (err) {
-      console.warn('Face login fallback:', err);
-      const userProfile: UserProfile = {
-        id: String(profile.id),
-        nombre: profile.nombre || profile.email.split('@')[0],
-        email: profile.email.toLowerCase(),
-        rol: (profile.rol as UserRole) || 'usuario',
-        activo: true,
-      };
-      setUser(userProfile);
-      return { success: true };
+    } catch (e) {
+      console.warn('OTP fallback:', e);
     }
+
+    const userProfile: UserProfile = {
+      id: String(profile.id),
+      nombre: profile.nombre || profile.email.split('@')[0],
+      email: profile.email.toLowerCase(),
+      rol: (profile.rol as UserRole) || 'usuario',
+      activo: true,
+    };
+    setUser(userProfile);
+    logAudit({ accion: 'LOGIN', tabla: 'usuarios', registro_id: profile.id, usuario_email: profile.email, modulo: 'Auth', detalles: 'Login por reconocimiento facial: ' + profile.email });
+    return { success: true };
   }, []);
 
   const logout = useCallback(async () => {
+    if (user) {
+      logAudit({ accion: 'LOGOUT', tabla: 'usuarios', usuario_id: Number(user.id) || undefined, usuario_email: user.email, modulo: 'Auth', detalles: 'Logout: ' + user.email });
+    }
     try { await auth.signOut(); } catch {}
     setUser(null);
-  }, []);
+  }, [user]);
 
   const updateUser = useCallback(async (data: Partial<UserProfile>) => {
     if (!user) return;

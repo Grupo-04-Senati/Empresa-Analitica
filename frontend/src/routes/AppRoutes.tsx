@@ -28,6 +28,7 @@ import Perfil from '../pages/Perfil';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
 import LimpiezaDatos from '../pages/LimpiezaDatos';
+import Notificaciones from '../pages/Notificaciones';
 
 const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -40,6 +41,13 @@ const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+};
+
+const AdminGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isAdmin } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isAdmin) return <Navigate to="/" replace />;
   return <>{children}</>;
 };
 
@@ -71,10 +79,10 @@ export const AppRoutes = () => (
       <Route path="solicitudes" element={<Solicitudes />} />
       <Route path="comentarios" element={<Comentarios />} />
       <Route path="tiempo-atencion" element={<TiempoAtencion />} />
-      <Route path="auditoria" element={<Auditoria />} />
+      <Route path="auditoria" element={<AdminGuard><Auditoria /></AdminGuard>} />
       <Route path="analizar-comentario" element={<AnalizarComentario />} />
       <Route path="palabras-frecuentes" element={<PalabrasFrecuentes />} />
-      <Route path="categorias" element={<Categorias />} />
+      <Route path="categorias" element={<AdminGuard><Categorias /></AdminGuard>} />
       <Route path="clasificacion" element={<Clasificacion />} />
       <Route path="estadisticas" element={<Estadisticas />} />
       <Route path="interpolacion" element={<Interpolacion />} />
@@ -83,10 +91,11 @@ export const AppRoutes = () => (
       <Route path="reportes/atencion" element={<ReportesAtencion />} />
       <Route path="reportes/nlp" element={<ReportesNLP />} />
       <Route path="reportes/estadisticas" element={<ReportesEstadisticas />} />
-      <Route path="usuarios" element={<Usuarios />} />
-      <Route path="admin/usuarios" element={<AdminUsuarios />} />
-      <Route path="configuracion" element={<ConfigCategorias />} />
-      <Route path="limpieza-datos" element={<LimpiezaDatos />} />
+      <Route path="usuarios" element={<AdminGuard><Usuarios /></AdminGuard>} />
+      <Route path="admin/usuarios" element={<AdminGuard><AdminUsuarios /></AdminGuard>} />
+      <Route path="configuracion" element={<AdminGuard><ConfigCategorias /></AdminGuard>} />
+      <Route path="limpieza-datos" element={<AdminGuard><LimpiezaDatos /></AdminGuard>} />
+      <Route path="notificaciones" element={<AdminGuard><Notificaciones /></AdminGuard>} />
     </Route>
 
     <Route path="*" element={<Navigate to="/" replace />} />
