@@ -111,7 +111,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, onCapture, onLog
         setQuality(q);
 
         if (phaseRef.current === 'scanning') {
-          if (q.score >= 0.5) {
+          if (q.score >= 0.6 && q.detected && q.centered && q.angleOk) {
             goodFramesRef.current++;
             setStatusMsg(q.message || 'Detectando...');
             if (goodFramesRef.current >= 3) {
@@ -205,6 +205,46 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, onCapture, onLog
   const doLogin = useCallback(async (photos: Record<string, string>) => {
     setPhase('processing');
     try {
+      const video = videoRef.current;
+      let blinkDetected = false;
+
+      if (video && video.readyState >= 2) {
+        setStatusMsg('Parpadea para verificar que eres real...');
+        const earHistory: number[] = [];
+        for (let i = 0; i < 15; i++) {
+          await new Promise<void>((r) => setTimeout(r, 150));
+          try {
+            const det = await (await import('face-api.js')).default
+              .detectSingleFace(video, new (await import('face-api.js')).default.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
+              .withFaceLandmarks();
+            if (det) {
+              const pts = det.landmarks.positions;
+              const leftEye = pts.slice(36, 42);
+              const rightEye = pts.slice(42, 48);
+              const eyeAspectRatio = (eye: { x: number; y: number }[]) => {
+                const v1 = Math.sqrt((eye[1].x - eye[5].x) ** 2 + (eye[1].y - eye[5].y) ** 2);
+                const v2 = Math.sqrt((eye[2].x - eye[4].x) ** 2 + (eye[2].y - eye[4].y) ** 2);
+                const h = Math.sqrt((eye[0].x - eye[3].x) ** 2 + (eye[0].y - eye[3].y) ** 2);
+                return (v1 + v2) / (2.0 * h);
+              };
+              const ear = (eyeAspectRatio(leftEye) + eyeAspectRatio(rightEye)) / 2;
+              earHistory.push(ear);
+            }
+          } catch {}
+        }
+        if (earHistory.length >= 3) {
+          const avgEar = earHistory.reduce((a, b) => a + b, 0) / earHistory.length;
+          const minEar = Math.min(...earHistory);
+          blinkDetected = minEar < avgEar * 0.7;
+        }
+      }
+
+      if (!blinkDetected) {
+        setErrorMsg('Debes parpadear una vez para verificar que eres una persona real.');
+        setPhase('error');
+        return;
+      }
+
       const result = await loginByFace(photos);
       if (!result.ok) {
         setErrorMsg(result.error || 'Rostro no reconocido');

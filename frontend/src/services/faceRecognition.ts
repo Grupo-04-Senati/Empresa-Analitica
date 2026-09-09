@@ -35,10 +35,10 @@ export async function detectFace(input: HTMLVideoElement | HTMLCanvasElement): P
     const inputW = (input as HTMLVideoElement).videoWidth || input.clientWidth;
     const inputH = (input as HTMLVideoElement).videoHeight || input.clientHeight;
     const shortSide = Math.min(inputW, inputH);
-    const inputSize = shortSide > 500 ? 320 : 160;
+    const inputSize = shortSide > 500 ? 416 : 320;
 
     const detections = await (faceapi as any)
-      .detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.2 }))
+      .detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.35 }))
       .withFaceLandmarks();
 
     if (!detections || detections.length === 0) {
@@ -83,14 +83,14 @@ export async function detectFace(input: HTMLVideoElement | HTMLCanvasElement): P
       box: { x: box.x, y: box.y, width: box.width, height: box.height },
       landmarks: det.landmarks,
       score: det.detection.score,
-      croppedImage: canvas.toDataURL('image/jpeg', 0.85),
+      croppedImage: canvas.toDataURL('image/jpeg', 0.9),
     };
   } catch {
     return { detected: false, count: 0, box: null, landmarks: null, score: 0, croppedImage: null };
   }
 }
 
-export async function captureMultipleAngles(video: HTMLVideoElement, count: number = 3, delay: number = 1200): Promise<Record<string, string>> {
+export async function captureMultipleAngles(video: HTMLVideoElement, count: number = 3, delay: number = 1500): Promise<Record<string, string>> {
   const photos: Record<string, string> = {};
   const angles = ['frontal', 'izquierda', 'derecha'];
 
@@ -108,7 +108,7 @@ export async function faceScanLoop(
   video: HTMLVideoElement,
   onProgress: (stage: number, message: string) => void,
   onCapture: (photos: Record<string, string>) => void,
-  maxAttempts: number = 30
+  maxAttempts: number = 40
 ): Promise<void> {
   const capturedAngles = new Set<string>();
   const angles = ['frontal', 'izquierda', 'derecha'];
@@ -117,7 +117,7 @@ export async function faceScanLoop(
   const expectedCount = 3;
 
   while (capturedAngles.size < expectedCount && attempts < maxAttempts) {
-    await new Promise<void>((r) => setTimeout(r, 1000));
+    await new Promise<void>((r) => setTimeout(r, 1200));
     attempts++;
 
     const result = await detectFace(video);
@@ -132,13 +132,20 @@ export async function faceScanLoop(
       continue;
     }
 
-    if (result.score < 0.3) {
+    if (result.score < 0.4) {
       onProgress(capturedAngles.size, 'Mira directamente a la camara');
       continue;
     }
 
     const angleIdx = capturedAngles.size;
     const angle = angles[angleIdx];
+
+    const quality = await analyzeFaceQuality(video, angle);
+    if (!quality.detected || !quality.centered || !quality.angleOk) {
+      onProgress(capturedAngles.size, quality.message);
+      continue;
+    }
+
     capturedAngles.add(angle);
 
     onProgress(capturedAngles.size, `Capturado: ${angle}. ${expectedCount - capturedAngles.size} restantes`);
@@ -152,7 +159,7 @@ export async function faceScanLoop(
           photos[a] = det.croppedImage;
         }
         idx++;
-        await new Promise<void>((r) => setTimeout(r, 800));
+        await new Promise<void>((r) => setTimeout(r, 1000));
       }
 
       if (Object.keys(photos).length >= 2) {
@@ -250,7 +257,7 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
 
   try {
     const det = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 }))
       .withFaceLandmarks();
     if (det) {
       detected = true;
@@ -261,10 +268,10 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
       const centerX = (leftEye.x + rightEye.x) / 2;
       const eyeDist = Math.abs(rightEye.x - leftEye.x);
       const noseOffset = (nose.x - centerX) / eyeDist;
-      centered = Math.abs(noseOffset) < 0.3;
-      if (angle === 'frontal') angleOk = Math.abs(noseOffset) < 0.25;
-      else if (angle === 'izquierda') angleOk = noseOffset > 0.15;
-      else if (angle === 'derecha') angleOk = noseOffset < -0.15;
+      centered = Math.abs(noseOffset) < 0.25;
+      if (angle === 'frontal') angleOk = Math.abs(noseOffset) < 0.2;
+      else if (angle === 'izquierda') angleOk = noseOffset > 0.2;
+      else if (angle === 'derecha') angleOk = noseOffset < -0.2;
       else angleOk = true;
     }
   } catch {}
@@ -274,9 +281,9 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
   if (detected) score += 0.4;
   if (centered) score += 0.3;
   if (angleOk) score += 0.3;
-  if (brightness < 60) { message = 'Muy oscuro'; }
-  else if (brightness > 200) { message = 'Muy brillante'; }
-  else if (blur < 5) { message = 'Imagen borrosa'; }
+  if (brightness < 50) { message = 'Muy oscuro'; }
+  else if (brightness > 210) { message = 'Muy brillante'; }
+  else if (blur < 8) { message = 'Imagen borrosa'; }
   else if (!detected) { message = 'Buscando rostro...'; }
   else if (!centered) { message = 'Centra tu cara'; }
   else if (!angleOk) { message = 'Ajusta el angulo'; }
@@ -288,7 +295,7 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
 export async function checkAngle(input: HTMLVideoElement | HTMLCanvasElement, angle: string): Promise<{ ok: boolean }> {
   try {
     const detection = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 }))
       .withFaceLandmarks();
 
     if (!detection) return { ok: false };
@@ -301,9 +308,9 @@ export async function checkAngle(input: HTMLVideoElement | HTMLCanvasElement, an
     const eyeDist = Math.abs(rightEye.x - leftEye.x);
     const noseOffset = (nose.x - centerX) / eyeDist;
 
-    if (angle === 'frontal') return { ok: Math.abs(noseOffset) < 0.25 };
-    if (angle === 'izquierda') return { ok: noseOffset > 0.15 };
-    if (angle === 'derecha') return { ok: noseOffset < -0.15 };
+    if (angle === 'frontal') return { ok: Math.abs(noseOffset) < 0.2 };
+    if (angle === 'izquierda') return { ok: noseOffset > 0.2 };
+    if (angle === 'derecha') return { ok: noseOffset < -0.2 };
     return { ok: true };
   } catch {
     return { ok: false };
@@ -335,15 +342,15 @@ function landmarkDistance(a: number[], b: number[]): number {
   return Math.sqrt(sum / a.length);
 }
 
-async function generateFullDescriptor(input: HTMLVideoElement | HTMLCanvasElement): Promise<{ embedding: number[]; landmarks: number[] } | null> {
+async function generateFullDescriptor(input: HTMLVideoElement | HTMLCanvasElement): Promise<{ embedding: number[]; landmarks: number[]; score: number } | null> {
   try {
     const detection = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
       .withFaceLandmarks()
       .withFaceDescriptor();
 
     if (!detection) return null;
-    if (detection.detection.score < 0.5) return null;
+    if (detection.detection.score < 0.6) return null;
 
     const descriptor = detection.descriptor as Float32Array;
     const embedding: number[] = Array.from(descriptor);
@@ -355,10 +362,48 @@ async function generateFullDescriptor(input: HTMLVideoElement | HTMLCanvasElemen
     const landmarks = normalizeLandmarks(detection.landmarks);
     if (landmarks.length === 0) return null;
 
-    return { embedding, landmarks };
+    return { embedding, landmarks, score: detection.detection.score };
   } catch {
     return null;
   }
+}
+
+async function detectBlink(video: HTMLVideoElement, frameCount: number = 10): Promise<{ blinked: boolean; earHistory: number[] }> {
+  const earHistory: number[] = [];
+
+  for (let i = 0; i < frameCount; i++) {
+    await new Promise<void>((r) => setTimeout(r, 100));
+
+    try {
+      const det = await (faceapi as any)
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
+        .withFaceLandmarks();
+
+      if (det) {
+        const pts = det.landmarks.positions;
+        const leftEye = pts.slice(36, 42);
+        const rightEye = pts.slice(42, 48);
+
+        function eyeAspectRatio(eye: { x: number; y: number }[]): number {
+          const vertical1 = Math.sqrt((eye[1].x - eye[5].x) ** 2 + (eye[1].y - eye[5].y) ** 2);
+          const vertical2 = Math.sqrt((eye[2].x - eye[4].x) ** 2 + (eye[2].y - eye[4].y) ** 2);
+          const horizontal = Math.sqrt((eye[0].x - eye[3].x) ** 2 + (eye[0].y - eye[3].y) ** 2);
+          return (vertical1 + vertical2) / (2.0 * horizontal);
+        }
+
+        const ear = (eyeAspectRatio(leftEye) + eyeAspectRatio(rightEye)) / 2;
+        earHistory.push(ear);
+      }
+    } catch {}
+  }
+
+  if (earHistory.length < 3) return { blinked: false, earHistory };
+
+  const avgEar = earHistory.reduce((a, b) => a + b, 0) / earHistory.length;
+  const minEar = Math.min(...earHistory);
+  const blinked = minEar < avgEar * 0.65;
+
+  return { blinked, earHistory };
 }
 
 export async function registerFace(
@@ -366,7 +411,7 @@ export async function registerFace(
   photos: Record<string, string>
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const samples: { embedding: number[]; landmarks: number[] }[] = [];
+    const samples: { embedding: number[]; landmarks: number[]; score: number }[] = [];
 
     for (const dataUrl of Object.values(photos)) {
       if (!dataUrl) continue;
@@ -381,11 +426,18 @@ export async function registerFace(
       ctx.drawImage(img, 0, 0);
 
       const desc = await generateFullDescriptor(canvas);
-      if (desc) samples.push(desc);
+      if (desc && desc.score >= 0.65) {
+        samples.push(desc);
+      }
     }
 
-    if (samples.length < 2) {
-      return { ok: false, error: 'No se detecto rostro en al menos 2 de las 3 fotos' };
+    if (samples.length < 3) {
+      return { ok: false, error: 'Se necesitan 3 fotos con calidad alta. Mira directamente a la camara.' };
+    }
+
+    const avgScore = samples.reduce((s, d) => s + d.score, 0) / samples.length;
+    if (avgScore < 0.7) {
+      return { ok: false, error: 'Calidad insuficiente. Acercate mas a la camara y mira al frente.' };
     }
 
     await supabase.from('rostros').delete().eq('usuario_id', userId);
@@ -404,15 +456,15 @@ export async function registerFace(
   }
 }
 
-const UMBRAL_EMBEDDING = 0.28;
-const UMBRAL_LANDMARK = 0.15;
-const MIN_MATCHES = 2;
+const UMBRAL_EMBEDDING = 0.18;
+const UMBRAL_LANDMARK = 0.12;
+const MIN_MATCHES = 3;
 
 export async function loginByFace(
   photos: Record<string, string>
 ): Promise<{ ok: boolean; usuario_id?: number; nombre?: string; email?: string; error?: string }> {
   try {
-    const loginDescriptors: { embedding: number[]; landmarks: number[] }[] = [];
+    const loginDescriptors: { embedding: number[]; landmarks: number[]; score: number }[] = [];
 
     for (const dataUrl of Object.values(photos)) {
       if (!dataUrl) continue;
@@ -443,6 +495,7 @@ export async function loginByFace(
     }
 
     const userEmbDistances: Record<number, number[]> = {};
+    const userLandmarkDistances: Record<number, number[]> = {};
 
     for (const loginDesc of loginDescriptors) {
       for (const r of rostros) {
@@ -474,7 +527,7 @@ export async function loginByFace(
 
     if (embCandidates.length > 1) {
       const gap = embCandidates[1].bestEmbDist - embCandidates[0].bestEmbDist;
-      if (gap < 0.05) {
+      if (gap < 0.08) {
         return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
       }
     }
