@@ -292,6 +292,24 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
               <div className="relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3]">
                 <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
 
+                <div className="absolute inset-0 flex items-center justify-center z-5 pointer-events-none">
+                  <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
+                    quality?.detected && quality?.centered ? 'text-green-400' :
+                    quality?.detected ? 'text-yellow-400' : 'text-white/60'
+                  }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
+                    <path d="M60 95 Q65 80 75 78" strokeWidth="2" />
+                    <path d="M140 95 Q135 80 125 78" strokeWidth="2" />
+                    <circle cx="78" cy="98" r="3" fill="currentColor" stroke="none" />
+                    <circle cx="122" cy="98" r="3" fill="currentColor" stroke="none" />
+                    <path d="M92 120 Q100 128 108 120" strokeWidth="2" />
+                    <line x1="100" y1="112" x2="100" y2="122" strokeWidth="2" />
+                    <path d="M85 145 Q100 158 115 145" strokeWidth="2" />
+                    <path d="M35 85 Q30 110 35 140" strokeWidth="2" strokeDasharray="6 4" />
+                    <path d="M165 85 Q170 110 165 140" strokeWidth="2" strokeDasharray="6 4" />
+                  </svg>
+                </div>
+
                 {phase === 'countdown' && countdown > 0 && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
                     <span className="text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
@@ -331,6 +349,11 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                 <div className="absolute bottom-3 left-0 right-0 flex justify-center z-10">
                   <div className="bg-black/60 rounded-xl px-5 py-3 text-center max-w-xs">
                     <p className="text-white text-base font-bold">{statusMsg}</p>
+                    <p className="text-white/70 text-xs mt-1">
+                      {currentAngle === 0 && 'Posiciona tu cara dentro del ovalo de frente'}
+                      {currentAngle === 1 && 'Gira tu cara lentamente a la IZQUIERDA'}
+                      {currentAngle === 2 && 'Gira tu cara lentamente a la DERECHA'}
+                    </p>
                   </div>
                 </div>
               </div>
