@@ -38,6 +38,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   const photosRef = useRef<Record<string, string>>({});
   const angleRef = useRef(0);
   const phaseRef = useRef('loading');
+  const startCaptureRef = useRef<() => void>(() => {});
+  const doLoginRef = useRef<(photos: Record<string, string>) => void>(() => {});
 
   photosRef.current = capturedPhotos;
   angleRef.current = currentAngle;
@@ -122,7 +124,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
               setStatusMsg('Posicion correcta - Capturando...');
               alive = false;
               if (intervalRef.current) clearInterval(intervalRef.current);
-              setTimeout(() => startCapture(), 300);
+              setTimeout(() => startCaptureRef.current(), 300);
               return;
             }
           } else {
@@ -173,7 +175,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
             goodFramesRef.current = 0;
             setPhase('scanning');
           } else if (mode === 'login') {
-            doLogin(newPhotos);
+            doLoginRef.current(newPhotos);
           } else if (mode === 'register' && usuarioId) {
             setPhase('processing');
             doRegister(newPhotos);
@@ -201,7 +203,9 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       timerRef.current = setTimeout(tick, 700);
     };
     timerRef.current = setTimeout(tick, 700);
-  }, [mode, onCapture, usuarioId, doLogin]);
+  }, [mode, onCapture, usuarioId]);
+
+  startCaptureRef.current = startCapture;
 
   const doRegister = useCallback(async (photos: Record<string, string>) => {
     setPhase('processing');
@@ -242,6 +246,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       setPhase('error');
     }
   }, [onLoginMatch, stopAll]);
+
+  doLoginRef.current = doLogin;
 
   const handleClose = () => { stopAll(); onClose(); };
 
