@@ -9,6 +9,25 @@ const UMBRAL = 0.35;
 const UMBRAL_GAP = 0.08;
 const MIN_MATCHES = 2;
 
+function parseBody(req) {
+  return new Promise((resolve, reject) => {
+    if (req.body) {
+      if (typeof req.body === 'string') {
+        try { resolve(JSON.parse(req.body)); } catch { resolve({}); }
+      } else {
+        resolve(req.body);
+      }
+      return;
+    }
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try { resolve(JSON.parse(body)); } catch { resolve({}); }
+    });
+    req.on('error', reject);
+  });
+}
+
 function cosineDistance(a, b) {
   let dot = 0, normA = 0, normB = 0;
   for (let i = 0; i < a.length; i++) {
@@ -40,10 +59,11 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'POST' && action === 'register') {
     try {
-      console.log('[face] register body:', JSON.stringify({ usuario_id: req.body?.usuario_id, hasEmbeddings: !!req.body?.embeddings, embeddingsKeys: req.body?.embeddings ? Object.keys(req.body.embeddings) : null }));
-      const { usuario_id, embeddings } = req.body;
+      const body = await parseBody(req);
+      console.log('[face] register body:', JSON.stringify({ usuario_id: body.usuario_id, hasEmbeddings: !!body.embeddings }));
+
+      const { usuario_id, embeddings } = body;
       if (!usuario_id || !embeddings) {
-        console.log('[face] register FAIL: usuario_id=', usuario_id, 'embeddings=', embeddings);
         return res.status(400).json({ error: 'Faltan datos' });
       }
 
@@ -74,10 +94,11 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'POST' && action === 'login') {
     try {
-      console.log('[face] login body:', JSON.stringify({ hasEmbeddings: !!req.body?.embeddings, count: req.body?.embeddings?.length }));
-      const { embeddings } = req.body;
+      const body = await parseBody(req);
+      console.log('[face] login body:', JSON.stringify({ hasEmbeddings: !!body.embeddings, count: body.embeddings?.length }));
+
+      const { embeddings } = body;
       if (!embeddings || embeddings.length === 0) {
-        console.log('[face] login FAIL: embeddings=', embeddings);
         return res.status(400).json({ error: 'Faltan embeddings' });
       }
 
