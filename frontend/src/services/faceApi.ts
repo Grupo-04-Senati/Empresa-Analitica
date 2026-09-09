@@ -37,10 +37,13 @@ export async function faceApiRegister(
       return { ok: false, error: 'No se detecto rostro en al menos 2 fotos' };
     }
 
+    const body = { usuario_id: usuarioId, embeddings };
+    console.log('[faceApi] register body:', JSON.stringify({ usuario_id: usuarioId, embeddingsKeys: Object.keys(embeddings), embeddingsValues: Object.values(embeddings).map(e => e ? e.length : null) }));
+
     const res = await fetch(apiUrl('register'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ usuario_id: usuarioId, embeddings }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -64,6 +67,8 @@ export async function faceApiLogin(
     if (embList.length === 0) {
       return { ok: false, error: 'No se detecto ningun rostro' };
     }
+
+    console.log('[faceApi] login embeddings:', embList.length, 'dims:', embList[0]?.length);
 
     const res = await fetch(apiUrl('login'), {
       method: 'POST',
