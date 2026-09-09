@@ -502,6 +502,7 @@ export async function registerFace(
 
 const UMBRAL = 0.30;
 const GAP_MINIMO = 0.06;
+const MIN_MATCHES_POR_USUARIO = 2;
 
 export async function loginByFace(
   photos: Record<string, string>
@@ -537,44 +538,44 @@ export async function loginByFace(
       return { ok: false, error: 'No hay usuarios con rostro registrado' };
     }
 
-    const userBestDist: Record<number, { dist: number; embIdx: number; regIdx: number }> = {};
+    const userMatches: Record<number, number[]> = {};
 
     for (let eIdx = 0; eIdx < embeddings.length; eIdx++) {
       for (let rIdx = 0; rIdx < rostros.length; rIdx++) {
         const dist = cosineDistance(embeddings[eIdx], rostros[rIdx].embedding);
         const uid = rostros[rIdx].usuario_id;
-        if (!userBestDist[uid] || dist < userBestDist[uid].dist) {
-          userBestDist[uid] = { dist, embIdx: eIdx, regIdx: rIdx };
+        if (dist <= UMBRAL) {
+          if (!userMatches[uid]) userMatches[uid] = [];
+          userMatches[uid].push(dist);
         }
       }
     }
 
-    let bestUserId = -1;
-    let bestDist = Infinity;
-    let secondBestDist = Infinity;
+    const eligibleUsers = Object.entries(userMatches)
+      .filter(([, dists]) => dists.length >= MIN_MATCHES_POR_USUARIO)
+      .map(([uid, dists]) => ({
+        userId: Number(uid),
+        bestDist: Math.min(...dists),
+        matchCount: dists.length,
+      }));
 
-    for (const [uid, data] of Object.entries(userBestDist)) {
-      if (data.dist < bestDist) {
-        secondBestDist = bestDist;
-        bestDist = data.dist;
-        bestUserId = Number(uid);
-      } else if (data.dist < secondBestDist) {
-        secondBestDist = data.dist;
-      }
+    if (eligibleUsers.length === 0) {
+      return { ok: false, error: 'Rostro no reconocido' };
     }
 
-    if (bestDist > UMBRAL) {
-      return { ok: false, error: `Rostro no reconocido` };
-    }
+    eligibleUsers.sort((a, b) => a.bestDist - b.bestDist);
 
-    if (secondBestDist - bestDist < GAP_MINIMO) {
+    const best = eligibleUsers[0];
+    const second = eligibleUsers.length > 1 ? eligibleUsers[1] : null;
+
+    if (second && (second.bestDist - best.bestDist) < GAP_MINIMO) {
       return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
     }
 
     const { data: usuario } = await supabase
       .from('usuarios')
       .select('id, nombre, email')
-      .eq('id', bestUserId)
+      .eq('id', best.userId)
       .limit(1);
 
     if (!usuario || usuario.length === 0) {
