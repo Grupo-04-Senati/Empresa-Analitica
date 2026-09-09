@@ -38,7 +38,7 @@ export async function detectFace(input: HTMLVideoElement | HTMLCanvasElement): P
     const inputSize = shortSide > 500 ? 416 : 320;
 
     const detections = await (faceapi as any)
-      .detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.6 }))
+      .detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
       .withFaceLandmarks();
 
     if (!detections || detections.length === 0) {
@@ -200,11 +200,11 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
       const detection = await (faceapi as any)
-        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.6 }))
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
-      if (detection && detection.detection.score >= 0.6) {
+      if (detection && detection.detection.score >= 0.4) {
         const descriptor = detection.descriptor as Float32Array;
         const embedding: number[] = Array.from(descriptor);
         const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
@@ -289,7 +289,7 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
 
   try {
     const det = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
       .withFaceLandmarks();
     if (det) {
       detected = true;
@@ -327,7 +327,7 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
 export async function checkAngle(input: HTMLVideoElement | HTMLCanvasElement, angle: string): Promise<{ ok: boolean }> {
   try {
     const detection = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
       .withFaceLandmarks();
 
     if (!detection) return { ok: false };
@@ -377,12 +377,12 @@ function landmarkDistance(a: number[], b: number[]): number {
 async function generateFullDescriptor(input: HTMLVideoElement | HTMLCanvasElement): Promise<{ embedding: number[]; landmarks: number[]; score: number } | null> {
   try {
     const detection = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.6 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
       .withFaceLandmarks()
       .withFaceDescriptor();
 
     if (!detection) return null;
-    if (detection.detection.score < 0.6) return null;
+    if (detection.detection.score < 0.4) return null;
 
     const descriptor = detection.descriptor as Float32Array;
     const embedding: number[] = Array.from(descriptor);
@@ -408,7 +408,7 @@ async function detectBlink(video: HTMLVideoElement, frameCount: number = 10): Pr
 
     try {
       const det = await (faceapi as any)
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
         .withFaceLandmarks();
 
       if (det) {

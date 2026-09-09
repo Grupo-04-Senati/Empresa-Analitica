@@ -110,10 +110,10 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         setQuality(q);
 
         if (phaseRef.current === 'scanning') {
-          if (q.score >= 0.6 && q.detected && q.centered && q.angleOk) {
+          if (q.score >= 0.4 && q.detected && q.centered) {
             goodFramesRef.current++;
             setStatusMsg(q.message || 'Detectando...');
-            if (goodFramesRef.current >= 3) {
+            if (goodFramesRef.current >= 2) {
               goodFramesRef.current = 0;
               setStatusMsg('Posicion correcta - Capturando...');
               alive = false;
@@ -293,21 +293,59 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                 <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
 
                 <div className="absolute inset-0 flex items-center justify-center z-5 pointer-events-none">
-                  <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
-                    quality?.detected && quality?.centered ? 'text-green-400' :
-                    quality?.detected ? 'text-yellow-400' : 'text-white/60'
-                  }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
-                    <path d="M60 95 Q65 80 75 78" strokeWidth="2" />
-                    <path d="M140 95 Q135 80 125 78" strokeWidth="2" />
-                    <circle cx="78" cy="98" r="3" fill="currentColor" stroke="none" />
-                    <circle cx="122" cy="98" r="3" fill="currentColor" stroke="none" />
-                    <path d="M92 120 Q100 128 108 120" strokeWidth="2" />
-                    <line x1="100" y1="112" x2="100" y2="122" strokeWidth="2" />
-                    <path d="M85 145 Q100 158 115 145" strokeWidth="2" />
-                    <path d="M35 85 Q30 110 35 140" strokeWidth="2" strokeDasharray="6 4" />
-                    <path d="M165 85 Q170 110 165 140" strokeWidth="2" strokeDasharray="6 4" />
-                  </svg>
+                  {currentAngle === 0 && (
+                    <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
+                      quality?.detected && quality?.centered ? 'text-green-400' :
+                      quality?.detected ? 'text-yellow-400' : 'text-white/60'
+                    }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
+                      <path d="M60 95 Q65 80 75 78" strokeWidth="2" />
+                      <path d="M140 95 Q135 80 125 78" strokeWidth="2" />
+                      <circle cx="78" cy="98" r="3" fill="currentColor" stroke="none" />
+                      <circle cx="122" cy="98" r="3" fill="currentColor" stroke="none" />
+                      <path d="M92 120 Q100 128 108 120" strokeWidth="2" />
+                      <line x1="100" y1="112" x2="100" y2="122" strokeWidth="2" />
+                      <path d="M85 145 Q100 158 115 145" strokeWidth="2" />
+                      <path d="M35 85 Q30 110 35 140" strokeWidth="2" strokeDasharray="6 4" />
+                      <path d="M165 85 Q170 110 165 140" strokeWidth="2" strokeDasharray="6 4" />
+                    </svg>
+                  )}
+                  {currentAngle === 1 && (
+                    <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
+                      quality?.angleOk ? 'text-green-400' :
+                      quality?.detected ? 'text-yellow-400' : 'text-white/60'
+                    }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
+                      <path d="M55 92 Q62 76 74 76" strokeWidth="2" />
+                      <path d="M130 88 Q124 76 116 78" strokeWidth="2" />
+                      <circle cx="72" cy="95" r="3" fill="currentColor" stroke="none" />
+                      <circle cx="112" cy="98" r="3" fill="currentColor" stroke="none" />
+                      <path d="M88 118 Q96 126 106 120" strokeWidth="2" />
+                      <line x1="96" y1="110" x2="98" y2="122" strokeWidth="2" />
+                      <path d="M80 144 Q96 156 112 144" strokeWidth="2" />
+                      <path d="M30 82 Q24 110 30 140" strokeWidth="2" strokeDasharray="6 4" />
+                      <path d="M160 82 Q168 110 162 140" strokeWidth="2" strokeDasharray="6 4" />
+                      <path d="M170 100 L185 95 L185 105 Z" fill="currentColor" stroke="none" opacity="0.5" />
+                    </svg>
+                  )}
+                  {currentAngle === 2 && (
+                    <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
+                      quality?.angleOk ? 'text-green-400' :
+                      quality?.detected ? 'text-yellow-400' : 'text-white/60'
+                    }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
+                      <path d="M70 88 Q76 76 84 78" strokeWidth="2" />
+                      <path d="M145 92 Q138 76 126 76" strokeWidth="2" />
+                      <circle cx="88" cy="98" r="3" fill="currentColor" stroke="none" />
+                      <circle cx="128" cy="95" r="3" fill="currentColor" stroke="none" />
+                      <path d="M94 120 Q104 126 112 118" strokeWidth="2" />
+                      <line x1="102" y1="110" x2="100" y2="122" strokeWidth="2" />
+                      <path d="M88 144 Q104 156 120 144" strokeWidth="2" />
+                      <path d="M40 82 Q32 110 38 140" strokeWidth="2" strokeDasharray="6 4" />
+                      <path d="M170 82 Q176 110 170 140" strokeWidth="2" strokeDasharray="6 4" />
+                      <path d="M30 100 L15 95 L15 105 Z" fill="currentColor" stroke="none" opacity="0.5" />
+                    </svg>
+                  )}
                 </div>
 
                 {phase === 'countdown' && countdown > 0 && (
