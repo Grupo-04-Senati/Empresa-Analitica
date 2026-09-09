@@ -310,14 +310,13 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
 
   let score = 0;
   let message = 'Detectando...';
-  if (detected) score += 0.4;
-  if (centered) score += 0.3;
-  if (angleOk) score += 0.3;
+  if (detected) score += 0.5;
+  if (centered) score += 0.25;
+  if (angleOk) score += 0.25;
   if (brightness < 50) { message = 'Muy oscuro'; }
   else if (brightness > 210) { message = 'Muy brillante'; }
   else if (blur < 8) { message = 'Imagen borrosa'; }
   else if (!detected) { message = 'Buscando rostro...'; }
-  else if (!centered) { message = 'Centra tu cara'; }
   else if (!angleOk) { message = 'Ajusta el angulo'; }
   else { message = 'Buena calidad'; }
 

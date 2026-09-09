@@ -110,7 +110,11 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         setQuality(q);
 
         if (phaseRef.current === 'scanning') {
-          if (q.score >= 0.4 && q.detected && q.centered) {
+          const angleKey = ANGLES[angleRef.current]?.key;
+          const needsCentered = angleKey === 'frontal';
+          const isGood = q.detected && (needsCentered ? q.centered : true) && q.score >= 0.3;
+
+          if (isGood) {
             goodFramesRef.current++;
             setStatusMsg(q.message || 'Detectando...');
             if (goodFramesRef.current >= 2) {
