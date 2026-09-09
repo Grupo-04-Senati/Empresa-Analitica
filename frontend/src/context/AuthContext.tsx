@@ -332,20 +332,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Tu cuenta esta desactivada. Contacta al administrador.' };
     }
 
-    try {
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        email: profile.email,
-        options: { shouldCreateUser: false },
-      });
-
-      if (!otpError) {
-        logAudit({ accion: 'LOGIN', tabla: 'usuarios', registro_id: profile.id, usuario_email: profile.email, modulo: 'Auth', detalles: 'Login facial - magic link enviado a: ' + profile.email });
-        return { success: true, message: `Se envio un enlace de sesion a ${profile.email}. Revisa tu correo.` };
-      }
-    } catch (e) {
-      console.warn('OTP fallback:', e);
-    }
-
     const userProfile: UserProfile = {
       id: String(profile.id),
       nombre: profile.nombre || profile.email.split('@')[0],
