@@ -189,6 +189,38 @@ function cosineDistance(a: number[], b: number[]): number {
   return 1 - Math.max(-1, Math.min(1, similarity));
 }
 
+export async function extractEmbeddings(photos: Record<string, string>): Promise<{ frontal: number[] | null; izquierda: number[] | null; derecha: number[] | null }> {
+  const result: { frontal: number[] | null; izquierda: number[] | null; derecha: number[] | null } = { frontal: null, izquierda: null, derecha: null };
+
+  for (const [angle, dataUrl] of Object.entries(photos)) {
+    if (!dataUrl || !result.hasOwnProperty(angle)) continue;
+    try {
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise<void>((resolve) => { img.onload = () => resolve(); });
+
+      const detection = await (faceapi as any)
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (detection && detection.detection.score >= 0.5) {
+        const descriptor = detection.descriptor as Float32Array;
+        const embedding: number[] = Array.from(descriptor);
+        const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
+        if (norm > 0) {
+          for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
+        }
+        (result as any)[angle] = embedding;
+      }
+    } catch (e) {
+      console.error(`[face] Error extracting ${angle}:`, e);
+    }
+  }
+
+  return result;
+}
+
 export async function hasFaceRegistered(userId: number): Promise<boolean> {
   const { data } = await supabase
     .from('rostros')
