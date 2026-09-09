@@ -5,7 +5,7 @@ const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const sb = createClient(URL, KEY);
 
-const UMBRAL = 0.35;
+const UMBRAL = 0.45;
 const UMBRAL_GAP = 0.08;
 const MIN_MATCHES = 2;
 

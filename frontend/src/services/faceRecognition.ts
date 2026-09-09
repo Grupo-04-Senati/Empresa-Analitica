@@ -38,7 +38,7 @@ export async function detectFace(input: HTMLVideoElement | HTMLCanvasElement): P
     const inputSize = shortSide > 500 ? 416 : 320;
 
     const detections = await (faceapi as any)
-      .detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
+      .detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
       .withFaceLandmarks();
 
     if (!detections || detections.length === 0) {
@@ -132,7 +132,7 @@ export async function faceScanLoop(
       continue;
     }
 
-    if (result.score < 0.4) {
+    if (result.score < 0.3) {
       onProgress(capturedAngles.size, 'Mira directamente a la camara');
       continue;
     }
@@ -200,11 +200,11 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
       const detection = await (faceapi as any)
-        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
-      if (detection && detection.detection.score >= 0.4) {
+      if (detection && detection.detection.score >= 0.3) {
         const descriptor = detection.descriptor as Float32Array;
         const embedding: number[] = Array.from(descriptor);
         const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
@@ -289,7 +289,7 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
 
   try {
     const det = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
       .withFaceLandmarks();
     if (det) {
       detected = true;
@@ -326,7 +326,7 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
 export async function checkAngle(input: HTMLVideoElement | HTMLCanvasElement, angle: string): Promise<{ ok: boolean }> {
   try {
     const detection = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
       .withFaceLandmarks();
 
     if (!detection) return { ok: false };
@@ -376,12 +376,12 @@ function landmarkDistance(a: number[], b: number[]): number {
 async function generateFullDescriptor(input: HTMLVideoElement | HTMLCanvasElement): Promise<{ embedding: number[]; landmarks: number[]; score: number } | null> {
   try {
     const detection = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
       .withFaceLandmarks()
       .withFaceDescriptor();
 
     if (!detection) return null;
-    if (detection.detection.score < 0.4) return null;
+    if (detection.detection.score < 0.3) return null;
 
     const descriptor = detection.descriptor as Float32Array;
     const embedding: number[] = Array.from(descriptor);
@@ -407,7 +407,7 @@ async function detectBlink(video: HTMLVideoElement, frameCount: number = 10): Pr
 
     try {
       const det = await (faceapi as any)
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
         .withFaceLandmarks();
 
       if (det) {
@@ -442,43 +442,46 @@ export async function registerFace(
   photos: Record<string, string>
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const samples: { embedding: number[]; landmarks: number[]; score: number }[] = [];
+    const embeddings: { frontal: number[] | null; izquierda: number[] | null; derecha: number[] | null } = { frontal: null, izquierda: null, derecha: null };
 
-    for (const dataUrl of Object.values(photos)) {
-      if (!dataUrl) continue;
-      const img = new Image();
-      img.src = dataUrl;
-      await new Promise<void>((resolve) => { img.onload = () => resolve(); });
+    for (const [angle, dataUrl] of Object.entries(photos)) {
+      if (!dataUrl || !embeddings.hasOwnProperty(angle)) continue;
+      try {
+        const img = new Image();
+        img.src = dataUrl;
+        await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
 
-      const desc = await generateFullDescriptor(canvas);
-      if (desc && desc.score >= 0.65) {
-        samples.push(desc);
+        const desc = await generateFullDescriptor(canvas);
+        if (desc && desc.score >= 0.35) {
+          (embeddings as any)[angle] = desc.embedding;
+        }
+      } catch (e) {
+        console.error(`[face] Error extracting ${angle}:`, e);
       }
     }
 
-    if (samples.length < 3) {
-      return { ok: false, error: 'Se necesitan 3 fotos con calidad alta. Mira directamente a la camara.' };
-    }
-
-    const avgScore = samples.reduce((s, d) => s + d.score, 0) / samples.length;
-    if (avgScore < 0.7) {
-      return { ok: false, error: 'Calidad insuficiente. Acercate mas a la camara y mira al frente.' };
+    const validCount = Object.values(embeddings).filter(e => e !== null).length;
+    if (validCount < 2) {
+      return { ok: false, error: 'Se necesitan al menos 2 fotos con rostro detectado.' };
     }
 
     await supabase.from('rostros').delete().eq('usuario_id', userId);
 
-    for (const s of samples) {
-      await supabase.from('rostros').insert({
-        usuario_id: userId,
-        embedding: s.embedding,
-        foto_preview: null,
-      });
+    const { error } = await supabase.from('rostros').insert({
+      usuario_id: userId,
+      embedding_frontal: embeddings.frontal,
+      embedding_izquierda: embeddings.izquierda,
+      embedding_derecha: embeddings.derecha,
+    });
+
+    if (error) {
+      return { ok: false, error: 'Error guardando en servidor: ' + error.message };
     }
 
     return { ok: true };
@@ -487,83 +490,84 @@ export async function registerFace(
   }
 }
 
-const UMBRAL_EMBEDDING = 0.18;
-const UMBRAL_LANDMARK = 0.12;
-const MIN_MATCHES = 3;
+const UMBRAL_EMBEDDING = 0.45;
+const MIN_MATCHES = 2;
 
 export async function loginByFace(
   photos: Record<string, string>
 ): Promise<{ ok: boolean; usuario_id?: number; nombre?: string; email?: string; error?: string }> {
   try {
-    const loginDescriptors: { embedding: number[]; landmarks: number[]; score: number }[] = [];
+    const loginEmbeddings: number[][] = [];
 
     for (const dataUrl of Object.values(photos)) {
       if (!dataUrl) continue;
-      const img = new Image();
-      img.src = dataUrl;
-      await new Promise<void>((resolve) => { img.onload = () => resolve(); });
+      try {
+        const img = new Image();
+        img.src = dataUrl;
+        await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
 
-      const desc = await generateFullDescriptor(canvas);
-      if (desc) loginDescriptors.push(desc);
+        const desc = await generateFullDescriptor(canvas);
+        if (desc) loginEmbeddings.push(desc.embedding);
+      } catch {}
     }
 
-    if (loginDescriptors.length === 0) {
+    if (loginEmbeddings.length === 0) {
       return { ok: false, error: 'No se detecto ningun rostro' };
     }
 
     const { data: rostros } = await supabase
       .from('rostros')
-      .select('usuario_id, embedding');
+      .select('usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha');
 
     if (!rostros || rostros.length === 0) {
       return { ok: false, error: 'No hay usuarios con rostro registrado. Registrate primero.' };
     }
 
-    const userEmbDistances: Record<number, number[]> = {};
-    const userLandmarkDistances: Record<number, number[]> = {};
+    const userScores: Record<number, number[]> = {};
 
-    for (const loginDesc of loginDescriptors) {
+    for (const loginEmb of loginEmbeddings) {
       for (const r of rostros) {
-        const embDist = cosineDistance(loginDesc.embedding, r.embedding);
         const uid = r.usuario_id;
-        if (!userEmbDistances[uid]) userEmbDistances[uid] = [];
-        userEmbDistances[uid].push(embDist);
+        for (const key of ['embedding_frontal', 'embedding_izquierda', 'embedding_derecha']) {
+          const stored = r[key];
+          if (!stored) continue;
+          const dist = cosineDistance(loginEmb, stored);
+          if (!userScores[uid]) userScores[uid] = [];
+          userScores[uid].push(dist);
+        }
       }
     }
 
-    const embCandidates: { userId: number; bestEmbDist: number; matchCount: number }[] = [];
+    const results: { userId: number; bestDist: number; matchCount: number }[] = [];
 
-    for (const [uid, dists] of Object.entries(userEmbDistances)) {
-      const withinThreshold = dists.filter(d => d <= UMBRAL_EMBEDDING);
-      if (withinThreshold.length >= MIN_MATCHES) {
-        embCandidates.push({
+    for (const [uid, dists] of Object.entries(userScores)) {
+      const matches = dists.filter(d => d <= UMBRAL_EMBEDDING);
+      if (matches.length >= MIN_MATCHES) {
+        results.push({
           userId: Number(uid),
-          bestEmbDist: Math.min(...withinThreshold),
-          matchCount: withinThreshold.length,
+          bestDist: Math.min(...matches),
+          matchCount: matches.length,
         });
       }
     }
 
-    if (embCandidates.length === 0) {
+    if (results.length === 0) {
       return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
     }
 
-    embCandidates.sort((a, b) => a.bestEmbDist - b.bestEmbDist);
+    results.sort((a, b) => a.bestDist - b.bestDist);
 
-    if (embCandidates.length > 1) {
-      const gap = embCandidates[1].bestEmbDist - embCandidates[0].bestEmbDist;
-      if (gap < 0.08) {
-        return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
-      }
+    if (results.length > 1 && (results[1].bestDist - results[0].bestDist) < 0.08) {
+      return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
     }
 
-    const winner = embCandidates[0];
+    const winner = results[0];
     const { data: usuario } = await supabase
       .from('usuarios')
       .select('id, nombre, email')
