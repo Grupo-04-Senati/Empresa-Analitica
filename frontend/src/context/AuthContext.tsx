@@ -113,8 +113,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             rol: (profile.rol as UserRole) || 'usuario',
             activo: profile.activo ?? true,
           });
+          localStorage.removeItem('nexus_face_session');
         }
       } else {
+        const faceSession = localStorage.getItem('nexus_face_session');
+        if (faceSession) return;
         setUser(null);
       }
     });
@@ -129,8 +132,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const checkUserExists = async () => {
       if (dead) return;
       try {
+        const faceSession = localStorage.getItem('nexus_face_session');
         const { data: sessionData } = await auth.getSession();
-        if (!sessionData.session) {
+        if (!sessionData.session && !faceSession) {
           dead = true;
           console.log('[auth] SESSION DEAD -> signing out');
           setUser(null);
@@ -138,8 +142,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
+        if (faceSession && !sessionData.session) return;
+
         const { data: authUser } = await auth.getUser();
-        if (!authUser.user) {
+        if (!authUser.user && !faceSession) {
           dead = true;
           console.log('[auth] AUTH USER GONE -> signing out');
           setUser(null);
