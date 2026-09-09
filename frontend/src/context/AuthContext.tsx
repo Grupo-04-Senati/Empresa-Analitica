@@ -32,13 +32,16 @@ function isAdminRole(rol: string): boolean {
   return r === 'admin' || r === 'analista' || r === 'supervisor';
 }
 
+const FACE_KEY = 'nexus_face_session';
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const registeringRef = useRef(false);
+  const faceLockRef = useRef(false);
 
   useEffect(() => {
-    const initSession = async () => {
+    const init = async () => {
       try {
         const { data: { session } } = await auth.getSession();
         if (session?.user?.email) {
@@ -48,55 +51,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .select('id, nombre, email, rol, activo')
             .eq('email', email)
             .maybeSingle();
-
           if (profile) {
-            const activeProfile: UserProfile = {
+            setUser({
               id: String(profile.id),
               nombre: profile.nombre || email.split('@')[0],
               email,
               rol: (profile.rol as UserRole) || 'usuario',
               activo: profile.activo ?? true,
-            };
-            setUser(activeProfile);
+            });
             return;
           }
         }
 
-        const faceSession = localStorage.getItem('nexus_face_session');
-        if (faceSession) {
-          try {
-            const faceUser: UserProfile = JSON.parse(faceSession);
-            const { data: profile } = await supabase
-              .from('usuarios')
-              .select('id, nombre, email, rol, activo')
-              .eq('id', Number(faceUser.id))
-              .maybeSingle();
-
-            if (profile && profile.activo) {
-              const restored: UserProfile = {
-                id: String(profile.id),
-                nombre: profile.nombre || faceUser.email.split('@')[0],
-                email: profile.email.toLowerCase(),
-                rol: (profile.rol as UserRole) || 'usuario',
-                activo: true,
-              };
-              setUser(restored);
-              return;
-            }
-          } catch {
-            localStorage.removeItem('nexus_face_session');
+        const raw = localStorage.getItem(FACE_KEY);
+        if (raw) {
+          const parsed: UserProfile = JSON.parse(raw);
+          const { data: profile } = await supabase
+            .from('usuarios')
+            .select('id, nombre, email, rol, activo')
+            .eq('id', Number(parsed.id))
+            .maybeSingle();
+          if (profile && profile.activo) {
+            faceLockRef.current = true;
+            setUser({
+              id: String(profile.id),
+              nombre: profile.nombre || parsed.email.split('@')[0],
+              email: profile.email.toLowerCase(),
+              rol: (profile.rol as UserRole) || 'usuario',
+              activo: true,
+            });
+            return;
           }
+          localStorage.removeItem(FACE_KEY);
         }
-      } catch (err) {
-        console.warn('Session init error:', err);
+      } catch (e) {
+        console.warn('[auth] init error:', e);
       } finally {
         setLoading(false);
       }
     };
-    initSession();
+    init();
+  }, []);
 
+  useEffect(() => {
     const { data: { subscription } } = auth.onAuthStateChange(async (_event, session) => {
       if (registeringRef.current) return;
+      if (faceLockRef.current) return;
+
       if (session?.user?.email) {
         const email = session.user.email.toLowerCase();
         const { data: profile } = await supabase
@@ -104,7 +105,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .select('id, nombre, email, rol, activo')
           .eq('email', email)
           .maybeSingle();
-
         if (profile) {
           setUser({
             id: String(profile.id),
@@ -113,15 +113,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             rol: (profile.rol as UserRole) || 'usuario',
             activo: profile.activo ?? true,
           });
-          localStorage.removeItem('nexus_face_session');
+          localStorage.removeItem(FACE_KEY);
         }
       } else {
-        const faceSession = localStorage.getItem('nexus_face_session');
-        if (faceSession) return;
-        setUser(null);
+        if (!faceLockRef.current) {
+          setUser(null);
+        }
       }
     });
-
     return () => { subscription?.unsubscribe(); };
   }, []);
 
@@ -129,31 +128,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return;
     let dead = false;
 
-    const checkUserExists = async () => {
-      if (dead) return;
+    const check = async () => {
+      if (dead || faceLockRef.current) return;
       try {
-        const faceSession = localStorage.getItem('nexus_face_session');
         const { data: sessionData } = await auth.getSession();
-        if (!sessionData.session && !faceSession) {
+        if (!sessionData.session) {
           dead = true;
-          console.log('[auth] SESSION DEAD -> signing out');
           setUser(null);
-          window.location.replace('/login');
           return;
         }
-
-        if (faceSession && !sessionData.session) return;
-
         const { data: authUser } = await auth.getUser();
-        if (!authUser.user && !faceSession) {
+        if (!authUser.user) {
           dead = true;
-          console.log('[auth] AUTH USER GONE -> signing out');
-          setUser(null);
           await supabase.auth.signOut();
-          window.location.replace('/login');
+          setUser(null);
           return;
         }
-
         const { data } = await supabase
           .from('usuarios')
           .select('id')
@@ -161,7 +151,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .maybeSingle();
         if (!data && !dead) {
           dead = true;
-          console.log('[auth] TABLE USER GONE -> cleaning auth + signing out');
           const adminKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
           const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
           if (adminKey && supabaseUrl && authUser.user) {
@@ -170,22 +159,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               headers: { apikey: adminKey, Authorization: `Bearer ${adminKey}` },
             });
           }
-          setUser(null);
           await supabase.auth.signOut();
-          window.location.replace('/login');
+          setUser(null);
         }
       } catch (e) {
-        console.log('[auth] check error:', e);
+        console.warn('[auth] check error:', e);
       }
     };
 
-    checkUserExists();
-    const interval = setInterval(checkUserExists, 3000);
-
-    return () => {
-      dead = true;
-      clearInterval(interval);
-    };
+    check();
+    const interval = setInterval(check, 5000);
+    return () => { dead = true; clearInterval(interval); };
   }, [user?.id]);
 
   const registerUser = useCallback(async (data: { nombre: string; email: string; password: string; rol?: UserRole }) => {
@@ -301,7 +285,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!profile.activo) {
       await auth.signOut();
-      return { success: false, message: 'Tu cuenta está desactivada. Contacta al administrador.' };
+      return { success: false, message: 'Tu cuenta esta desactivada. Contacta al administrador.' };
     }
 
     const userProfile: UserProfile = {
@@ -339,17 +323,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       rol: (profile.rol as UserRole) || 'usuario',
       activo: true,
     };
+
+    localStorage.setItem(FACE_KEY, JSON.stringify(userProfile));
+    faceLockRef.current = true;
     setUser(userProfile);
-    localStorage.setItem('nexus_face_session', JSON.stringify(userProfile));
     logAudit({ accion: 'LOGIN', tabla: 'usuarios', registro_id: profile.id, usuario_email: profile.email, modulo: 'Auth', detalles: 'Login por reconocimiento facial: ' + profile.email });
     return { success: true };
   }, []);
 
   const logout = useCallback(async () => {
+    faceLockRef.current = false;
+    localStorage.removeItem(FACE_KEY);
     if (user) {
       logAudit({ accion: 'LOGOUT', tabla: 'usuarios', usuario_id: Number(user.id) || undefined, usuario_email: user.email, modulo: 'Auth', detalles: 'Logout: ' + user.email });
     }
-    localStorage.removeItem('nexus_face_session');
     try { await auth.signOut(); } catch {}
     setUser(null);
   }, [user]);
