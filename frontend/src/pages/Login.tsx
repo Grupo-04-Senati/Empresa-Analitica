@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { AlertCircle, CheckCircle, Eye, EyeOff, Loader2, BrainCircuit, Shield, Zap, ArrowRight, Scan } from 'lucide-react';
 import { FaceCapture } from '../components/FaceCapture';
 import { hasAnyFaceRegistered } from '../services/faceRecognition';
+import { faceApiCheckRegistered, faceApiHealth } from '../services/faceApi';
 
 const Particles = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -73,15 +74,21 @@ export const Login: React.FC = () => {
     setFaceChecking(true);
     setErrorMsg('');
     try {
-      const hasFaces = await hasAnyFaceRegistered();
-      if (!hasFaces) {
-        setErrorMsg('No hay usuarios con rostro registrado. Primero debes registrarte con tu rostro desde "Crear Cuenta".');
+      const backendOk = await faceApiHealth();
+      if (!backendOk) {
+        setErrorMsg('Servidor de reconocimiento facial no disponible. Usa email y contrasena.');
+        setFaceChecking(false);
+        return;
+      }
+      const count = await faceApiCheckRegistered();
+      if (count === 0) {
+        setErrorMsg('No hay usuarios con rostro registrado. Primero debes registrarte desde "Crear Cuenta".');
         setFaceChecking(false);
         return;
       }
       setShowFaceLogin(true);
     } catch {
-      setErrorMsg('Error al verificar rostros registrados.');
+      setErrorMsg('Error al verificar el servidor de reconocimiento.');
     } finally {
       setFaceChecking(false);
     }

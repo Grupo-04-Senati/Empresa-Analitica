@@ -2,9 +2,8 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Camera, X, CheckCircle, AlertCircle, Loader2, Shield, Eye, Scan } from 'lucide-react';
 import {
   loadFaceModels, detectFace, analyzeFaceQuality, checkAngle,
-  registerFace, loginByFace, hasAnyFaceRegistered,
-  type FaceQuality,
 } from '../services/faceRecognition';
+import { faceApiRegister, faceApiLogin, faceApiCheckRegistered } from '../services/faceApi';
 
 interface FaceCaptureProps {
   mode: 'register' | 'login';
@@ -20,14 +19,14 @@ const ANGLES = [
   { key: 'derecha', label: 'Derecha', instruction: 'Gira a la DERECHA' },
 ];
 
-export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, onCapture, onLoginMatch, onClose }) => {
+export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCapture, onLoginMatch, onClose }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [phase, setPhase] = useState<'loading' | 'scanning' | 'countdown' | 'processing' | 'done' | 'error'>('loading');
   const [currentAngle, setCurrentAngle] = useState(0);
   const [countdown, setCountdown] = useState(0);
   const [capturedPhotos, setCapturedPhotos] = useState<Record<string, string>>({});
-  const [quality, setQuality] = useState<FaceQuality | null>(null);
+  const [quality, setQuality] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [statusMsg, setStatusMsg] = useState('Buscando rostro...');
@@ -181,7 +180,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, onCapture, onLog
             setPhase('scanning');
           } else if (mode === 'register') {
             setPhase('processing');
-            if (onCapture) onCapture(newPhotos);
+            doRegister(newPhotos);
           } else {
             doLogin(newPhotos);
           }
@@ -202,50 +201,31 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, onCapture, onLog
     timerRef.current = setTimeout(tick, 700);
   }, [mode, onCapture]);
 
-  const doLogin = useCallback(async (photos: Record<string, string>) => {
+  const doRegister = useCallback(async (photos: Record<string, string>) => {
     setPhase('processing');
     try {
-      const video = videoRef.current;
-      let blinkDetected = false;
-
-      if (video && video.readyState >= 2) {
-        setStatusMsg('Parpadea para verificar que eres real...');
-        const earHistory: number[] = [];
-        for (let i = 0; i < 15; i++) {
-          await new Promise<void>((r) => setTimeout(r, 150));
-          try {
-            const det = await (await import('face-api.js')).default
-              .detectSingleFace(video, new (await import('face-api.js')).default.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
-              .withFaceLandmarks();
-            if (det) {
-              const pts = det.landmarks.positions;
-              const leftEye = pts.slice(36, 42);
-              const rightEye = pts.slice(42, 48);
-              const eyeAspectRatio = (eye: { x: number; y: number }[]) => {
-                const v1 = Math.sqrt((eye[1].x - eye[5].x) ** 2 + (eye[1].y - eye[5].y) ** 2);
-                const v2 = Math.sqrt((eye[2].x - eye[4].x) ** 2 + (eye[2].y - eye[4].y) ** 2);
-                const h = Math.sqrt((eye[0].x - eye[3].x) ** 2 + (eye[0].y - eye[3].y) ** 2);
-                return (v1 + v2) / (2.0 * h);
-              };
-              const ear = (eyeAspectRatio(leftEye) + eyeAspectRatio(rightEye)) / 2;
-              earHistory.push(ear);
-            }
-          } catch {}
-        }
-        if (earHistory.length >= 3) {
-          const avgEar = earHistory.reduce((a, b) => a + b, 0) / earHistory.length;
-          const minEar = Math.min(...earHistory);
-          blinkDetected = minEar < avgEar * 0.7;
-        }
-      }
-
-      if (!blinkDetected) {
-        setErrorMsg('Debes parpadear una vez para verificar que eres una persona real.');
+      setStatusMsg('Enviando al servidor de reconocimiento facial...');
+      const result = await faceApiRegister(usuarioId!, photos);
+      if (!result.ok) {
+        setErrorMsg(result.error || 'Error registrando rostro');
         setPhase('error');
         return;
       }
+      setSuccessMsg('Rostro registrado correctamente');
+      setPhase('done');
+      stopAll();
+      if (onCapture) onCapture(photos);
+    } catch {
+      setErrorMsg('Error de conexion con el servidor');
+      setPhase('error');
+    }
+  }, [usuarioId, onCapture, stopAll]);
 
-      const result = await loginByFace(photos);
+  const doLogin = useCallback(async (photos: Record<string, string>) => {
+    setPhase('processing');
+    try {
+      setStatusMsg('Verificando identidad en el servidor...');
+      const result = await faceApiLogin(photos);
       if (!result.ok) {
         setErrorMsg(result.error || 'Rostro no reconocido');
         setPhase('error');
@@ -295,7 +275,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, onCapture, onLog
           {phase === 'processing' && (
             <div className="flex flex-col items-center py-12 gap-3">
               <Loader2 size={32} className="animate-spin text-blue-600" />
-              <p className="text-sm text-slate-500">{mode === 'register' ? 'Registrando tu rostro...' : 'Verificando identidad...'}</p>
+              <p className="text-sm text-slate-500">{statusMsg || (mode === 'register' ? 'Registrando tu rostro...' : 'Verificando identidad...')}</p>
             </div>
           )}
 
@@ -360,7 +340,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, onCapture, onLog
                   <div
                     className={`h-full rounded-full transition-all duration-300 ${
                       phase === 'countdown' ? 'bg-green-500' :
-                      (quality?.score || 0) >= 0.5 ? 'bg-blue-500' : 'bg-yellow-500'
+                      (quality?.score || 0) >= 0.6 ? 'bg-blue-500' : 'bg-yellow-500'
                     }`}
                     style={{
                       width: phase === 'countdown' ? '100%' :

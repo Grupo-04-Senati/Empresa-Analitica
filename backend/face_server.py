@@ -4,8 +4,8 @@ Corre en puerto 8001.
 
 Flujo:
   POST /face/register  - Recibe 3 imagenes (frontal, izquierda, derecha) + usuario_id
-                         Calcula embedding promedio de las 3 -> guarda en rostros
-  POST /face/login     - Recibe 3 imagenes -> compara promedio con todos los embeddings -> retorna usuario_id
+                         Guarda cada embedding por separado en su columna
+  POST /face/login     - Recibe 3 imagenes -> compara contra TODOS los embeddings de cada usuario -> retorna usuario_id
   DELETE /delete-account - Verifica contrasena -> borra de rostros, usuarios, auth.users
 """
 
@@ -38,7 +38,9 @@ SECRET = os.getenv("SUPABASE_SECRET_KEY")
 SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 sb = create_client(URL, SECRET)
 
-UMBRAL = 0.4
+UMBRAL = 0.35
+UMBRAL_GAP = 0.08
+MIN_MATCHES = 2
 
 _deepface = None
 
@@ -107,13 +109,6 @@ def obtener_embedding(frame):
     return None
 
 
-def promediar_embeddings(embeddings):
-    if not embeddings:
-        return None
-    avg = np.mean(embeddings, axis=0)
-    return avg
-
-
 def distancia(a, b):
     dot = np.dot(a, b)
     dot = np.clip(dot, -1.0, 1.0)
@@ -131,7 +126,7 @@ def check_registered():
     return {"count": len(rostros)}
 
 
-# ── FACE REGISTER (3 angulos) ─────────────────────────────────
+# ── FACE REGISTER (3 angulos separados) ───────────────────────
 
 class FaceRegisterReq(BaseModel):
     usuario_id: int
@@ -144,7 +139,8 @@ class FaceRegisterReq(BaseModel):
 def face_register(req: FaceRegisterReq):
     try:
         print(f"[face] Register called: usuario_id={req.usuario_id}")
-        embeddings = []
+
+        embeddings = {"frontal": None, "izquierda": None, "derecha": None}
         foto_preview = None
 
         for angle_name, angle_img in [("frontal", req.frontal), ("izquierda", req.izquierda), ("derecha", req.derecha)]:
@@ -156,7 +152,7 @@ def face_register(req: FaceRegisterReq):
 
                 emb = obtener_embedding(frame)
                 if emb is not None:
-                    embeddings.append(emb)
+                    embeddings[angle_name] = [float(x) for x in emb]
                     print(f"[face] Imagen {angle_name}: embedding OK (len={len(emb)})")
                     if angle_name == "frontal":
                         thumb = cv2.resize(frame, (100, 100))
@@ -168,31 +164,30 @@ def face_register(req: FaceRegisterReq):
                 print(f"[face] Error procesando {angle_name}: {e}")
                 traceback.print_exc()
 
-        print(f"[face] Embeddings validos: {len(embeddings)}/3")
+        valid_count = sum(1 for v in embeddings.values() if v is not None)
+        print(f"[face] Embeddings validos: {valid_count}/3")
 
-        if len(embeddings) < 2:
+        if valid_count < 2:
             raise HTTPException(status_code=422, detail="No se detecto rostro en al menos 2 de las 3 fotos. Intenta con mejor iluminacion.")
-
-        embedding_avg = promediar_embeddings(embeddings)
-        embedding_list = [float(x) for x in embedding_avg]
 
         existing = sb.table("rostros").select("id").eq("usuario_id", req.usuario_id).execute()
 
+        update_data = {
+            "embedding_frontal": embeddings["frontal"],
+            "embedding_izquierda": embeddings["izquierda"],
+            "embedding_derecha": embeddings["derecha"],
+            "foto_preview": foto_preview,
+        }
+
         if existing.data:
-            result = sb.table("rostros").update({
-                "embedding": embedding_list,
-                "foto_preview": foto_preview,
-            }).eq("usuario_id", req.usuario_id).execute()
+            result = sb.table("rostros").update(update_data).eq("usuario_id", req.usuario_id).execute()
             print(f"[face] Update OK: {result.data}")
         else:
-            result = sb.table("rostros").insert({
-                "usuario_id": req.usuario_id,
-                "embedding": embedding_list,
-                "foto_preview": foto_preview,
-            }).execute()
+            update_data["usuario_id"] = req.usuario_id
+            result = sb.table("rostros").insert(update_data).execute()
             print(f"[face] Insert OK: {result.data}")
 
-        return {"ok": True, "usuario_id": req.usuario_id, "dimensions": len(embedding_list), "valid_angles": len(embeddings)}
+        return {"ok": True, "usuario_id": req.usuario_id, "valid_angles": valid_count}
 
     except HTTPException:
         raise
@@ -202,7 +197,7 @@ def face_register(req: FaceRegisterReq):
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 
-# ── FACE LOGIN (multi-captura) ────────────────────────────────
+# ── FACE LOGIN (compara contra cada embedding individual) ─────
 
 class FaceLoginReq(BaseModel):
     frontal: str
@@ -213,7 +208,7 @@ class FaceLoginReq(BaseModel):
 @app.post("/face/login")
 def face_login(req: FaceLoginReq):
     try:
-        embeddings = []
+        login_embeddings = []
 
         for i, angle_img in enumerate([req.frontal, req.izquierda, req.derecha]):
             if angle_img is None:
@@ -223,50 +218,71 @@ def face_login(req: FaceLoginReq):
                 continue
             emb = obtener_embedding(frame)
             if emb is not None:
-                embeddings.append(emb)
+                login_embeddings.append(emb)
                 print(f"[face] Login angle {i}: embedding OK")
             else:
                 print(f"[face] Login angle {i}: no detection")
 
-        if not embeddings:
+        if not login_embeddings:
             raise HTTPException(status_code=422, detail="No se detecto ningun rostro en las imagenes")
 
-        embedding_actual = promediar_embeddings(embeddings)
-        norm = np.linalg.norm(embedding_actual)
-        if norm > 0:
-            embedding_actual = embedding_actual / norm
-
-        rostros = sb.table("rostros").select("usuario_id, embedding").execute().data
+        rostros = sb.table("rostros").select("usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha").execute().data
         if not rostros:
             raise HTTPException(status_code=404, detail="No hay usuarios con rostro registrado. Debes registrarte primero.")
 
-        mejor_usuario = None
-        mejor_distancia = float("inf")
+        user_scores: dict[int, list[float]] = {}
 
-        for r in rostros:
-            embedding_guardado = np.array(r["embedding"])
-            dist = distancia(embedding_actual, embedding_guardado)
-            print(f"[face] vs user {r['usuario_id']}: dist={dist:.4f}")
-            if dist < mejor_distancia:
-                mejor_distancia = dist
-                mejor_usuario = r["usuario_id"]
+        for login_emb in login_embeddings:
+            for r in rostros:
+                uid = r["usuario_id"]
+                for angle_key in ["embedding_frontal", "embedding_izquierda", "embedding_derecha"]:
+                    stored_emb = r.get(angle_key)
+                    if stored_emb is None:
+                        continue
+                    stored_arr = np.array(stored_emb)
+                    norm = np.linalg.norm(stored_arr)
+                    if norm > 0:
+                        stored_arr = stored_arr / norm
+                    dist = distancia(login_emb, stored_arr)
+                    if uid not in user_scores:
+                        user_scores[uid] = []
+                    user_scores[uid].append(dist)
+                    print(f"[face] vs user {uid} ({angle_key}): dist={dist:.4f}")
 
-        print(f"[face] Login: best_dist={mejor_distancia:.4f} threshold={UMBRAL} user={mejor_usuario}")
+        results = []
+        for uid, dists in user_scores.items():
+            matches = [d for d in dists if d <= UMBRAL]
+            if len(matches) >= MIN_MATCHES:
+                best = min(matches)
+                results.append({"userId": uid, "bestDist": best, "matchCount": len(matches)})
 
-        if mejor_distancia < UMBRAL:
-            usuario = sb.table("usuarios").select("id, nombre, email, rol").eq("id", mejor_usuario).execute()
-            if usuario.data:
-                u = usuario.data[0]
-                return {
-                    "ok": True,
-                    "usuario_id": u["id"],
-                    "nombre": u["nombre"],
-                    "email": u["email"],
-                    "rol": u["rol"],
-                    "distancia": round(mejor_distancia, 4),
-                }
+        if not results:
+            raise HTTPException(status_code=401, detail="Rostro no reconocido. Debes registrarte primero.")
 
-        raise HTTPException(status_code=401, detail=f"Rostro no reconocido (distancia: {round(mejor_distancia, 4)})")
+        results.sort(key=lambda x: x["bestDist"])
+
+        if len(results) > 1:
+            gap = results[1]["bestDist"] - results[0]["bestDist"]
+            if gap < UMBRAL_GAP:
+                print(f"[face] Ambiguo: gap={gap:.4f} < {UMBRAL_GAP}")
+                raise HTTPException(status_code=401, detail="Rostro ambiguo, intente de nuevo")
+
+        winner = results[0]
+        usuario = sb.table("usuarios").select("id, nombre, email, rol").eq("id", winner["userId"]).execute()
+
+        if usuario.data:
+            u = usuario.data[0]
+            print(f"[face] Login OK: user={u['id']} dist={winner['bestDist']:.4f}")
+            return {
+                "ok": True,
+                "usuario_id": u["id"],
+                "nombre": u["nombre"],
+                "email": u["email"],
+                "rol": u["rol"],
+                "distancia": round(winner["bestDist"], 4),
+            }
+
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
 
     except HTTPException:
         raise

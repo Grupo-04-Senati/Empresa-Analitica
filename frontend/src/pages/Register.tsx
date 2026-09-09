@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { AlertCircle, CheckCircle, Eye, EyeOff, Loader2, BrainCircuit, Shield, Zap, ArrowRight, ArrowLeft, Scan, Camera } from 'lucide-react';
 import { FaceCapture } from '../components/FaceCapture';
-import { registerFace } from '../services/faceRecognition';
+import { faceApiRegister, faceApiHealth } from '../services/faceApi';
 import { auth } from '../services/supabase';
 
 const Particles = () => {
@@ -88,9 +88,16 @@ export const Register: React.FC = () => {
       });
       if (result.success && result.userId) {
         if (enableFace && capturedFacePhotos) {
-          console.log('[Register] Registrando rostro en navegador. userId:', result.userId);
+          console.log('[Register] Registrando rostro en servidor Python. userId:', result.userId);
           try {
-            const faceResult = await registerFace(result.userId, capturedFacePhotos);
+            const backendOk = await faceApiHealth();
+            if (!backendOk) {
+              setSuccessMsg('Cuenta creada pero el servidor de reconocimiento facial no esta disponible.');
+              try { await auth.signOut(); } catch {}
+              setTimeout(() => navigate('/login'), 3000);
+              return;
+            }
+            const faceResult = await faceApiRegister(result.userId, capturedFacePhotos);
             console.log('[Register] Face result:', faceResult);
             if (!faceResult.ok) {
               setSuccessMsg('Cuenta creada pero el rostro fallo: ' + (faceResult.error || 'error'));

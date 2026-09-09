@@ -5,7 +5,8 @@ import { supabase } from '@/services/supabase';
 import { logAudit } from '../services/audit';
 import { User, Shield, Bell, LogOut, Edit3, Save, X, CheckCircle, ArrowLeft, Eye, EyeOff, Camera, AlertTriangle, Trash2, Scan } from 'lucide-react';
 import { FaceCapture } from '../components/FaceCapture';
-import { hasFaceRegistered, registerFace } from '../services/faceRecognition';
+import { hasFaceRegistered } from '../services/faceRecognition';
+import { faceApiRegister, faceApiHealth } from '../services/faceApi';
 
 export const Perfil: React.FC = () => {
   const navigate = useNavigate();
@@ -504,7 +505,14 @@ export const Perfil: React.FC = () => {
           usuarioId={Number(user.id)}
           onCapture={async (photos) => {
             try {
-              const result = await registerFace(Number(user.id), photos);
+              const backendOk = await faceApiHealth();
+              if (!backendOk) {
+                setAlerta('Servidor de reconocimiento facial no disponible');
+                setTimeout(() => setAlerta(''), 3500);
+                setShowFaceCapture(false);
+                return;
+              }
+              const result = await faceApiRegister(Number(user.id), photos);
               if (result.ok) {
                 setFaceRegistered(true);
                 setAlerta('Rostro registrado correctamente');
