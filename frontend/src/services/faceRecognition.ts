@@ -482,30 +482,14 @@ export async function registerFace(
       return { ok: false, error: 'No se detecto rostro en al menos 2 de las 3 fotos' };
     }
 
-    const dim = embeddings[0].length;
-    const avg = new Array(dim).fill(0);
+    await supabase.from('rostros').delete().eq('usuario_id', userId);
+
     for (const emb of embeddings) {
-      for (let i = 0; i < dim; i++) avg[i] += emb[i];
-    }
-    for (let i = 0; i < dim; i++) avg[i] /= embeddings.length;
-    const norm = Math.sqrt(avg.reduce((sum, v) => sum + v * v, 0));
-    if (norm > 0) for (let i = 0; i < dim; i++) avg[i] /= norm;
-
-    const { data: existing } = await supabase
-      .from('rostros')
-      .select('id')
-      .eq('usuario_id', userId)
-      .limit(1);
-
-    if (existing && existing.length > 0) {
-      await supabase
-        .from('rostros')
-        .update({ embedding: avg, foto_preview: photos.frontal || null })
-        .eq('usuario_id', userId);
-    } else {
-      await supabase
-        .from('rostros')
-        .insert({ usuario_id: userId, embedding: avg, foto_preview: photos.frontal || null });
+      await supabase.from('rostros').insert({
+        usuario_id: userId,
+        embedding: emb,
+        foto_preview: null,
+      });
     }
 
     return { ok: true };
@@ -516,7 +500,8 @@ export async function registerFace(
 
 // ── FACE LOGIN (comparar con todos los embeddings) ──────────
 
-const UMBRAL = 0.3;
+const UMBRAL = 0.30;
+const GAP_MINIMO = 0.06;
 
 export async function loginByFace(
   photos: Record<string, string>
@@ -544,15 +529,6 @@ export async function loginByFace(
       return { ok: false, error: 'No se detecto ningun rostro' };
     }
 
-    const dim = embeddings[0].length;
-    const avg = new Array(dim).fill(0);
-    for (const emb of embeddings) {
-      for (let i = 0; i < dim; i++) avg[i] += emb[i];
-    }
-    for (let i = 0; i < dim; i++) avg[i] /= embeddings.length;
-    const norm = Math.sqrt(avg.reduce((sum, v) => sum + v * v, 0));
-    if (norm > 0) for (let i = 0; i < dim; i++) avg[i] /= norm;
-
     const { data: rostros } = await supabase
       .from('rostros')
       .select('usuario_id, embedding');
@@ -561,26 +537,37 @@ export async function loginByFace(
       return { ok: false, error: 'No hay usuarios con rostro registrado' };
     }
 
+    const userBestDist: Record<number, { dist: number; embIdx: number; regIdx: number }> = {};
+
+    for (let eIdx = 0; eIdx < embeddings.length; eIdx++) {
+      for (let rIdx = 0; rIdx < rostros.length; rIdx++) {
+        const dist = cosineDistance(embeddings[eIdx], rostros[rIdx].embedding);
+        const uid = rostros[rIdx].usuario_id;
+        if (!userBestDist[uid] || dist < userBestDist[uid].dist) {
+          userBestDist[uid] = { dist, embIdx: eIdx, regIdx: rIdx };
+        }
+      }
+    }
+
     let bestUserId = -1;
     let bestDist = Infinity;
     let secondBestDist = Infinity;
 
-    for (const r of rostros) {
-      const dist = cosineDistance(avg, r.embedding);
-      if (dist < bestDist) {
+    for (const [uid, data] of Object.entries(userBestDist)) {
+      if (data.dist < bestDist) {
         secondBestDist = bestDist;
-        bestDist = dist;
-        bestUserId = r.usuario_id;
-      } else if (dist < secondBestDist) {
-        secondBestDist = dist;
+        bestDist = data.dist;
+        bestUserId = Number(uid);
+      } else if (data.dist < secondBestDist) {
+        secondBestDist = data.dist;
       }
     }
 
     if (bestDist > UMBRAL) {
-      return { ok: false, error: `Rostro no reconocido (distancia: ${bestDist.toFixed(4)})` };
+      return { ok: false, error: `Rostro no reconocido` };
     }
 
-    if (secondBestDist - bestDist < 0.05) {
+    if (secondBestDist - bestDist < GAP_MINIMO) {
       return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
     }
 
