@@ -535,7 +535,7 @@ export async function loginByFace(
       for (const r of rostros) {
         const uid = r.usuario_id;
         for (const key of ['embedding_frontal', 'embedding_izquierda', 'embedding_derecha']) {
-          const stored = r[key];
+          const stored = (r as Record<string, any>)[key];
           if (!stored) continue;
           const dist = cosineDistance(loginEmb, stored);
           if (!userScores[uid]) userScores[uid] = [];
