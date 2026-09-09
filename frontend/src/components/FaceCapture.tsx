@@ -141,20 +141,10 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     let c = 3;
     setCountdown(c);
     const angle = ANGLES[angleRef.current]?.key as 'frontal' | 'izquierda' | 'derecha';
-    let angleFailed = false;
 
     const tick = async () => {
       c--;
       if (c <= 0) {
-        if (angleFailed) {
-          setStatusMsg('Angulo incorrecto - intenta de nuevo');
-          setCountdown(0);
-          timerRef.current = setTimeout(() => {
-            setPhase('scanning');
-            goodFramesRef.current = 0;
-          }, 1500);
-          return;
-        }
 
         const video = videoRef.current;
         const canvas = canvasRef.current;
@@ -198,8 +188,11 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       const video = videoRef.current;
       if (video && video.readyState >= 2) {
         const angleCheck = await checkAngle(video, angle);
-        angleFailed = !angleCheck.ok;
-        setStatusMsg(angleCheck.ok ? 'Manteniendo posicion...' : 'Ajuste el angulo');
+        if (!angleCheck.ok) {
+          setStatusMsg('Manteniendo posicion...');
+        } else {
+          setStatusMsg('Perfecto, manteniendo...');
+        }
       }
 
       setCountdown(c);
@@ -368,8 +361,15 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                       <span className="text-white text-xs">{quality?.detected ? 'Rostro detectado' : 'Buscando rostro...'}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${quality?.centered ? 'bg-green-400' : 'bg-yellow-400'}`} />
-                      <span className="text-white text-xs">{quality?.centered ? 'Centrado' : 'Centra tu cara'}</span>
+                      <div className={`w-2 h-2 rounded-full ${
+                        currentAngle === 0 ? (quality?.centered ? 'bg-green-400' : 'bg-yellow-400') : 'bg-green-400'
+                      }`} />
+                      <span className="text-white text-xs">
+                        {currentAngle === 0
+                          ? (quality?.centered ? 'Centrado' : 'Centra tu cara')
+                          : (quality?.detected ? 'Rostro OK' : 'Gira la cabeza')
+                        }
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className={`w-2 h-2 rounded-full ${quality?.angleOk ? 'bg-green-400' : 'bg-blue-400'}`} />
