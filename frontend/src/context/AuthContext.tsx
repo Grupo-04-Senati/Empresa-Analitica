@@ -36,10 +36,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const registeringRef = useRef(false);
+  const faceLoginRef = useRef(false);
 
   useEffect(() => {
     const initSession = async () => {
       try {
+        if (faceLoginRef.current) return;
         const { data: { session } } = await auth.getSession();
         if (session?.user?.email) {
           const email = session.user.email.toLowerCase();
@@ -78,7 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initSession();
 
     const { data: { subscription } } = auth.onAuthStateChange(async (_event, session) => {
-      if (registeringRef.current) return;
+      if (registeringRef.current || faceLoginRef.current) return;
       if (session?.user?.email) {
         const email = session.user.email.toLowerCase();
         const { data: profile } = await supabase
@@ -330,7 +332,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       activo: true,
     };
     setUser(userProfile);
+    faceLoginRef.current = true;
     logAudit({ accion: 'LOGIN', tabla: 'usuarios', registro_id: profile.id, usuario_email: profile.email, modulo: 'Auth', detalles: 'Login por reconocimiento facial: ' + profile.email });
+    setTimeout(() => { faceLoginRef.current = false; }, 3000);
     return { success: true };
   }, []);
 
