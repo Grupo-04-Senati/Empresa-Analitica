@@ -75,7 +75,7 @@ export const AppRoutes = () => (
       <Route index element={<DashboardInicio />} />
       <Route path="clientes" element={<Clientes />} />
       <Route path="clientes/nuevo" element={<ClientesNuevo />} />
-      <Route path="clientes-historial" element={<ClientesHistorial />} />
+      <Route path="clientes-historial" element={<AdminGuard><ClientesHistorial /></AdminGuard>} />
       <Route path="solicitudes" element={<Solicitudes />} />
       <Route path="comentarios" element={<Comentarios />} />
       <Route path="tiempo-atencion" element={<TiempoAtencion />} />
