@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { AlertCircle, CheckCircle, Eye, EyeOff, Loader2, BrainCircuit, Shield, Zap, ArrowRight, ArrowLeft, Scan, Camera } from 'lucide-react';
 import { FaceCapture } from '../components/FaceCapture';
 import { registerFace } from '../services/faceRecognition';
+import { auth } from '../services/supabase';
 
 const Particles = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -93,6 +94,7 @@ export const Register: React.FC = () => {
             console.log('[Register] Face result:', faceResult);
             if (!faceResult.ok) {
               setSuccessMsg('Cuenta creada pero el rostro fallo: ' + (faceResult.error || 'error'));
+              try { await auth.signOut(); } catch {}
               setTimeout(() => navigate('/login'), 3000);
               return;
             }
@@ -100,12 +102,14 @@ export const Register: React.FC = () => {
           } catch (faceErr: any) {
             console.error('[Register] Face error:', faceErr);
             setSuccessMsg('Cuenta creada pero error registrando rostro: ' + faceErr.message);
+            try { await auth.signOut(); } catch {}
             setTimeout(() => navigate('/login'), 3000);
             return;
           }
         } else {
           setSuccessMsg('Cuenta creada! Ahora puedes iniciar sesion con tu correo y contrasena.');
         }
+        try { await auth.signOut(); } catch {}
         setTimeout(() => navigate('/login'), 2500);
       } else {
         setErrorMsg(result.message || 'Error al crear la cuenta.');

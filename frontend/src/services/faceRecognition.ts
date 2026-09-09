@@ -404,12 +404,12 @@ export async function deleteFaceEmbeddings(userId: number): Promise<void> {
 export async function generateEmbedding(input: HTMLVideoElement | HTMLCanvasElement): Promise<number[] | null> {
   try {
     const detection = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
       .withFaceLandmarks()
       .withFaceDescriptor();
 
     if (!detection) return null;
-    if (detection.detection.score < 0.7) return null;
+    if (detection.detection.score < 0.5) return null;
 
     const descriptor = detection.descriptor as Float32Array;
     const embedding: number[] = Array.from(descriptor);

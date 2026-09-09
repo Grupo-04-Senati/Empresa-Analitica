@@ -192,7 +192,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (existingUser.data) {
-      await auth.signOut();
       registeringRef.current = false;
       return { success: true, userId: existingUser.data.id };
     }
@@ -207,7 +206,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (dbError) {
       console.error('DB insert error:', dbError.message);
-      await auth.signOut();
       registeringRef.current = false;
       return { success: false, message: 'Error al crear perfil: ' + dbError.message };
     }
