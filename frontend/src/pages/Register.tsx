@@ -71,14 +71,14 @@ export const Register: React.FC = () => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
-    if (!nombre.trim() || !email.trim() || !password.trim() || !telefono.trim()) {
+    if (!nombre.trim() || !email.trim() || !password.trim()) {
       setErrorMsg('Por favor llena todos los campos obligatorios.');
       return;
     }
     if (nombre.trim().length < 2) { setErrorMsg('El nombre debe tener al menos 2 caracteres.'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setErrorMsg('Ingresa un correo electronico valido.'); return; }
     if (password.length < 6) { setErrorMsg('La contrasena debe tener al menos 6 caracteres.'); return; }
-    if (!/^\d{7,15}$/.test(telefono.trim())) { setErrorMsg('Ingresa un numero de telefono valido (7-15 digitos, solo numeros).'); return; }
+    if (telefono.trim() && !/^\d{9}$/.test(telefono.trim())) { setErrorMsg('El telefono debe tener exactamente 9 digitos numericos.'); return; }
     if (enableFace && !capturedFacePhotos) { setErrorMsg('Primero toma las fotos de tu rostro.'); return; }
 
     setIsLoading(true);
@@ -219,8 +219,9 @@ export const Register: React.FC = () => {
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@empresa.com" maxLength={200} autoComplete="email" className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Numero de Telefono *</label>
-              <input type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value.replace(/[^0-9]/g, ''))} placeholder="999888777" maxLength={15} autoComplete="tel" className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Numero de Telefono</label>
+              <input type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value.replace(/[^0-9]/g, '').slice(0, 9))} placeholder="999888777" maxLength={9} autoComplete="tel" className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
+              <p className="text-[11px] text-slate-400 mt-1">Opcional - 9 digitos exactos</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Empresa (opcional)</label>
