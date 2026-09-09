@@ -404,11 +404,12 @@ export async function deleteFaceEmbeddings(userId: number): Promise<void> {
 export async function generateEmbedding(input: HTMLVideoElement | HTMLCanvasElement): Promise<number[] | null> {
   try {
     const detection = await (faceapi as any)
-      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
+      .detectSingleFace(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
       .withFaceLandmarks()
       .withFaceDescriptor();
 
     if (!detection) return null;
+    if (detection.detection.score < 0.7) return null;
 
     const descriptor = detection.descriptor as Float32Array;
     const embedding: number[] = Array.from(descriptor);
@@ -515,7 +516,7 @@ export async function registerFace(
 
 // ── FACE LOGIN (comparar con todos los embeddings) ──────────
 
-const UMBRAL = 0.4;
+const UMBRAL = 0.3;
 
 export async function loginByFace(
   photos: Record<string, string>
@@ -562,17 +563,25 @@ export async function loginByFace(
 
     let bestUserId = -1;
     let bestDist = Infinity;
+    let secondBestDist = Infinity;
 
     for (const r of rostros) {
       const dist = cosineDistance(avg, r.embedding);
       if (dist < bestDist) {
+        secondBestDist = bestDist;
         bestDist = dist;
         bestUserId = r.usuario_id;
+      } else if (dist < secondBestDist) {
+        secondBestDist = dist;
       }
     }
 
     if (bestDist > UMBRAL) {
       return { ok: false, error: `Rostro no reconocido (distancia: ${bestDist.toFixed(4)})` };
+    }
+
+    if (secondBestDist - bestDist < 0.05) {
+      return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
     }
 
     const { data: usuario } = await supabase
