@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { UserPlus, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
+import { UserPlus, ArrowLeft, CheckCircle2, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/services/supabase';
 
@@ -8,7 +8,8 @@ export const ClientesNuevo = () => {
   const [guardado, setGuardado] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ nombre: '', empresa: '', email: '', telefono: '' });
+  const [form, setForm] = useState({ nombre: '', empresa: '', email: '', telefono: '', password: '' });
+  const [showPassword, setShowPassword] = useState(false);
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -16,9 +17,44 @@ export const ClientesNuevo = () => {
     e.preventDefault();
     setSaving(true);
     setError('');
+
+    if (!form.password || form.password.length < 6) {
+      setError('La contrasena debe tener al menos 6 caracteres');
+      setSaving(false);
+      return;
+    }
+
     try {
-      const { error: err } = await supabase.from('clientes').insert({ ...form, activo: true });
-      if (err) throw err;
+      const existingUser = await supabase.from('usuarios').select('id').eq('email', form.email.trim().toLowerCase()).maybeSingle();
+      if (existingUser.data) {
+        setError('Ya existe un usuario con este correo');
+        setSaving(false);
+        return;
+      }
+
+      const { error: authErr } = await supabase.auth.signUp({
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+        options: { data: { nombre: form.nombre.trim(), rol: 'USUARIO' } },
+      });
+      if (authErr && !authErr.message.includes('already registered')) {
+        setError('Error creando cuenta: ' + authErr.message);
+        setSaving(false);
+        return;
+      }
+
+      const { error: dbErr } = await supabase.from('usuarios').insert({
+        nombre: form.nombre.trim(),
+        email: form.email.trim().toLowerCase(),
+        password_hash: 'auth_managed',
+        rol: 'USUARIO',
+        activo: true,
+        telefono: form.telefono || null,
+        empresa: form.empresa || null,
+      });
+      if (dbErr) throw dbErr;
+
+      try { await supabase.auth.signOut(); } catch {}
       setGuardado(true);
       setTimeout(() => navigate('/clientes'), 1500);
     } catch (err) {
@@ -66,16 +102,26 @@ export const ClientesNuevo = () => {
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">Empresa</label>
-                <input required value={form.empresa} onChange={(e) => set('empresa', e.target.value)} placeholder="Ej: Empresa ABC S.A." className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+                <input value={form.empresa} onChange={(e) => set('empresa', e.target.value)} placeholder="Ej: Empresa ABC S.A." className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Correo electrónico</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Correo electronico</label>
                 <input required type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="correo@empresa.com" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Teléfono</label>
-                <input value={form.telefono} onChange={(e) => set('telefono', e.target.value)} placeholder="+34 912 345 678" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+                <label className="mb-1 block text-sm font-medium text-slate-700">Telefono</label>
+                <input value={form.telefono} onChange={(e) => set('telefono', e.target.value.replace(/[^0-9]/g, '').slice(0, 9))} placeholder="999888777" maxLength={9} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
               </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Contrasena</label>
+              <div className="relative">
+                <input required type={showPassword ? 'text' : 'password'} value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Minimo 6 caracteres" minLength={6} className="w-full rounded-lg border border-slate-200 px-3 py-2 pr-10 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">El cliente usara este correo y contrasena para iniciar sesion</p>
             </div>
             <div className="flex items-center justify-end gap-3 pt-2">
               <button type="button" onClick={() => navigate('/clientes')} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
