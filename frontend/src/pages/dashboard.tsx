@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Users, MessageSquare, Clock, CheckCircle2, Hash, Tags, Loader2, AlertTriangle, ClipboardList, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Users, MessageSquare, Clock, CheckCircle2, Hash, Tags, Loader2, AlertTriangle, ClipboardList, ThumbsUp, ThumbsDown, Plus, Send, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,6 +15,14 @@ interface DashboardStats {
   misSolicitudes: number;
   misPendientes: number;
   misResueltas: number;
+}
+
+interface ItemReciente {
+  id: number;
+  contenido: string;
+  estado: string;
+  fecha: string;
+  tipo: string;
 }
 
 interface CategoriaDist { nombre: string; total: number; porcentaje: number; }
@@ -30,6 +39,8 @@ export const Dashboard = () => {
   const [categorias, setCategorias] = useState<CategoriaDist[]>([]);
   const [palabras, setPalabras] = useState<PalabraFreq[]>([]);
   const [tiempos, setTiempos] = useState<TiempoPunto[]>([]);
+  const [misSolicitudesRecientes, setMisSolicitudesRecientes] = useState<ItemReciente[]>([]);
+  const [misComentariosRecientes, setMisComentariosRecientes] = useState<ItemReciente[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -85,6 +96,17 @@ export const Dashboard = () => {
           porcentajeProcesados, totalAnalisis: analisisRes.data?.length || 0,
           comentariosPendientes: pendientes, misSolicitudes, misPendientes, misResueltas,
         });
+
+        const solicitudesRecientes = allComentarios
+          .filter((c: any) => c.tipo === 'solicitud')
+          .slice(0, 5)
+          .map((c: any) => ({ id: c.id, contenido: c.contenido || '', estado: c.estado, fecha: c.fecha, tipo: c.tipo }));
+        const comentariosRecientes = allComentarios
+          .filter((c: any) => c.tipo === 'comentario')
+          .slice(0, 5)
+          .map((c: any) => ({ id: c.id, contenido: c.contenido || '', estado: c.estado, fecha: c.fecha, tipo: c.tipo }));
+        setMisSolicitudesRecientes(solicitudesRecientes);
+        setMisComentariosRecientes(comentariosRecientes);
 
         if (isAdmin) {
           const catCount: Record<string, number> = {};
@@ -162,6 +184,12 @@ export const Dashboard = () => {
       { icono: MessageSquare, label: 'COMENTARIOS', valor: stats.totalComentarios.toString(), color: 'text-violet-600', bg: 'bg-violet-50' },
     ];
 
+    const estadoBadge = (estado: string) => {
+      if (estado === 'resuelto') return 'bg-emerald-100 text-emerald-700';
+      if (estado === 'en_proceso') return 'bg-blue-100 text-blue-700';
+      return 'bg-amber-100 text-amber-700';
+    };
+
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -191,10 +219,97 @@ export const Dashboard = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 text-center py-8">
-            Tus solicitudes y comentarios aparecen en las secciones correspondientes del menu.
-          </p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <ClipboardList size={18} className="text-blue-600" />
+                <h3 className="font-semibold text-slate-700 text-sm">Mis Solicitudes Recientes</h3>
+              </div>
+              <Link to="/solicitudes" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">
+                Ver todas <ArrowRight size={12} />
+              </Link>
+            </div>
+            {misSolicitudesRecientes.length === 0 ? (
+              <div className="text-center py-8">
+                <ClipboardList size={32} className="mx-auto mb-2 text-slate-300" />
+                <p className="text-sm text-slate-400">Aun no tienes solicitudes</p>
+                <Link to="/solicitudes" className="inline-flex items-center gap-1 mt-2 text-xs text-blue-600 hover:text-blue-700">
+                  <Plus size={12} /> Crear primera solicitud
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {misSolicitudesRecientes.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-700 truncate">{s.contenido}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{new Date(s.fecha).toLocaleDateString('es-ES')}</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${estadoBadge(s.estado)}`}>
+                      {s.estado === 'resuelto' ? 'Resuelto' : s.estado === 'en_proceso' ? 'En Proceso' : 'Pendiente'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <MessageSquare size={18} className="text-violet-600" />
+                <h3 className="font-semibold text-slate-700 text-sm">Mis Comentarios Recientes</h3>
+              </div>
+              <Link to="/comentarios" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">
+                Ver todos <ArrowRight size={12} />
+              </Link>
+            </div>
+            {misComentariosRecientes.length === 0 ? (
+              <div className="text-center py-8">
+                <MessageSquare size={32} className="mx-auto mb-2 text-slate-300" />
+                <p className="text-sm text-slate-400">Aun no tienes comentarios</p>
+                <Link to="/comentarios" className="inline-flex items-center gap-1 mt-2 text-xs text-blue-600 hover:text-blue-700">
+                  <Plus size={12} /> Escribir comentario
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {misComentariosRecientes.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-700 truncate">{c.contenido}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{new Date(c.fecha).toLocaleDateString('es-ES')}</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${estadoBadge(c.estado)}`}>
+                      {c.estado === 'resuelto' ? 'Resuelto' : c.estado === 'en_proceso' ? 'En Proceso' : 'Pendiente'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Link to="/solicitudes" className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl p-5 shadow-sm transition flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+              <Plus size={24} />
+            </div>
+            <div>
+              <p className="font-semibold">Nueva Solicitud</p>
+              <p className="text-sm text-blue-100">Crear un ticket de atencion</p>
+            </div>
+          </Link>
+          <Link to="/comentarios" className="bg-violet-600 hover:bg-violet-700 text-white rounded-2xl p-5 shadow-sm transition flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+              <Send size={24} />
+            </div>
+            <div>
+              <p className="font-semibold">Escribir Comentario</p>
+              <p className="text-sm text-violet-100">Dejar tu feedback o opinion</p>
+            </div>
+          </Link>
         </div>
       </div>
     );
