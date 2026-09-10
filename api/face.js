@@ -6,7 +6,7 @@ const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const sb = createClient(URL, KEY);
 
 const UMBRAL = 0.35;
-const UMBRAL_GAP = 0.15;
+const UMBRAL_GAP = 0.08;
 const MIN_MATCHES = 3;
 
 function parseBody(req) {
@@ -95,7 +95,7 @@ module.exports = async function handler(req, res) {
   if (req.method === 'POST' && action === 'login') {
     try {
       const body = await parseBody(req);
-      console.log('[face] login body:', JSON.stringify({ hasEmbeddings: !!body.embeddings, count: body.embeddings?.length }));
+      console.log(`[face] login body:`, JSON.stringify({ hasEmbeddings: !!body.embeddings, count: body.embeddings?.length }));
 
       const { embeddings } = body;
       if (!embeddings || embeddings.length === 0) {
@@ -120,11 +120,13 @@ module.exports = async function handler(req, res) {
 
         let totalBestDist = 0;
         let matchCount = 0;
+        const allDists = [];
 
         for (const loginEmb of embeddings) {
           let bestDistForThisLogin = Infinity;
           for (const stored of storedEmbeds) {
             const dist = cosineDistance(loginEmb, stored);
+            allDists.push(dist);
             if (dist < bestDistForThisLogin) bestDistForThisLogin = dist;
           }
           if (bestDistForThisLogin <= UMBRAL) {
@@ -133,10 +135,10 @@ module.exports = async function handler(req, res) {
           }
         }
 
-        console.log(`[face] user ${uid}: matchCount=${matchCount}, totalBestDist=${totalBestDist.toFixed(4)}, storedEmbeds=${storedEmbeds.length}`);
+        const avgDist = matchCount > 0 ? totalBestDist / matchCount : 999;
+        console.log(`[face] user ${uid}: matchCount=${matchCount}, avgDist=${avgDist.toFixed(4)}, storedEmbeds=${storedEmbeds.length}, allDists=[${allDists.map(d => d.toFixed(3)).join(', ')}]`);
 
         if (matchCount >= MIN_MATCHES) {
-          const avgDist = totalBestDist / matchCount;
           userResults.push({ userId: uid, avgDist, matchCount });
         }
       }
@@ -147,7 +149,10 @@ module.exports = async function handler(req, res) {
 
       userResults.sort((a, b) => a.avgDist - b.avgDist);
 
-      if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < UMBRAL_GAP) {
+      const gap = userResults.length > 1 ? (userResults[1].avgDist - userResults[0].avgDist) : 999;
+      console.log(`[face] winner: user ${userResults[0].userId} (${userResults[0].avgDist.toFixed(4)}), gap=${gap.toFixed(4)}`);
+
+      if (userResults.length > 1 && gap < UMBRAL_GAP) {
         return res.status(401).json({ error: 'Rostro ambiguo, intente de nuevo' });
       }
 

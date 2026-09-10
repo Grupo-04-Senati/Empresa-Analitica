@@ -662,7 +662,7 @@ export async function loginByFace(
 
     userResults.sort((a, b) => a.avgDist - b.avgDist);
 
-    if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < 0.15) {
+    if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < 0.08) {
       return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
     }
 
