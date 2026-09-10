@@ -1,4 +1,4 @@
-import { extractEmbeddings, extractEmbeddingsAndShape, detectMultipleFaces } from './faceRecognition';
+import { extractEmbeddings, extractEmbeddingsAndShape, detectMultipleFaces, extractFrontalShape } from './faceRecognition';
 
 const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || '';
 
@@ -133,10 +133,14 @@ export async function faceApiLogin(
 
     console.log('[faceApi] login embeddings: 3/3 angles OK, dims:', embList[0]?.length);
 
+    const frontalPhoto = photos['frontal'] || photos[Object.keys(photos)[0]];
+    const loginFaceShape = frontalPhoto ? await extractFrontalShape(frontalPhoto) : null;
+    console.log('[faceApi] login face shape detected:', loginFaceShape);
+
     const res = await fetch(apiUrl('login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeddings: embList }),
+      body: JSON.stringify({ embeddings: embList, face_shape: loginFaceShape }),
     });
 
     if (!res.ok) {

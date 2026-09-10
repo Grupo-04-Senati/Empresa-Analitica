@@ -5,6 +5,23 @@ const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const sb = createClient(URL, KEY);
 
+const SHAPE_SIMILARITY = {
+  ovalado:    ['ovalado', 'alargado', 'corazon'],
+  redondo:    ['redondo', 'cuadrado'],
+  cuadrado:   ['cuadrado', 'redondo', 'triangular'],
+  alargado:   ['alargado', 'ovalado'],
+  corazon:    ['corazon', 'ovalado', 'diamante'],
+  diamante:   ['diamante', 'corazon'],
+  triangular: ['triangular', 'cuadrado'],
+};
+
+function isShapeCompatible(detected, registered) {
+  if (!detected || !registered) return true;
+  if (detected === registered) return true;
+  const allowed = SHAPE_SIMILARITY[registered] || [registered];
+  return allowed.includes(detected);
+}
+
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     if (req.body) {
@@ -102,7 +119,7 @@ module.exports = async function handler(req, res) {
   if (req.method === 'POST' && action === 'login') {
     try {
       const body = await parseBody(req);
-      const { embeddings } = body;
+      const { embeddings, face_shape } = body;
 
       if (!embeddings || !Array.isArray(embeddings) || embeddings.length === 0) {
         console.error('[audit] LOGIN REJECTED: no embeddings provided');
@@ -232,6 +249,28 @@ module.exports = async function handler(req, res) {
         return res.status(401).json({ error: 'Error en calculo de distancias' });
       }
 
+      const { data: rostroData } = await sb.from('rostros')
+        .select('forma_rostro')
+        .eq('usuario_id', winner.userId)
+        .limit(1);
+
+      const registeredShape = rostroData?.[0]?.forma_rostro || null;
+
+      if (registeredShape && face_shape && !isShapeCompatible(face_shape, registeredShape)) {
+        console.error(`[audit] LOGIN REJECTED: face shape mismatch - detected=${face_shape}, registered=${registeredShape}`);
+        return res.status(401).json({
+          error: 'Forma facial no coincide',
+          _debug: {
+            detectedShape: face_shape,
+            registeredShape,
+            embeddingsReceived: embeddings.length,
+            perEmbedding: debugPerEmb,
+          }
+        });
+      }
+
+      console.log(`[face] shape check: detected=${face_shape}, registered=${registeredShape}, compatible=${!registeredShape || !face_shape || isShapeCompatible(face_shape, registeredShape)}`);
+
       const { data: usuario } = await sb.from('usuarios')
         .select('id, nombre, email, rol')
         .eq('id', winner.userId)
@@ -258,6 +297,8 @@ module.exports = async function handler(req, res) {
           avgDist: winner.avgDist,
           matchCount: winner.matchCount,
           userId: winner.userId,
+          detectedShape: face_shape,
+          registeredShape,
         }
       });
     } catch (e) {

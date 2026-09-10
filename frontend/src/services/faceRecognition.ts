@@ -376,6 +376,29 @@ export async function extractEmbeddingsAndShape(photos: Record<string, string>):
   return { embeddings, faceShape, proportions, landmarks };
 }
 
+export async function extractFrontalShape(photoDataUrl: string): Promise<FaceShape | null> {
+  try {
+    const img = new Image();
+    img.src = photoDataUrl;
+    await new Promise<void>((resolve) => { img.onload = () => resolve(); });
+
+    const detection = await (faceapi as any)
+      .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.2 }))
+      .withFaceLandmarks();
+
+    if (!detection) return null;
+
+    const pts = detection.landmarks.positions;
+    if (pts.length < 68) return null;
+
+    const ptsArray: FaceLandmark[] = pts.map((p: any) => ({ x: p.x, y: p.y }));
+    const result = classifyFromLandmarks(ptsArray);
+    return result.shape;
+  } catch {
+    return null;
+  }
+}
+
 export async function hasFaceRegistered(userId: number): Promise<boolean> {
   const { data } = await supabase
     .from('rostros')
