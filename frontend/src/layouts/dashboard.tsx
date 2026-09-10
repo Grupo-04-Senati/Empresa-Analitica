@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '@/services/supabase';
+import TinoBot from '../components/TinoBot';
 
 interface SubMenuItem {
   label: string;
@@ -379,6 +380,7 @@ export const DashboardLayout = () => {
           <Outlet />
         </main>
       </div>
+      <TinoBot />
     </div>
   );
 };
