@@ -75,7 +75,7 @@ export async function faceApiRegister(
 
 export async function faceApiLogin(
   photos: Record<string, string>
-): Promise<{ ok: boolean; usuario_id?: number; nombre?: string; email?: string; error?: string; debug?: any }> {
+): Promise<{ ok: boolean; usuario_id?: number; nombre?: string; email?: string; error?: string; debug?: any; missing?: string[] }> {
   try {
     const photoKeys = Object.keys(photos);
     if (photoKeys.length === 0) {
