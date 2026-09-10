@@ -5,9 +5,8 @@ const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const sb = createClient(URL, KEY);
 
-const UMBRAL = 0.20;
-const UMBRAL_GAP = 0.10;
-const MIN_MATCHES = 2;
+const UMBRAL = 0.22;
+const MARGEN = 0.05;
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -28,26 +27,9 @@ function parseBody(req) {
   });
 }
 
-function cosineDistance(a, b) {
-  if (!a || !b || a.length !== b.length) return 1;
-  let dot = 0, normA = 0, normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  if (denom === 0) return 1;
-  return 1 - Math.max(-1, Math.min(1, dot / denom));
-}
-
-function parseVector(v) {
-  if (!v) return null;
-  if (Array.isArray(v)) return v;
-  if (typeof v === 'string') {
-    try { return JSON.parse(v.replace(/^\[/, '[').replace(/\]$/, ']')); } catch { return null; }
-  }
-  return null;
+function vectorToSql(arr) {
+  if (!arr || !Array.isArray(arr)) return null;
+  return `[${arr.join(',')}]`;
 }
 
 module.exports = async function handler(req, res) {
@@ -86,9 +68,9 @@ module.exports = async function handler(req, res) {
 
       const existing = await sb.from('rostros').select('id').eq('usuario_id', usuario_id);
       const updateData = {
-        embedding_frontal: embeddings.frontal || null,
-        embedding_izquierda: embeddings.izquierda || null,
-        embedding_derecha: embeddings.derecha || null,
+        embedding_frontal: vectorToSql(embeddings.frontal),
+        embedding_izquierda: vectorToSql(embeddings.izquierda),
+        embedding_derecha: vectorToSql(embeddings.derecha),
       };
 
       if (existing.data && existing.data.length > 0) {
@@ -114,64 +96,54 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ error: 'Faltan embeddings' });
       }
 
-      const { data: rostros } = await sb.from('rostros').select('usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha');
-      if (!rostros || rostros.length === 0) {
-        return res.status(404).json({ error: 'No hay usuarios registrados' });
-      }
+      let mejorUsuario = null;
+      let mejorDist = 999;
+      let segundoDist = 999;
 
-      const userResults = [];
+      for (const loginEmb of embeddings) {
+        const loginVector = vectorToSql(loginEmb);
+        if (!loginVector) continue;
 
-      for (const r of rostros) {
-        const uid = r.usuario_id;
-        const storedFrontal = parseVector(r.embedding_frontal);
-        const storedIzq = parseVector(r.embedding_izquierda);
-        const storedDer = parseVector(r.embedding_derecha);
+        const { data: candidatos, error } = await sb.rpc('buscar_rostro_match', {
+          login_embedding: loginVector,
+          p_umbral: UMBRAL,
+          p_margen: MARGEN,
+        });
 
-        const allStored = [storedFrontal, storedIzq, storedDer].filter(Boolean);
-        if (allStored.length < 2) {
-          console.log(`[face] user ${uid}: skipped (only ${allStored.length} stored embeddings)`);
+        if (error) {
+          console.error('[face] rpc error:', error);
           continue;
         }
 
-        const allDists = [];
-        for (const loginEmb of embeddings) {
-          for (const stored of allStored) {
-            allDists.push(cosineDistance(loginEmb, stored));
+        if (!candidatos || candidatos.length === 0) continue;
+
+        for (const c of candidatos) {
+          if (c.es_match) {
+            if (c.dist_promedio < mejorDist) {
+              segundoDist = mejorDist;
+              mejorDist = c.dist_promedio;
+              mejorUsuario = c.usuario_id;
+            } else if (c.dist_promedio < segundoDist) {
+              segundoDist = c.dist_promedio;
+            }
           }
-        }
-
-        allDists.sort((a, b) => a - b);
-        const topK = allDists.slice(0, Math.min(3, allDists.length));
-        const avgTopK = topK.reduce((a, b) => a + b, 0) / topK.length;
-
-        const closeMatches = allDists.filter(d => d <= UMBRAL);
-
-        console.log(`[face] user ${uid}: avgTopK=${avgTopK.toFixed(4)}, closeMatches=${closeMatches.length}/${allDists.length}, topDists=[${topK.map(d => d.toFixed(4)).join(', ')}]`);
-
-        if (closeMatches.length >= MIN_MATCHES && avgTopK <= UMBRAL) {
-          userResults.push({ userId: uid, avgDist: avgTopK, matchCount: closeMatches.length });
         }
       }
 
-      if (userResults.length === 0) {
-        const debugInfo = userResults.length > 0
-          ? userResults.map(u => `user ${u.userId}: dist=${u.avgDist.toFixed(4)}`).join('; ')
-          : 'no users matched';
-        console.log(`[face] login REJECTED: ${debugInfo}`);
+      if (!mejorUsuario) {
+        console.log(`[face] login REJECTED: no match found`);
         return res.status(401).json({ error: 'Rostro no reconocido' });
       }
 
-      userResults.sort((a, b) => a.avgDist - b.avgDist);
+      const gap = segundoDist - mejorDist;
+      console.log(`[face] login winner: user ${mejorUsuario}, dist=${mejorDist.toFixed(4)}, gap=${gap.toFixed(4)}`);
 
-      const gap = userResults.length > 1 ? (userResults[1].avgDist - userResults[0].avgDist) : 999;
-      console.log(`[face] winner: user ${userResults[0].userId} (${userResults[0].avgDist.toFixed(4)}), gap=${gap.toFixed(4)}`);
-
-      if (userResults.length > 1 && gap < UMBRAL_GAP) {
+      if (gap < MARGEN) {
+        console.log(`[face] login REJECTED: ambiguous (gap ${gap.toFixed(4)} < ${MARGEN})`);
         return res.status(401).json({ error: 'Rostro ambiguo, intente de nuevo' });
       }
 
-      const winner = userResults[0];
-      const { data: usuario } = await sb.from('usuarios').select('id, nombre, email, rol').eq('id', winner.userId).limit(1);
+      const { data: usuario } = await sb.from('usuarios').select('id, nombre, email, rol').eq('id', mejorUsuario).limit(1);
 
       if (!usuario || usuario.length === 0) {
         return res.status(404).json({ error: 'Usuario no encontrado' });
@@ -182,13 +154,8 @@ module.exports = async function handler(req, res) {
         usuario_id: usuario[0].id,
         nombre: usuario[0].nombre,
         email: usuario[0].email,
-        distancia: Math.round(winner.avgDist * 10000) / 10000,
-        _debug: {
-          umbral: UMBRAL,
-          avgDist: winner.avgDist,
-          matchCount: winner.matchCount,
-          gap,
-        },
+        distancia: Math.round(mejorDist * 10000) / 10000,
+        _debug: { umbral: UMBRAL, margen: MARGEN, dist: mejorDist, gap },
       });
     } catch (e) {
       console.error('[face] login error:', e);
