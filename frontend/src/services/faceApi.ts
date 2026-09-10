@@ -28,14 +28,23 @@ export async function faceApiCheckRegistered(): Promise<number> {
 export async function faceApiRegister(
   usuarioId: number,
   photos: Record<string, string>
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; missing?: string[] }> {
   try {
     const embeddings = await extractEmbeddings(photos);
-    const validCount = Object.values(embeddings).filter(e => e !== null).length;
+    const missing: string[] = [];
+    if (!embeddings.frontal) missing.push('frontal');
+    if (!embeddings.izquierda) missing.push('izquierda');
+    if (!embeddings.derecha) missing.push('derecha');
 
-    if (validCount < 2) {
-      return { ok: false, error: 'No se detecto rostro en al menos 2 fotos' };
+    if (missing.length > 0) {
+      return { ok: false, error: `No se detecto rostro en: ${missing.join(', ')}. Intenta de nuevo.`, missing };
     }
+
+    console.log('[faceApi] register embeddings:', {
+      frontal: embeddings.frontal ? `${embeddings.frontal.length} dims` : 'NULL',
+      izquierda: embeddings.izquierda ? `${embeddings.izquierda.length} dims` : 'NULL',
+      derecha: embeddings.derecha ? `${embeddings.derecha.length} dims` : 'NULL',
+    });
 
     const body = { usuario_id: usuarioId, embeddings };
     console.log('[faceApi] register body:', JSON.stringify({ usuario_id: usuarioId, embeddingsKeys: Object.keys(embeddings), embeddingsValues: Object.values(embeddings).map(e => e ? e.length : null) }));

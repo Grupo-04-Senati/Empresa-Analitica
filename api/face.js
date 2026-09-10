@@ -51,12 +51,15 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ error: 'Faltan datos' });
       }
 
+      console.log('[face] register:', { usuario_id, frontal: !!embeddings.frontal, izquierda: !!embeddings.izquierda, derecha: !!embeddings.derecha });
+
       const validCount = Object.values(embeddings).filter(e => e !== null).length;
       if (validCount < 3) {
         const missing = [];
         if (!embeddings.frontal) missing.push('frontal');
         if (!embeddings.izquierda) missing.push('izquierda');
         if (!embeddings.derecha) missing.push('derecha');
+        console.log('[face] register REJECTED: missing', missing);
         return res.status(422).json({
           error: `Faltan embeddings: ${missing.join(', ')}. Captura los 3 ángulos.`,
           missing,
@@ -71,9 +74,19 @@ module.exports = async function handler(req, res) {
       };
 
       if (existing.data && existing.data.length > 0) {
-        await sb.from('rostros').update(updateData).eq('usuario_id', usuario_id);
+        const { error: updateErr } = await sb.from('rostros').update(updateData).eq('usuario_id', usuario_id);
+        if (updateErr) {
+          console.error('[face] register update error:', updateErr);
+          return res.status(500).json({ error: 'Error guardando en BD' });
+        }
+        console.log('[face] register UPDATED for user', usuario_id);
       } else {
-        await sb.from('rostros').insert({ usuario_id, ...updateData });
+        const { error: insertErr } = await sb.from('rostros').insert({ usuario_id, ...updateData });
+        if (insertErr) {
+          console.error('[face] register insert error:', insertErr);
+          return res.status(500).json({ error: 'Error guardando en BD' });
+        }
+        console.log('[face] register INSERTED for user', usuario_id);
       }
 
       return res.status(200).json({ ok: true, valid_angles: validCount });
