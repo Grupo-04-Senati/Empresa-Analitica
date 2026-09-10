@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Users, MessageSquare, Clock, CheckCircle2, Hash, Tags, Loader2, AlertTriangle, ClipboardList, ThumbsUp, ThumbsDown, Plus, Send, ArrowRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Users, MessageSquare, Clock, CheckCircle2, Hash, Tags, Loader2, AlertTriangle, ClipboardList, ThumbsUp, ThumbsDown, Send, Plus, ArrowRight } from 'lucide-react';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
 
@@ -17,17 +17,10 @@ interface DashboardStats {
   misResueltas: number;
 }
 
-interface ItemReciente {
-  id: number;
-  contenido: string;
-  estado: string;
-  fecha: string;
-  tipo: string;
-}
-
 interface CategoriaDist { nombre: string; total: number; porcentaje: number; }
 interface PalabraFreq { palabra: string; frecuencia: number; }
 interface TiempoPunto { fecha: string; minutos: number; sla: number; }
+interface ItemReciente { id: number; contenido: string; estado: string; fecha: string; tipo: string; canal: string; categoria: string | null; }
 
 export const Dashboard = () => {
   const { user, isAdmin } = useAuth();
@@ -39,9 +32,9 @@ export const Dashboard = () => {
   const [categorias, setCategorias] = useState<CategoriaDist[]>([]);
   const [palabras, setPalabras] = useState<PalabraFreq[]>([]);
   const [tiempos, setTiempos] = useState<TiempoPunto[]>([]);
-  const [misSolicitudesRecientes, setMisSolicitudesRecientes] = useState<ItemReciente[]>([]);
-  const [misComentariosRecientes, setMisComentariosRecientes] = useState<ItemReciente[]>([]);
+  const [recentes, setRecentes] = useState<ItemReciente[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -97,16 +90,16 @@ export const Dashboard = () => {
           comentariosPendientes: pendientes, misSolicitudes, misPendientes, misResueltas,
         });
 
-        const solicitudesRecientes = allComentarios
-          .filter((c: any) => c.tipo === 'solicitud')
-          .slice(0, 5)
-          .map((c: any) => ({ id: c.id, contenido: c.contenido || '', estado: c.estado, fecha: c.fecha, tipo: c.tipo }));
-        const comentariosRecientes = allComentarios
-          .filter((c: any) => c.tipo === 'comentario')
-          .slice(0, 5)
-          .map((c: any) => ({ id: c.id, contenido: c.contenido || '', estado: c.estado, fecha: c.fecha, tipo: c.tipo }));
-        setMisSolicitudesRecientes(solicitudesRecientes);
-        setMisComentariosRecientes(comentariosRecientes);
+        const recientesData = allComentarios.slice(0, 5).map((c: any) => ({
+          id: c.id,
+          contenido: c.contenido || '',
+          estado: c.estado || 'pendiente',
+          fecha: c.fecha || '',
+          tipo: c.tipo || 'comentario',
+          canal: c.canal || 'web',
+          categoria: c.categoria || null,
+        }));
+        setRecentes(recientesData);
 
         if (isAdmin) {
           const catCount: Record<string, number> = {};
@@ -184,10 +177,10 @@ export const Dashboard = () => {
       { icono: MessageSquare, label: 'COMENTARIOS', valor: stats.totalComentarios.toString(), color: 'text-violet-600', bg: 'bg-violet-50' },
     ];
 
-    const estadoBadge = (estado: string) => {
-      if (estado === 'resuelto') return 'bg-emerald-100 text-emerald-700';
-      if (estado === 'en_proceso') return 'bg-blue-100 text-blue-700';
-      return 'bg-amber-100 text-amber-700';
+    const estadoConfig: Record<string, { label: string; cls: string }> = {
+      pendiente: { label: 'Pendiente', cls: 'bg-amber-100 text-amber-700' },
+      en_proceso: { label: 'En Proceso', cls: 'bg-blue-100 text-blue-700' },
+      resuelto: { label: 'Resuelto', cls: 'bg-emerald-100 text-emerald-700' },
     };
 
     return (
@@ -195,7 +188,7 @@ export const Dashboard = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Mi Panel</h1>
-            <p className="text-slate-500 text-sm mt-1">Resumen de tu actividad en la plataforma.</p>
+            <p className="text-slate-500 text-sm mt-1">Bienvenido, {user?.nombre || user?.email}. Aqui tienes un resumen de tu actividad.</p>
           </div>
         </div>
 
@@ -226,31 +219,32 @@ export const Dashboard = () => {
                 <ClipboardList size={18} className="text-blue-600" />
                 <h3 className="font-semibold text-slate-700 text-sm">Mis Solicitudes Recientes</h3>
               </div>
-              <Link to="/solicitudes" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">
+              <button onClick={() => navigate('/solicitudes')} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
                 Ver todas <ArrowRight size={12} />
-              </Link>
+              </button>
             </div>
-            {misSolicitudesRecientes.length === 0 ? (
+            {recentes.filter((r) => r.tipo === 'solicitud').length === 0 ? (
               <div className="text-center py-8">
-                <ClipboardList size={32} className="mx-auto mb-2 text-slate-300" />
-                <p className="text-sm text-slate-400">Aun no tienes solicitudes</p>
-                <Link to="/solicitudes" className="inline-flex items-center gap-1 mt-2 text-xs text-blue-600 hover:text-blue-700">
-                  <Plus size={12} /> Crear primera solicitud
-                </Link>
+                <ClipboardList size={32} className="text-slate-300 mx-auto mb-2" />
+                <p className="text-sm text-slate-400">No tienes solicitudes aun</p>
+                <button onClick={() => navigate('/solicitudes')} className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition">
+                  <Plus size={12} /> Crear solicitud
+                </button>
               </div>
             ) : (
-              <div className="space-y-2">
-                {misSolicitudesRecientes.map((s) => (
-                  <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-700 truncate">{s.contenido}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{new Date(s.fecha).toLocaleDateString('es-ES')}</p>
+              <div className="space-y-3">
+                {recentes.filter((r) => r.tipo === 'solicitud').slice(0, 4).map((s) => {
+                  const est = estadoConfig[s.estado] || estadoConfig.pendiente;
+                  return (
+                    <div key={s.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-700 truncate">{s.contenido}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{new Date(s.fecha).toLocaleDateString('es-ES')}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${est.cls}`}>{est.label}</span>
                     </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${estadoBadge(s.estado)}`}>
-                      {s.estado === 'resuelto' ? 'Resuelto' : s.estado === 'en_proceso' ? 'En Proceso' : 'Pendiente'}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -261,55 +255,48 @@ export const Dashboard = () => {
                 <MessageSquare size={18} className="text-violet-600" />
                 <h3 className="font-semibold text-slate-700 text-sm">Mis Comentarios Recientes</h3>
               </div>
-              <Link to="/comentarios" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">
+              <button onClick={() => navigate('/comentarios')} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
                 Ver todos <ArrowRight size={12} />
-              </Link>
+              </button>
             </div>
-            {misComentariosRecientes.length === 0 ? (
+            {recentes.filter((r) => r.tipo === 'comentario').length === 0 ? (
               <div className="text-center py-8">
-                <MessageSquare size={32} className="mx-auto mb-2 text-slate-300" />
-                <p className="text-sm text-slate-400">Aun no tienes comentarios</p>
-                <Link to="/comentarios" className="inline-flex items-center gap-1 mt-2 text-xs text-blue-600 hover:text-blue-700">
+                <MessageSquare size={32} className="text-slate-300 mx-auto mb-2" />
+                <p className="text-sm text-slate-400">No tienes comentarios aun</p>
+                <button onClick={() => navigate('/comentarios')} className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-violet-600 text-white text-xs font-medium rounded-lg hover:bg-violet-700 transition">
                   <Plus size={12} /> Escribir comentario
-                </Link>
+                </button>
               </div>
             ) : (
-              <div className="space-y-2">
-                {misComentariosRecientes.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-700 truncate">{c.contenido}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{new Date(c.fecha).toLocaleDateString('es-ES')}</p>
+              <div className="space-y-3">
+                {recentes.filter((r) => r.tipo === 'comentario').slice(0, 4).map((c) => {
+                  const est = estadoConfig[c.estado] || estadoConfig.pendiente;
+                  return (
+                    <div key={c.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-700 truncate">{c.contenido}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{c.canal} - {new Date(c.fecha).toLocaleDateString('es-ES')}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${est.cls}`}>{est.label}</span>
                     </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${estadoBadge(c.estado)}`}>
-                      {c.estado === 'resuelto' ? 'Resuelto' : c.estado === 'en_proceso' ? 'En Proceso' : 'Pendiente'}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Link to="/solicitudes" className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl p-5 shadow-sm transition flex items-center gap-4">
-            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-              <Plus size={24} />
-            </div>
-            <div>
-              <p className="font-semibold">Nueva Solicitud</p>
-              <p className="text-sm text-blue-100">Crear un ticket de atencion</p>
-            </div>
-          </Link>
-          <Link to="/comentarios" className="bg-violet-600 hover:bg-violet-700 text-white rounded-2xl p-5 shadow-sm transition flex items-center gap-4">
-            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-              <Send size={24} />
-            </div>
-            <div>
-              <p className="font-semibold">Escribir Comentario</p>
-              <p className="text-sm text-violet-100">Dejar tu feedback o opinion</p>
-            </div>
-          </Link>
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
+          <h3 className="font-semibold mb-2">Necesitas ayuda?</h3>
+          <p className="text-blue-100 text-sm mb-4">Crea una solicitud de atencion y nuestro equipo te respondera lo antes posible.</p>
+          <div className="flex gap-3">
+            <button onClick={() => navigate('/solicitudes')} className="inline-flex items-center gap-2 px-4 py-2 bg-white text-blue-600 text-sm font-medium rounded-lg hover:bg-blue-50 transition">
+              <Send size={14} /> Nueva Solicitud
+            </button>
+            <button onClick={() => navigate('/comentarios')} className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 text-white text-sm font-medium rounded-lg hover:bg-white/20 transition border border-white/20">
+              <MessageSquare size={14} /> Escribir Comentario
+            </button>
+          </div>
         </div>
       </div>
     );

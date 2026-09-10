@@ -4,6 +4,44 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recha
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
 
+const STOPWORDS = new Set(['de','la','el','en','y','a','los','del','las','un','por','con','una','su','para','es','al','lo','como','mas','o','pero','sus','le','ya','este','ha','si','porque','esta','son','entre','cuando','muy','sin','sobre','tambien','me','hasta','hay','donde','quien','desde','todo','nos','durante','todos','uno','les','ni','contra','otros','ese','eso','ante','ellos','esto','mi','antes','algunos','que','unos','yo','otro','otras','otra','el','tanto','esa','estos','mucho','quienes','nada','muchos','cual','poco','ella','estar','estas','algunas','algo','nosotros','mi','mis','tu','te','ti','tu','tus','ellas','nosotras','vosotros','vosotras','os']);
+
+function analizarAutomatico(texto: string, categorias: { nombre: string; descripcion: string }[]): { categoria: string; confianza: number; palabras: string[] } {
+  const limpio = texto.toLowerCase().replace(/[^\w\s]/g, ' ');
+  const tokens = limpio.split(/\s+/).filter((t) => t.length > 2 && !STOPWORDS.has(t));
+  const freq: Record<string, number> = {};
+  tokens.forEach((t) => { freq[t] = (freq[t] || 0) + 1; });
+  const palabras = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([p]) => p);
+
+  const positivas = ['excelente','bueno','buen','genial','increible','perfecto','agradecido','gracias','feliz','satisfecho','recomiendo','rapido','eficiente'];
+  const negativas = ['malo','terrible','pesimo','horrible','lento','error','problema','queja','reclamo','insatisfecho','decepcionado','no funciona','no sirve','deficiente'];
+
+  const textoLower = texto.toLowerCase();
+  let posCount = 0, negCount = 0;
+  positivas.forEach((p) => { if (textoLower.includes(p)) posCount++; });
+  negativas.forEach((n) => { if (textoLower.includes(n)) negCount++; });
+
+  let categoria = 'OTROS';
+  let mejorScore = 0;
+  for (const cat of categorias) {
+    const nombreCat = cat.nombre.toLowerCase();
+    const descCat = (cat.descripcion || '').toLowerCase();
+    const score = (textoLower.includes(nombreCat) ? 10 : 0) + descCat.split(/\s+/).filter(w => w.length > 3 && textoLower.includes(w)).length;
+    if (score > mejorScore) { mejorScore = score; categoria = cat.nombre.toUpperCase(); }
+  }
+  if (mejorScore === 0) {
+    if (textoLower.match(/compr|venta|adquir|producto|precio/)) categoria = 'VENTAS';
+    else if (textoLower.match(/soporte|ayuda|tecnic|repar|falla/)) categoria = 'SOPORTE';
+    else if (textoLower.match(/reclamo|queja|malo|pesimo|defecto/)) categoria = 'RECLAMO';
+    else if (textoLower.match(/consulta|pregunt|informacion|duda/)) categoria = 'CONSULTA';
+    else if (textoLower.match(/excelente|gracias|buen|feliz|satisfecho/)) categoria = 'FELICITACION';
+  }
+
+  const total = posCount + negCount || 1;
+  const confianza = Math.min(95, Math.round(50 + (Math.abs(posCount - negCount) / total) * 45));
+  return { categoria, confianza, palabras };
+}
+
 interface ComentarioDB {
   id: number;
   cliente_id: number | null;
@@ -68,7 +106,7 @@ export const Comentarios = () => {
     setSaving(true);
     setError('');
     try {
-      const { error: err } = await supabase.from('comentarios').insert({
+      const { data: nuevo, error: err } = await supabase.from('comentarios').insert({
         cliente_id: clienteId || null,
         usuario_id: user?.id ? Number(user.id) : null,
         contenido,
@@ -77,8 +115,25 @@ export const Comentarios = () => {
         estado: 'pendiente',
         procesado: false,
         fecha: new Date().toISOString(),
-      });
+      }).select('id').single();
       if (err) throw err;
+
+      if (nuevo) {
+        const { data: cats } = await supabase.from('categorias').select('nombre, descripcion').eq('activo', true);
+        const resultado = analizarAutomatico(contenido, cats || []);
+        await supabase.from('analisis_nlp').insert({
+          comentario_id: nuevo.id,
+          idioma: 'es',
+          cantidad_palabras: resultado.palabras.length,
+          palabras_limpias: resultado.palabras,
+          palabras_frecuentes: resultado.palabras,
+          categoria_detectada: resultado.categoria,
+          confianza: resultado.confianza / 100,
+          fecha_analisis: new Date().toISOString(),
+        });
+        await supabase.from('comentarios').update({ procesado: true, categoria: resultado.categoria }).eq('id', nuevo.id);
+      }
+
       setShowModal(false);
       setContenido('');
       setClienteId('');
