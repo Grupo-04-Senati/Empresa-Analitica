@@ -580,8 +580,8 @@ export async function registerFace(
   }
 }
 
-const UMBRAL_EMBEDDING = 0.25;
-const MIN_MATCHES = 2;
+const UMBRAL_EMBEDDING = 0.18;
+const MIN_MATCHES = 3;
 
 export async function loginByFace(
   photos: Record<string, string>
@@ -689,7 +689,7 @@ export async function loginByFace(
 
     userResults.sort((a, b) => a.avgDist - b.avgDist);
 
-    if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < 0.12) {
+    if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < 0.15) {
       return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
     }
 
@@ -830,7 +830,7 @@ export async function loginByFaceWithLiveness(
 
     userResults.sort((a, b) => a.avgDist - b.avgDist);
 
-    if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < 0.12) {
+    if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < 0.15) {
       return { ok: false, error: 'Rostro ambiguo. Asegurese de que solo su rostro este visible.' };
     }
 

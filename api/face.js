@@ -5,9 +5,9 @@ const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const sb = createClient(URL, KEY);
 
-const UMBRAL = 0.25;
-const UMBRAL_GAP = 0.12;
-const MIN_MATCHES = 2;
+const UMBRAL = 0.18;
+const UMBRAL_GAP = 0.15;
+const MIN_ANGLES_REQUIRED = 3;
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -29,13 +29,16 @@ function parseBody(req) {
 }
 
 function cosineDistance(a, b) {
+  if (!a || !b || a.length !== b.length) return 1;
   let dot = 0, normA = 0, normB = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i];
     normA += a[i] * a[i];
     normB += b[i] * b[i];
   }
-  return 1 - Math.max(-1, Math.min(1, dot / (Math.sqrt(normA) * Math.sqrt(normB))));
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  if (denom === 0) return 1;
+  return 1 - Math.max(-1, Math.min(1, dot / denom));
 }
 
 function parseVector(v) {
@@ -120,38 +123,59 @@ module.exports = async function handler(req, res) {
 
       for (const r of rostros) {
         const uid = r.usuario_id;
-        const storedEmbeds = [];
-        const frontal = parseVector(r.embedding_frontal);
-        const izq = parseVector(r.embedding_izquierda);
-        const der = parseVector(r.embedding_derecha);
-        if (frontal) storedEmbeds.push(frontal);
-        if (izq) storedEmbeds.push(izq);
-        if (der) storedEmbeds.push(der);
+        const storedFrontal = parseVector(r.embedding_frontal);
+        const storedIzq = parseVector(r.embedding_izquierda);
+        const storedDer = parseVector(r.embedding_derecha);
 
-        if (storedEmbeds.length < 2) continue;
+        const storedByAngle = [];
+        if (storedFrontal) storedByAngle.push({ angle: 'frontal', emb: storedFrontal });
+        if (storedIzq) storedByAngle.push({ angle: 'izquierda', emb: storedIzq });
+        if (storedDer) storedByAngle.push({ angle: 'derecha', emb: storedDer });
 
-        let totalBestDist = 0;
-        let matchCount = 0;
-        const allDists = [];
+        if (storedByAngle.length < MIN_ANGLES_REQUIRED) {
+          console.log(`[face] user ${uid}: skipped (only ${storedByAngle.length}/${MIN_ANGLES_REQUIRED} angles)`);
+          continue;
+        }
+
+        const angleNames = ['frontal', 'izquierda', 'derecha'];
+        const loginByAngle = {};
+        for (const name of angleNames) {
+          loginByAngle[name] = null;
+        }
 
         for (const loginEmb of embeddings) {
-          let bestDistForThisLogin = Infinity;
-          for (const stored of storedEmbeds) {
-            const dist = cosineDistance(loginEmb, stored);
-            allDists.push(dist);
-            if (dist < bestDistForThisLogin) bestDistForThisLogin = dist;
+          let bestAngle = null;
+          let bestDist = Infinity;
+          for (const stored of storedByAngle) {
+            const dist = cosineDistance(loginEmb, stored.emb);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestAngle = stored.angle;
+            }
           }
-          if (bestDistForThisLogin <= UMBRAL) {
-            totalBestDist += bestDistForThisLogin;
-            matchCount++;
+          if (bestAngle && (!loginByAngle[bestAngle] || bestDist < loginByAngle[bestAngle].dist)) {
+            loginByAngle[bestAngle] = { dist: bestDist, loginEmb };
           }
         }
 
-        const avgDist = matchCount > 0 ? totalBestDist / matchCount : 999;
-        console.log(`[face] user ${uid}: matchCount=${matchCount}, avgDist=${avgDist.toFixed(4)}, storedEmbeds=${storedEmbeds.length}, allDists=[${allDists.map(d => d.toFixed(3)).join(', ')}]`);
+        const matchedAngles = [];
+        const distsByAngle = [];
+        for (const angle of angleNames) {
+          const match = loginByAngle[angle];
+          if (match && match.dist <= UMBRAL) {
+            matchedAngles.push(angle);
+            distsByAngle.push(match.dist);
+          }
+        }
 
-        if (matchCount >= MIN_MATCHES) {
-          userResults.push({ userId: uid, avgDist, matchCount });
+        const avgDist = distsByAngle.length > 0
+          ? distsByAngle.reduce((a, b) => a + b, 0) / distsByAngle.length
+          : 999;
+
+        console.log(`[face] user ${uid}: matchedAngles=${matchedAngles.length}/${MIN_ANGLES_REQUIRED}, avgDist=${avgDist.toFixed(4)}, details=[${distsByAngle.map(d => d.toFixed(4)).join(', ')}]`);
+
+        if (matchedAngles.length >= MIN_ANGLES_REQUIRED) {
+          userResults.push({ userId: uid, avgDist, matchedAngles: matchedAngles.length });
         }
       }
 
