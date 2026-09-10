@@ -119,6 +119,7 @@ module.exports = async function handler(req, res) {
           matchCount: count,
           avgDist: matchDists[uid].reduce((a, b) => a + b, 0) / matchDists[uid].length,
         }))
+        .filter(c => c.matchCount >= 2)
         .sort((a, b) => b.matchCount - a.matchCount || a.avgDist - b.avgDist);
 
       console.log('[face] login candidates:', JSON.stringify(candidatos));
@@ -128,9 +129,6 @@ module.exports = async function handler(req, res) {
       }
 
       const winner = candidatos[0];
-      if (winner.matchCount < 2) {
-        return res.status(401).json({ error: 'Rostro no reconocido' });
-      }
 
       const { data: usuario } = await sb.from('usuarios')
         .select('id, nombre, email, rol')
