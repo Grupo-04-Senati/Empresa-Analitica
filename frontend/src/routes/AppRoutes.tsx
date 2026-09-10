@@ -28,17 +28,11 @@ import Login from '../pages/Login';
 import Register from '../pages/Register';
 import LimpiezaDatos from '../pages/LimpiezaDatos';
 import Notificaciones from '../pages/Notificaciones';
+import FAQ from '../pages/FAQ';
 
 const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50 flex-col gap-4">
-        <Loader2 size={32} className="auth-spinner text-blue-600" />
-        <p className="text-slate-500 text-sm">Cargando...</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-950 flex-col gap-4"><Loader2 size={32} className="animate-spin text-blue-600" /><p className="text-slate-500 text-sm">Cargando...</p></div>;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
@@ -52,14 +46,7 @@ const AdminGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const GuestGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-950 flex-col gap-4">
-        <Loader2 size={32} className="auth-spinner text-blue-500" />
-        <p className="text-slate-500 text-sm">Cargando...</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center min-h-screen bg-slate-950 flex-col gap-4"><Loader2 size={32} className="animate-spin text-blue-500" /><p className="text-slate-500 text-sm">Cargando...</p></div>;
   if (user) return <Navigate to="/" replace />;
   return <>{children}</>;
 };
@@ -69,6 +56,7 @@ export const AppRoutes = () => (
     <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
     <Route path="/register" element={<GuestGuard><Register /></GuestGuard>} />
     <Route path="/perfil" element={<AuthGuard><Perfil /></AuthGuard>} />
+    <Route path="/faq" element={<AuthGuard><FAQ /></AuthGuard>} />
 
     <Route path="/" element={<AuthGuard><DashboardLayout /></AuthGuard>}>
       <Route index element={<DashboardInicio />} />

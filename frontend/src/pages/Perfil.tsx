@@ -276,7 +276,7 @@ export const Perfil: React.FC = () => {
               </div>
               <p className="text-sm text-slate-400 mt-1">{user?.email}</p>
               <span className="inline-block mt-1.5 text-[11px] font-semibold text-sky-400 bg-sky-400/10 px-2 py-0.5 rounded border border-sky-400/20">
-                Rol: {user?.rol || 'usuario'} · NEXUS Corp
+                Rol: {user?.rol || 'usuario'} · BADI Corp
               </span>
             </div>
           </div>
