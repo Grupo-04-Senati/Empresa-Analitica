@@ -231,6 +231,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     } catch {}
 
+    try {
+      await supabase.from('clientes').insert({
+        nombre: data.nombre.trim(),
+        email: cleanEmail,
+        telefono: data.telefono?.trim() || null,
+        empresa: data.empresa?.trim() || null,
+        activo: true,
+      });
+    } catch (e) {
+      console.warn('[auth] No se pudo crear cliente:', e);
+    }
+
     logAudit({ accion: 'REGISTER', tabla: 'usuarios', registro_id: dbData.id, usuario_email: cleanEmail, modulo: 'Auth', detalles: `Nuevo registro: ${data.nombre.trim()} (${cleanEmail})`, datos_nuevos: { nombre: data.nombre.trim(), email: cleanEmail, rol: rolAsignado } });
 
     await auth.signOut();
