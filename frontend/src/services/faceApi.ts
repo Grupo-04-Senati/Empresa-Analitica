@@ -118,6 +118,19 @@ export async function faceApiLogin(
 
     const embList = [embeddings.frontal!, embeddings.izquierda!, embeddings.derecha!];
 
+    for (let i = 0; i < embList.length; i++) {
+      const emb = embList[i];
+      if (!emb || !Array.isArray(emb) || emb.length !== 128) {
+        console.error(`[faceApi] login REJECTED: embedding[${i}] invalido`);
+        return { ok: false, error: 'Error generando embedding. Intenta de nuevo.' };
+      }
+      const hasNaN = emb.some(v => isNaN(v));
+      if (hasNaN) {
+        console.error(`[faceApi] login REJECTED: embedding[${i}] contains NaN`);
+        return { ok: false, error: 'Error en datos faciales. Intenta de nuevo.' };
+      }
+    }
+
     console.log('[faceApi] login embeddings: 3/3 angles OK, dims:', embList[0]?.length);
 
     const res = await fetch(apiUrl('login'), {
@@ -132,14 +145,41 @@ export async function faceApiLogin(
       const debugMsg = isDev && err._debug
         ? ` (dist: ${err._debug.avgDist?.toFixed(3)}, umbral: ${err._debug.umbral})`
         : '';
+      console.error(`[audit] LOGIN REJECTED by server:`, err.error, err._debug);
       return { ok: false, error: (err.error || 'Rostro no reconocido') + debugMsg, debug: err._debug };
     }
 
     const data = await res.json();
+
+    if (!data.ok) {
+      console.error(`[audit] LOGIN REJECTED: server returned ok=false`);
+      return { ok: false, error: data.error || 'Rostro no reconocido', debug: data._debug };
+    }
+
+    if (data.usuario_id === undefined || data.usuario_id === null || isNaN(Number(data.usuario_id))) {
+      console.error(`[audit] LOGIN REJECTED: server returned invalid usuario_id:`, data.usuario_id);
+      return { ok: false, error: 'Error en respuesta del servidor' };
+    }
+
+    if (data.distancia !== undefined && data.distancia !== null) {
+      const dist = Number(data.distancia);
+      if (isNaN(dist) || dist < 0 || dist > 1) {
+        console.error(`[audit] LOGIN REJECTED: server returned invalid distancia:`, data.distancia);
+        return { ok: false, error: 'Error en calculo de distancias' };
+      }
+    }
+
     const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('vercel.app');
     if (isDev && data._debug) {
-      console.log(`[faceApi] DEBUG: avgDist=${data._debug.avgDist?.toFixed(4)}, umbral=${data._debug.umbral}, gap=${data._debug.gap?.toFixed(4)}`);
+      console.log(`[faceApi] DEBUG: embeddings=${data._debug.embeddingsReceived}, umbral=${data._debug.umbral}`);
+      if (data._debug.perEmbedding) {
+        data._debug.perEmbedding.forEach((e: any) => {
+          console.log(`  emb[${e.idx}]: user=${e.userId}, dist=${e.dist?.toFixed(4)}, es_match=${e.esMatch}`);
+        });
+      }
     }
+
+    console.log(`[audit] LOGIN OK: user ${data.usuario_id}, nombre=${data.nombre}`);
     return {
       ok: data.ok,
       usuario_id: data.usuario_id,
@@ -148,6 +188,7 @@ export async function faceApiLogin(
       debug: data._debug,
     };
   } catch (e: any) {
+    console.error(`[audit] LOGIN ERROR (exception):`, e.message);
     return { ok: false, error: e?.message || 'No se pudo conectar al servidor' };
   }
 }

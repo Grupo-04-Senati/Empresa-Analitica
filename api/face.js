@@ -105,16 +105,27 @@ module.exports = async function handler(req, res) {
       const { embeddings } = body;
 
       if (!embeddings || !Array.isArray(embeddings) || embeddings.length === 0) {
+        console.error('[audit] LOGIN REJECTED: no embeddings provided');
         return res.status(400).json({ error: 'Faltan embeddings' });
+      }
+
+      if (embeddings.length < 3) {
+        console.error(`[audit] LOGIN REJECTED: only ${embeddings.length} embeddings, need 3`);
+        return res.status(400).json({ error: `Se necesitan 3 embeddings, solo se recibieron ${embeddings.length}` });
       }
 
       const matchCounts = {};
       const matchDists = {};
       const debugPerEmb = [];
+      const UMBRAL_ACTIVO = 0.35;
 
       for (let i = 0; i < embeddings.length; i++) {
         const loginEmb = embeddings[i];
-        if (!loginEmb || !Array.isArray(loginEmb)) continue;
+        if (!loginEmb || !Array.isArray(loginEmb) || loginEmb.length !== 128) {
+          console.error(`[audit] LOGIN REJECTED: embedding[${i}] invalido (type: ${typeof loginEmb}, length: ${loginEmb?.length})`);
+          debugPerEmb.push({ idx: i, error: 'embedding invalido', type: typeof loginEmb, length: loginEmb?.length });
+          continue;
+        }
 
         const loginVector = `[${loginEmb.join(',')}]`;
 
@@ -129,29 +140,48 @@ module.exports = async function handler(req, res) {
         }
 
         if (!resultado || resultado.length === 0) {
-          console.log(`[face] emb[${i}]: sin resultado`);
+          console.log(`[face] emb[${i}]: sin resultado de la DB`);
           debugPerEmb.push({ idx: i, result: 'empty' });
           continue;
         }
 
         const r = resultado[0];
-        console.log(`[face] emb[${i}]: user=${r.usuario_id}, dist=${r.dist_promedio?.toFixed(4)}, es_match=${r.es_match}, frontal=${r.dist_frontal?.toFixed(4)}, izq=${r.dist_izquierda?.toFixed(4)}, der=${r.dist_derecha?.toFixed(4)}`);
+
+        const distPromedio = Number(r.dist_promedio);
+        const distFrontal = Number(r.dist_frontal);
+        const distIzq = Number(r.dist_izquierda);
+        const distDer = Number(r.dist_derecha);
+        const esMatch = Boolean(r.es_match);
+
+        if (isNaN(distPromedio) || distPromedio === null || distPromedio === undefined) {
+          console.error(`[audit] LOGIN REJECTED: emb[${i}] dist_promedio is invalid:`, r.dist_promedio);
+          debugPerEmb.push({ idx: i, error: 'dist_promedio invalido', raw: r.dist_promedio });
+          continue;
+        }
+
+        if (isNaN(distFrontal) || isNaN(distIzq) || isNaN(distDer)) {
+          console.error(`[audit] LOGIN REJECTED: emb[${i}] distance components contain NaN:`, { distFrontal, distIzq, distDer });
+          debugPerEmb.push({ idx: i, error: 'distancias individuales NaN', frontal: distFrontal, izq: distIzq, der: distDer });
+          continue;
+        }
+
+        console.log(`[face] emb[${i}]: user=${r.usuario_id}, dist=${distPromedio.toFixed(4)}, es_match=${esMatch}, frontal=${distFrontal.toFixed(4)}, izq=${distIzq.toFixed(4)}, der=${distDer.toFixed(4)}`);
 
         debugPerEmb.push({
           idx: i,
           userId: r.usuario_id,
-          dist: r.dist_promedio,
-          esMatch: r.es_match,
-          frontal: r.dist_frontal,
-          izq: r.dist_izquierda,
-          der: r.dist_derecha,
+          dist: distPromedio,
+          esMatch: esMatch,
+          frontal: distFrontal,
+          izq: distIzq,
+          der: distDer,
         });
 
-        if (r.es_match) {
+        if (esMatch) {
           const uid = r.usuario_id;
           matchCounts[uid] = (matchCounts[uid] || 0) + 1;
           if (!matchDists[uid]) matchDists[uid] = [];
-          matchDists[uid].push(r.dist_promedio);
+          matchDists[uid].push(distPromedio);
         }
       }
 
@@ -159,30 +189,48 @@ module.exports = async function handler(req, res) {
       console.log('[face] debug per embedding:', JSON.stringify(debugPerEmb));
 
       const candidatos = Object.entries(matchCounts)
-        .map(([uid, count]) => ({
-          userId: Number(uid),
-          matchCount: count,
-          avgDist: matchDists[uid].reduce((a, b) => a + b, 0) / matchDists[uid].length,
-        }))
-        .filter(c => c.matchCount >= 2)
+        .map(([uid, count]) => {
+          const dists = matchDists[uid].filter(d => !isNaN(d) && d !== null && d !== undefined);
+          if (dists.length === 0) {
+            console.error(`[audit] LOGIN REJECTED: user ${uid} has no valid distances`);
+            return null;
+          }
+          const avgDist = dists.reduce((a, b) => a + b, 0) / dists.length;
+          if (isNaN(avgDist)) {
+            console.error(`[audit] LOGIN REJECTED: user ${uid} avgDist is NaN`);
+            return null;
+          }
+          return {
+            userId: Number(uid),
+            matchCount: count,
+            avgDist: avgDist,
+          };
+        })
+        .filter(c => c !== null && c.matchCount >= 2 && !isNaN(c.avgDist) && c.avgDist !== null && c.avgDist !== undefined)
         .sort((a, b) => b.matchCount - a.matchCount || a.avgDist - b.avgDist);
 
       console.log('[face] login candidates:', JSON.stringify(candidatos));
 
       if (candidatos.length === 0) {
+        console.error('[audit] LOGIN REJECTED: no valid candidates after filtering');
         return res.status(401).json({
           error: 'Rostro no reconocido',
           _debug: {
             embeddingsReceived: embeddings.length,
             perEmbedding: debugPerEmb,
             matchCounts,
-            umbral: 0.35,
-            message: 'Ningun embedding paso el umbral de 0.35'
+            umbral: UMBRAL_ACTIVO,
+            message: 'Ningun embedding paso las validaciones de integridad'
           }
         });
       }
 
       const winner = candidatos[0];
+
+      if (winner.avgDist === undefined || winner.avgDist === null || isNaN(winner.avgDist)) {
+        console.error(`[audit] LOGIN REJECTED: winner avgDist is invalid:`, winner.avgDist);
+        return res.status(401).json({ error: 'Error en calculo de distancias' });
+      }
 
       const { data: usuario } = await sb.from('usuarios')
         .select('id, nombre, email, rol')
@@ -190,10 +238,11 @@ module.exports = async function handler(req, res) {
         .limit(1);
 
       if (!usuario || usuario.length === 0) {
+        console.error(`[audit] LOGIN REJECTED: user ${winner.userId} not found in usuarios table`);
         return res.status(404).json({ error: 'Usuario no encontrado' });
       }
 
-      console.log(`[face] login OK: user ${winner.userId}, matches=${winner.matchCount}, avgDist=${winner.avgDist.toFixed(4)}`);
+      console.log(`[audit] LOGIN OK: user ${winner.userId}, matches=${winner.matchCount}, avgDist=${winner.avgDist.toFixed(4)}, umbral=${UMBRAL_ACTIVO}`);
 
       return res.status(200).json({
         ok: true,
@@ -205,11 +254,11 @@ module.exports = async function handler(req, res) {
           embeddingsReceived: embeddings.length,
           perEmbedding: debugPerEmb,
           matchCounts,
-          umbral: 0.35,
+          umbral: UMBRAL_ACTIVO,
         }
       });
     } catch (e) {
-      console.error('[face] login error:', e);
+      console.error('[audit] LOGIN ERROR (exception):', e.message, e.stack);
       return res.status(500).json({ error: 'Error interno' });
     }
   }
