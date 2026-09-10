@@ -34,7 +34,7 @@ function isAdminRole(rol: string): boolean {
   return r === 'admin' || r === 'analista' || r === 'supervisor';
 }
 
-const FACE_KEY = 'nexus_face_session';
+const FACE_KEY = 'badi_face_session';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);

@@ -148,10 +148,12 @@ export const Register: React.FC = () => {
         <div className="relative z-10 flex flex-col justify-between w-full px-12 py-10">
           <div>
             <div className="flex items-center gap-3 mb-16">
-              <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold text-lg shadow-lg shadow-blue-500/25">N</div>
+              <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="12" width="4" height="9" rx="1" fill="white"/><rect x="10" y="7" width="4" height="14" rx="1" fill="white"/><rect x="17" y="3" width="4" height="18" rx="1" fill="white"/></svg>
+              </div>
               <div>
-                <h1 className="text-white font-bold text-lg leading-tight">NEXUS Corp</h1>
-                <span className="text-[11px] font-semibold tracking-[0.2em] text-indigo-400 uppercase">Plataforma de Analisis</span>
+                <h1 className="text-white font-bold text-lg leading-tight">BADI Corp</h1>
+                <span className="text-[11px] font-semibold tracking-[0.2em] text-indigo-400 uppercase">Analitica & Desarrollo</span>
               </div>
             </div>
             <h2 className="text-4xl font-bold text-white leading-tight mb-4">
@@ -173,17 +175,19 @@ export const Register: React.FC = () => {
               ))}
             </div>
           </div>
-          <p className="text-slate-500 text-xs">&copy; 2026 NEXUS Corp. Todos los derechos reservados.</p>
+          <p className="text-slate-500 text-xs">&copy; 2026 BADI Corp. Todos los derechos reservados.</p>
         </div>
       </div>
 
       <div className="flex flex-1 items-center justify-center px-6 py-12 bg-gradient-to-br from-slate-50 to-indigo-50">
         <div className="w-full max-w-md">
           <div className="flex items-center gap-3 mb-8 lg:hidden">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold shadow-lg shadow-blue-500/25">N</div>
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="12" width="4" height="9" rx="1" fill="white"/><rect x="10" y="7" width="4" height="14" rx="1" fill="white"/><rect x="17" y="3" width="4" height="18" rx="1" fill="white"/></svg>
+            </div>
             <div>
-              <h1 className="text-slate-800 font-bold leading-tight">NEXUS Corp</h1>
-              <span className="text-[10px] font-semibold tracking-[0.2em] text-indigo-500 uppercase">Plataforma de Analisis</span>
+              <h1 className="text-slate-800 font-bold leading-tight">BADI Corp</h1>
+              <span className="text-[10px] font-semibold tracking-[0.2em] text-indigo-500 uppercase">Analitica & Desarrollo</span>
             </div>
           </div>
 

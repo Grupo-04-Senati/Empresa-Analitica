@@ -64,7 +64,8 @@ export const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('darkMode') === 'true' || (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      const stored = localStorage.getItem('darkMode');
+      if (stored !== null) return stored === 'true';
     }
     return false;
   });
