@@ -200,18 +200,24 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       img.src = dataUrl;
       await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
+      const isFrontal = angle === 'frontal';
+
+      const detectionScoreThreshold = isFrontal ? 0.5 : 0.3;
+      const minEyeDist = isFrontal ? 20 : 12;
+      const minNonZero = isFrontal ? 64 : 48;
+
       const detection = await (faceapi as any)
-        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: detectionScoreThreshold }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
       if (!detection) {
-        console.warn(`[face] No se detecto rostro en ${angle}`);
+        console.warn(`[face] No se detecto rostro en ${angle} (threshold: ${detectionScoreThreshold})`);
         continue;
       }
 
-      if (detection.detection.score < 0.5) {
-        console.warn(`[face] Score muy bajo en ${angle}: ${detection.detection.score}`);
+      if (detection.detection.score < detectionScoreThreshold) {
+        console.warn(`[face] Score muy bajo en ${angle}: ${detection.detection.score} (min: ${detectionScoreThreshold})`);
         continue;
       }
 
@@ -227,21 +233,21 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       const leftMouth = pts[48];
       const rightMouth = pts[54];
       const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
-      if (eyeDist < 20) {
-        console.warn(`[face] Ojos muy pequenos en ${angle}: ${eyeDist}`);
+      if (eyeDist < minEyeDist) {
+        console.warn(`[face] Ojos muy pequenos en ${angle}: ${eyeDist} (min: ${minEyeDist})`);
         continue;
       }
 
       const noseToEye = Math.sqrt((nose.x - (leftEye.x + rightEye.x) / 2) ** 2 + (nose.y - (leftEye.y + rightEye.y) / 2) ** 2);
       const faceRatio = noseToEye / eyeDist;
-      if (faceRatio < 0.1 || faceRatio > 2.0) {
+      if (faceRatio < 0.05 || faceRatio > 3.0) {
         console.warn(`[face] Proporcion facial invalida en ${angle}: ${faceRatio}`);
         continue;
       }
 
       const mouthWidth = Math.sqrt((rightMouth.x - leftMouth.x) ** 2 + (rightMouth.y - leftMouth.y) ** 2);
       const mouthToEye = mouthWidth / eyeDist;
-      if (mouthToEye < 0.05 || mouthToEye > 3.0) {
+      if (mouthToEye < 0.03 || mouthToEye > 4.0) {
         console.warn(`[face] Proporcion boca-ojos invalida en ${angle}: ${mouthToEye}`);
         continue;
       }
@@ -254,8 +260,8 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       }
 
       const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
-      if (nonZero < 64) {
-        console.warn(`[face] Embedding poco informativo en ${angle}: ${nonZero} non-zero dims`);
+      if (nonZero < minNonZero) {
+        console.warn(`[face] Embedding poco informativo en ${angle}: ${nonZero} non-zero dims (min: ${minNonZero})`);
         continue;
       }
 

@@ -101,13 +101,24 @@ export async function faceApiLogin(
     console.log('[faceApi] multi-face check passed: 1 face detected');
 
     const embeddings = await extractEmbeddings(photos);
-    const embList = Object.values(embeddings).filter((e): e is number[] => e !== null);
 
-    if (embList.length === 0) {
-      return { ok: false, error: 'No se detecto ningun rostro en las capturas' };
+    const missing: string[] = [];
+    if (!embeddings.frontal) missing.push('frontal');
+    if (!embeddings.izquierda) missing.push('izquierda');
+    if (!embeddings.derecha) missing.push('derecha');
+
+    if (missing.length > 0) {
+      console.warn(`[faceApi] login REJECTED: missing angles: ${missing.join(', ')}`);
+      return {
+        ok: false,
+        error: `No se pudo detectar rostro en los angulos: ${missing.join(', ')}. Asegurate de mirar directamente a la camara en cada posicion.`,
+        missing,
+      };
     }
 
-    console.log('[faceApi] login embeddings:', embList.length, 'dims:', embList[0]?.length);
+    const embList = [embeddings.frontal!, embeddings.izquierda!, embeddings.derecha!];
+
+    console.log('[faceApi] login embeddings: 3/3 angles OK, dims:', embList[0]?.length);
 
     const res = await fetch(apiUrl('login'), {
       method: 'POST',
