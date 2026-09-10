@@ -36,6 +36,7 @@ interface SubMenuItem {
 interface MenuItem {
   title: string;
   icon: React.ReactNode;
+  adminOnly?: boolean;
   items: SubMenuItem[];
 }
 
