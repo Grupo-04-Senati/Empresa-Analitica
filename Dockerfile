@@ -6,8 +6,13 @@ WORKDIR /app
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download NLTK data
-RUN python -c "import nltk; nltk.download('punkt'); nltk.download('punkt_tab'); nltk.download('stopwords'); nltk.download('wordnet'); nltk.download('movie_reviews'); nltk.download('vader_lexicon')"
+# Download NLTK data with error handling
+RUN python -c "import nltk; nltk.download('punkt', quiet=True)" || true
+RUN python -c "import nltk; nltk.download('punkt_tab', quiet=True)" || true
+RUN python -c "import nltk; nltk.download('stopwords', quiet=True)" || true
+RUN python -c "import nltk; nltk.download('wordnet', quiet=True)" || true
+RUN python -c "import nltk; nltk.download('movie_reviews', quiet=True)" || true
+RUN python -c "import nltk; nltk.download('vader_lexicon', quiet=True)" || true
 
 COPY backend/ .
 
