@@ -255,6 +255,9 @@ module.exports = async function handler(req, res) {
           perEmbedding: debugPerEmb,
           matchCounts,
           umbral: UMBRAL_ACTIVO,
+          avgDist: winner.avgDist,
+          matchCount: winner.matchCount,
+          userId: winner.userId,
         }
       });
     } catch (e) {
