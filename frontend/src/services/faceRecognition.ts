@@ -200,19 +200,66 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
       const detection = await (faceapi as any)
-        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
-      if (detection && detection.detection.score >= 0.3) {
-        const descriptor = detection.descriptor as Float32Array;
-        const embedding: number[] = Array.from(descriptor);
-        const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
-        if (norm > 0) {
-          for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
-        }
-        (result as any)[angle] = embedding;
+      if (!detection) {
+        console.warn(`[face] No se detecto rostro en ${angle}`);
+        continue;
       }
+
+      if (detection.detection.score < 0.5) {
+        console.warn(`[face] Score muy bajo en ${angle}: ${detection.detection.score}`);
+        continue;
+      }
+
+      const pts = detection.landmarks.positions;
+      if (pts.length < 68) {
+        console.warn(`[face] Landmarks insuficientes en ${angle}: ${pts.length}`);
+        continue;
+      }
+
+      const leftEye = pts[36];
+      const rightEye = pts[45];
+      const nose = pts[30];
+      const leftMouth = pts[48];
+      const rightMouth = pts[54];
+      const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
+      if (eyeDist < 20) {
+        console.warn(`[face] Ojos muy pequenos en ${angle}: ${eyeDist}`);
+        continue;
+      }
+
+      const noseToEye = Math.sqrt((nose.x - (leftEye.x + rightEye.x) / 2) ** 2 + (nose.y - (leftEye.y + rightEye.y) / 2) ** 2);
+      const faceRatio = noseToEye / eyeDist;
+      if (faceRatio < 0.3 || faceRatio > 1.2) {
+        console.warn(`[face] Proporcion facial invalida en ${angle}: ${faceRatio}`);
+        continue;
+      }
+
+      const mouthWidth = Math.sqrt((rightMouth.x - leftMouth.x) ** 2 + (rightMouth.y - leftMouth.y) ** 2);
+      const mouthToEye = mouthWidth / eyeDist;
+      if (mouthToEye < 0.2 || mouthToEye > 2.0) {
+        console.warn(`[face] Proporcion boca-ojos invalida en ${angle}: ${mouthToEye}`);
+        continue;
+      }
+
+      const descriptor = detection.descriptor as Float32Array;
+      const embedding: number[] = Array.from(descriptor);
+      const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
+      if (norm > 0) {
+        for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
+      }
+
+      const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
+      if (nonZero < 64) {
+        console.warn(`[face] Embedding poco informativo en ${angle}: ${nonZero} non-zero dims`);
+        continue;
+      }
+
+      console.log(`[face] OK ${angle}: score=${detection.detection.score.toFixed(3)}, eyeDist=${eyeDist.toFixed(1)}, faceRatio=${faceRatio.toFixed(3)}, nonZero=${nonZero}`);
+      (result as any)[angle] = embedding;
     } catch (e) {
       console.error(`[face] Error extracting ${angle}:`, e);
     }
@@ -451,24 +498,40 @@ export async function registerFace(
         img.src = dataUrl;
         await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(img, 0, 0);
+        const detection = await (faceapi as any)
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
 
-        const desc = await generateFullDescriptor(canvas);
-        if (desc && desc.score >= 0.35) {
-          (embeddings as any)[angle] = desc.embedding;
+        if (!detection || detection.detection.score < 0.5) continue;
+
+        const pts = detection.landmarks.positions;
+        if (pts.length < 68) continue;
+
+        const leftEye = pts[36];
+        const rightEye = pts[45];
+        const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
+        if (eyeDist < 20) continue;
+
+        const descriptor = detection.descriptor as Float32Array;
+        const embedding: number[] = Array.from(descriptor);
+        const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
+        if (norm > 0) {
+          for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
         }
+
+        const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
+        if (nonZero < 64) continue;
+
+        (embeddings as any)[angle] = embedding;
       } catch (e) {
-        console.error(`[face] Error extracting ${angle}:`, e);
+        console.error(`[face-register] Error extracting ${angle}:`, e);
       }
     }
 
     const validCount = Object.values(embeddings).filter(e => e !== null).length;
     if (validCount < 2) {
-      return { ok: false, error: 'Se necesitan al menos 2 fotos con rostro detectado.' };
+      return { ok: false, error: 'Se necesitan al menos 2 fotos con rostro detectado correctamente.' };
     }
 
     await supabase.from('rostros').delete().eq('usuario_id', userId);
@@ -499,21 +562,51 @@ export async function loginByFace(
   try {
     const loginEmbeddings: number[][] = [];
 
-    for (const dataUrl of Object.values(photos)) {
+    for (const [angle, dataUrl] of Object.entries(photos)) {
       if (!dataUrl) continue;
       try {
         const img = new Image();
         img.src = dataUrl;
         await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(img, 0, 0);
+        const detection = await (faceapi as any)
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
 
-        const desc = await generateFullDescriptor(canvas);
-        if (desc) loginEmbeddings.push(desc.embedding);
+        if (!detection) {
+          console.warn(`[face-login] No face detected in ${angle}`);
+          continue;
+        }
+
+        if (detection.detection.score < 0.5) {
+          console.warn(`[face-login] Low score in ${angle}: ${detection.detection.score}`);
+          continue;
+        }
+
+        const pts = detection.landmarks.positions;
+        if (pts.length < 68) continue;
+
+        const leftEye = pts[36];
+        const rightEye = pts[45];
+        const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
+        if (eyeDist < 20) continue;
+
+        const descriptor = detection.descriptor as Float32Array;
+        const embedding: number[] = Array.from(descriptor);
+        const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
+        if (norm > 0) {
+          for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
+        }
+
+        const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
+        if (nonZero < 64) {
+          console.warn(`[face-login] Uninformative embedding in ${angle}: ${nonZero}`);
+          continue;
+        }
+
+        loginEmbeddings.push(embedding);
+        console.log(`[face-login] OK ${angle}: score=${detection.detection.score.toFixed(3)}, dims=${embedding.length}, nonZero=${nonZero}`);
       } catch {}
     }
 
@@ -555,6 +648,8 @@ export async function loginByFace(
         }
       }
 
+      console.log(`[face-login] user ${uid}: matchCount=${matchCount}, avgDist=${(matchCount > 0 ? totalBestDist / matchCount : 999).toFixed(4)}`);
+
       if (matchCount >= MIN_MATCHES) {
         const avgDist = totalBestDist / matchCount;
         userResults.push({ userId: uid, avgDist, matchCount });
@@ -581,6 +676,8 @@ export async function loginByFace(
     if (!usuario || usuario.length === 0) {
       return { ok: false, error: 'Usuario no encontrado' };
     }
+
+    console.log(`[face-login] MATCH: user ${winner.userId} (${winner.avgDist.toFixed(4)})`);
 
     return {
       ok: true,
