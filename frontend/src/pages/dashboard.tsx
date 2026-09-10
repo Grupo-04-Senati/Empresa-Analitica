@@ -83,45 +83,45 @@ export const Dashboard = () => {
     return () => { supabase.removeChannel(channel); };
   }, [isAdmin, user?.id]);
 
-  if (loading) return <div className="min-h-[60vh] flex items-center justify-center"><div className="flex flex-col items-center gap-3"><Loader2 size={32} className="animate-spin text-blue-600" /><p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Cargando dashboard...</p></div></div>;
+  if (loading) return <div className="min-h-[60vh] flex items-center justify-center"><div className="flex flex-col items-center gap-3"><Loader2 size={32} className="animate-spin text-blue-600" /><p className="text-slate-500 text-sm font-medium">Cargando dashboard...</p></div></div>;
 
   const catColors = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#e11d48', '#0891b2'];
 
   const estadoConfig: Record<string, { label: string; cls: string }> = {
-    pendiente: { label: 'Pendiente', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-    en_proceso: { label: 'En Proceso', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
-    resuelto: { label: 'Resuelto', cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+    pendiente: { label: 'Pendiente', cls: 'bg-amber-100 text-amber-700' },
+    en_proceso: { label: 'En Proceso', cls: 'bg-blue-100 text-blue-700' },
+    resuelto: { label: 'Resuelto', cls: 'bg-emerald-100 text-emerald-700' },
   };
 
   if (!isAdmin) {
     const kpis = [
-      { icono: ClipboardList, label: 'MIS SOLICITUDES', valor: stats.misSolicitudes.toString(), color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20' },
-      { icono: AlertTriangle, label: 'PENDIENTES', valor: stats.misPendientes.toString(), color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-      { icono: CheckCircle2, label: 'RESUELTAS', valor: stats.misResueltas.toString(), color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
-      { icono: MessageSquare, label: 'COMENTARIOS', valor: stats.totalComentarios.toString(), color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/20' },
+      { icono: ClipboardList, label: 'MIS SOLICITUDES', valor: stats.misSolicitudes.toString(), color: 'text-blue-600', bg: 'bg-blue-50' },
+      { icono: AlertTriangle, label: 'PENDIENTES', valor: stats.misPendientes.toString(), color: 'text-amber-600', bg: 'bg-amber-50' },
+      { icono: CheckCircle2, label: 'RESUELTAS', valor: stats.misResueltas.toString(), color: 'text-emerald-600', bg: 'bg-emerald-50' },
+      { icono: MessageSquare, label: 'COMENTARIOS', valor: stats.totalComentarios.toString(), color: 'text-violet-600', bg: 'bg-violet-50' },
     ];
 
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-800 dark:text-white tracking-tight">Mi Panel</h1>
-            <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Bienvenido, {user?.nombre || user?.email}. Aqui tienes un resumen de tu actividad.</p>
+            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Mi Panel</h1>
+            <p className="text-slate-500 text-sm mt-1">Bienvenido, {user?.nombre || user?.email}. Aqui tienes un resumen de tu actividad.</p>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="px-5 py-3 bg-slate-800">
             <h2 className="text-xs font-bold text-white tracking-widest uppercase">Mis Metricas</h2>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100 dark:divide-slate-700">
+          <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100">
             {kpis.map((k) => {
               const Icon = k.icono;
               return (
-                <div key={k.label} className="px-5 py-4 flex flex-col items-center justify-center text-center hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-colors">
+                <div key={k.label} className="px-5 py-4 flex flex-col items-center justify-center text-center hover:bg-slate-50/50:bg-slate-700/30 transition-colors">
                   <span className={`flex items-center justify-center w-10 h-10 rounded-xl mb-2 ${k.bg} ${k.color}`}><Icon size={20} /></span>
                   <p className="text-[11px] font-semibold text-slate-400 tracking-wider uppercase mb-0.5">{k.label}</p>
-                  <p className="text-2xl font-bold text-slate-800 dark:text-white">{k.valor}</p>
+                  <p className="text-2xl font-bold text-slate-800">{k.valor}</p>
                 </div>
               );
             })}
@@ -129,23 +129,23 @@ export const Dashboard = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2"><ClipboardList size={18} className="text-blue-600" /><h3 className="font-semibold text-slate-700 dark:text-white text-sm">Mis Solicitudes Recientes</h3></div>
+              <div className="flex items-center gap-2"><ClipboardList size={18} className="text-blue-600" /><h3 className="font-semibold text-slate-700 text-sm">Mis Solicitudes Recientes</h3></div>
               <button onClick={() => navigate('/solicitudes')} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">Ver todas <ArrowRight size={12} /></button>
             </div>
             {recentes.filter((r) => r.tipo === 'solicitud').length === 0 ? (
               <div className="text-center py-8">
-                <ClipboardList size={32} className="text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+                <ClipboardList size={32} className="text-slate-300 mx-auto mb-2" />
                 <p className="text-sm text-slate-400">No tienes solicitudes aun</p>
                 <button onClick={() => navigate('/solicitudes')} className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition"><Plus size={12} /> Crear solicitud</button>
               </div>
             ) : (
               <div className="space-y-3">
                 {recentes.filter((r) => r.tipo === 'solicitud').slice(0, 4).map((s) => (
-                  <div key={s.id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                  <div key={s.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-700 dark:text-white truncate">{s.contenido}</p>
+                      <p className="text-sm font-medium text-slate-700 truncate">{s.contenido}</p>
                       <p className="text-xs text-slate-400 mt-0.5">{new Date(s.fecha).toLocaleDateString('es-ES')}</p>
                     </div>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${(estadoConfig[s.estado] || estadoConfig.pendiente).cls}`}>{(estadoConfig[s.estado] || estadoConfig.pendiente).label}</span>
@@ -155,23 +155,23 @@ export const Dashboard = () => {
             )}
           </div>
 
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2"><MessageSquare size={18} className="text-violet-600" /><h3 className="font-semibold text-slate-700 dark:text-white text-sm">Mis Comentarios Recientes</h3></div>
+              <div className="flex items-center gap-2"><MessageSquare size={18} className="text-violet-600" /><h3 className="font-semibold text-slate-700 text-sm">Mis Comentarios Recientes</h3></div>
               <button onClick={() => navigate('/comentarios')} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">Ver todos <ArrowRight size={12} /></button>
             </div>
             {recentes.filter((r) => r.tipo === 'comentario').length === 0 ? (
               <div className="text-center py-8">
-                <MessageSquare size={32} className="text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+                <MessageSquare size={32} className="text-slate-300 mx-auto mb-2" />
                 <p className="text-sm text-slate-400">No tienes comentarios aun</p>
                 <button onClick={() => navigate('/comentarios')} className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-violet-600 text-white text-xs font-medium rounded-lg hover:bg-violet-700 transition"><Plus size={12} /> Escribir comentario</button>
               </div>
             ) : (
               <div className="space-y-3">
                 {recentes.filter((r) => r.tipo === 'comentario').slice(0, 4).map((c) => (
-                  <div key={c.id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                  <div key={c.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-700 dark:text-white truncate">{c.contenido}</p>
+                      <p className="text-sm font-medium text-slate-700 truncate">{c.contenido}</p>
                       <p className="text-xs text-slate-400 mt-0.5">{c.canal} - {new Date(c.fecha).toLocaleDateString('es-ES')}</p>
                     </div>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${(estadoConfig[c.estado] || estadoConfig.pendiente).cls}`}>{(estadoConfig[c.estado] || estadoConfig.pendiente).label}</span>
@@ -195,34 +195,34 @@ export const Dashboard = () => {
   }
 
   const kpis = [
-    { icono: Users, label: 'CLIENTES', valor: stats.totalClientes.toString(), color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20' },
-    { icono: MessageSquare, label: 'COMENTARIOS', valor: stats.totalComentarios.toLocaleString('es-ES'), color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
-    { icono: Clock, label: 'PROMEDIO', valor: stats.avgTiempoAtencion > 0 ? `${stats.avgTiempoAtencion} min` : '—', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-    { icono: CheckCircle2, label: 'PROCESADOS', valor: `${stats.porcentajeProcesados}%`, color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/20' },
+    { icono: Users, label: 'CLIENTES', valor: stats.totalClientes.toString(), color: 'text-blue-600', bg: 'bg-blue-50' },
+    { icono: MessageSquare, label: 'COMENTARIOS', valor: stats.totalComentarios.toLocaleString('es-ES'), color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { icono: Clock, label: 'PROMEDIO', valor: stats.avgTiempoAtencion > 0 ? `${stats.avgTiempoAtencion} min` : '—', color: 'text-amber-600', bg: 'bg-amber-50' },
+    { icono: CheckCircle2, label: 'PROCESADOS', valor: `${stats.porcentajeProcesados}%`, color: 'text-violet-600', bg: 'bg-violet-50' },
   ];
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 dark:text-white tracking-tight">Dashboard principal</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Vista general del centro de atencion.</p>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Dashboard principal</h1>
+          <p className="text-slate-500 text-sm mt-1">Vista general del centro de atencion.</p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 text-xs font-semibold rounded-lg border border-emerald-200 dark:border-emerald-800">
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-lg border border-emerald-200">
           <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" /> En vivo
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3 bg-slate-800"><h2 className="text-xs font-bold text-white tracking-widest uppercase">Centro Inteligente</h2></div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100 dark:divide-slate-700">
+        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100">
           {kpis.map((k) => {
             const Icon = k.icono;
             return (
-              <div key={k.label} className="px-5 py-4 flex flex-col items-center justify-center text-center hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-colors">
+              <div key={k.label} className="px-5 py-4 flex flex-col items-center justify-center text-center hover:bg-slate-50/50:bg-slate-700/30 transition-colors">
                 <span className={`flex items-center justify-center w-10 h-10 rounded-xl mb-2 ${k.bg} ${k.color}`}><Icon size={20} /></span>
                 <p className="text-[11px] font-semibold text-slate-400 tracking-wider uppercase mb-0.5">{k.label}</p>
-                <p className="text-2xl font-bold text-slate-800 dark:text-white">{k.valor}</p>
+                <p className="text-2xl font-bold text-slate-800">{k.valor}</p>
               </div>
             );
           })}
@@ -230,10 +230,10 @@ export const Dashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
-          <div className="flex items-center gap-2 mb-4"><Clock size={18} className="text-blue-600" /><h3 className="font-semibold text-slate-700 dark:text-white text-sm">Tiempos de Atencion</h3></div>
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-4"><Clock size={18} className="text-blue-600" /><h3 className="font-semibold text-slate-700 text-sm">Tiempos de Atencion</h3></div>
           {tiempos.length === 0 ? (
-            <div className="h-[220px] flex items-center justify-center text-slate-400 text-sm"><div className="text-center"><Clock size={32} className="mx-auto mb-2 text-slate-300 dark:text-slate-600" /><p>Sin datos de tiempos</p></div></div>
+            <div className="h-[220px] flex items-center justify-center text-slate-400 text-sm"><div className="text-center"><Clock size={32} className="mx-auto mb-2 text-slate-300" /><p>Sin datos de tiempos</p></div></div>
           ) : (
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -251,19 +251,19 @@ export const Dashboard = () => {
           )}
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
-          <div className="flex items-center gap-2 mb-4"><Tags size={18} className="text-violet-600" /><h3 className="font-semibold text-slate-700 dark:text-white text-sm">Categorias NLP</h3></div>
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-4"><Tags size={18} className="text-violet-600" /><h3 className="font-semibold text-slate-700 text-sm">Categorias NLP</h3></div>
           {categorias.length === 0 ? (
-            <div className="h-[220px] flex items-center justify-center text-slate-400 text-sm"><div className="text-center"><Tags size={32} className="mx-auto mb-2 text-slate-300 dark:text-slate-600" /><p>Sin categorias disponibles</p></div></div>
+            <div className="h-[220px] flex items-center justify-center text-slate-400 text-sm"><div className="text-center"><Tags size={32} className="mx-auto mb-2 text-slate-300" /><p>Sin categorias disponibles</p></div></div>
           ) : (
             <div className="flex flex-col gap-3.5 max-h-[220px] overflow-y-auto pr-1">
               {categorias.map((c, i) => (
                 <div key={c.nombre}>
                   <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: catColors[i % catColors.length] }} /><span className="text-sm font-medium text-slate-700 dark:text-white">{c.nombre}</span></div>
-                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{c.porcentaje}%</span>
+                    <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: catColors[i % catColors.length] }} /><span className="text-sm font-medium text-slate-700">{c.nombre}</span></div>
+                    <span className="text-xs font-bold text-slate-500">{c.porcentaje}%</span>
                   </div>
-                  <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                     <div className="h-full rounded-full transition-all duration-500" style={{ width: `${c.porcentaje}%`, background: catColors[i % catColors.length] }} />
                   </div>
                 </div>
@@ -273,8 +273,8 @@ export const Dashboard = () => {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
-        <div className="flex items-center gap-2 mb-4"><Hash size={18} className="text-amber-600" /><h3 className="font-semibold text-slate-700 dark:text-white text-sm">Palabras Mas Frecuentes</h3></div>
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <div className="flex items-center gap-2 mb-4"><Hash size={18} className="text-amber-600" /><h3 className="font-semibold text-slate-700 text-sm">Palabras Mas Frecuentes</h3></div>
         {palabras.length === 0 ? (
           <div className="h-[60px] flex items-center justify-center text-slate-400 text-sm"><p>Sin palabras frecuentes disponibles</p></div>
         ) : (
@@ -289,11 +289,11 @@ export const Dashboard = () => {
       </div>
 
       {stats.comentariosPendientes > 0 && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 flex items-center gap-3">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3">
           <AlertTriangle size={20} className="text-amber-600 shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">{stats.comentariosPendientes} comentarios pendientes</p>
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Hay comentarios sin procesar que requieren atencion.</p>
+            <p className="text-sm font-semibold text-amber-800">{stats.comentariosPendientes} comentarios pendientes</p>
+            <p className="text-xs text-amber-600 mt-0.5">Hay comentarios sin procesar que requieren atencion.</p>
           </div>
         </div>
       )}

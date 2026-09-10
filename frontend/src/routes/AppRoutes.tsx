@@ -32,7 +32,7 @@ import FAQ from '../pages/FAQ';
 
 const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-950 flex-col gap-4"><Loader2 size={32} className="animate-spin text-blue-600" /><p className="text-slate-500 text-sm">Cargando...</p></div>;
+  if (loading) return <div className="flex items-center justify-center min-h-screen bg-slate-50 flex-col gap-4"><Loader2 size={32} className="animate-spin text-blue-600" /><p className="text-slate-500 text-sm">Cargando...</p></div>;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };

@@ -62,23 +62,11 @@ export const DashboardLayout = () => {
   const { user, logout, isAdmin } = useAuth();
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ DASHBOARD: true, 'MI PANEL': true });
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('darkMode');
-      if (stored !== null) return stored === 'true';
-    }
-    return false;
-  });
   const [notificaciones, setNotificaciones] = useState<{ id: number; titulo: string; mensaje: string; tipo: string; enlace: string | null; leida: boolean; created_at: string }[]>([]);
   const [showNotif, setShowNotif] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   const menuData = isAdmin ? menuAdmin : menuUser;
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', darkMode);
-    localStorage.setItem('darkMode', String(darkMode));
-  }, [darkMode]);
 
   useEffect(() => {
     if (!user) return;
@@ -182,7 +170,7 @@ export const DashboardLayout = () => {
   );
 
   return (
-    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="flex min-h-screen bg-slate-50">
       {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />}
       <aside className="fixed top-0 left-0 z-50 hidden h-screen w-64 flex-col overflow-y-auto border-r border-white/5 bg-[#0b1220] lg:flex">{sidebarContent}</aside>
       <aside className={`fixed top-0 left-0 z-50 flex h-screen w-64 flex-col overflow-y-auto border-r border-white/5 bg-[#0b1220] transition-transform duration-300 lg:hidden ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
@@ -190,38 +178,35 @@ export const DashboardLayout = () => {
         {sidebarContent}
       </aside>
       <div className="flex min-w-0 flex-1 flex-col lg:ml-64">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 dark:border-slate-700/80 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl px-4 lg:px-6">
-          <button type="button" onClick={() => setSidebarOpen(true)} className="cursor-pointer rounded-lg border-none bg-slate-100 dark:bg-slate-800 p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 lg:hidden"><Menu size={20} /></button>
-          <div className="hidden items-center gap-2 rounded-xl bg-slate-100/80 dark:bg-slate-800 px-3 py-2 sm:flex sm:w-80">
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/80 backdrop-blur-xl px-4 lg:px-6">
+          <button type="button" onClick={() => setSidebarOpen(true)} className="cursor-pointer rounded-lg border-none bg-slate-100 p-2 text-slate-500 hover:bg-slate-50 lg:hidden"><Menu size={20} /></button>
+          <div className="hidden items-center gap-2 rounded-xl bg-slate-100/80 px-3 py-2 sm:flex sm:w-80">
             <Search size={16} className="text-slate-400" />
-            <input type="text" placeholder="Buscar en el sistema..." className="w-full border-none bg-transparent text-[13px] text-slate-700 dark:text-slate-300 outline-none placeholder:text-slate-400" />
+            <input type="text" placeholder="Buscar en el sistema..." className="w-full border-none bg-transparent text-[13px] text-slate-700 outline-none placeholder:text-slate-400" />
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <button type="button" onClick={() => setDarkMode(!darkMode)} className="cursor-pointer rounded-xl border-none bg-slate-100/80 dark:bg-slate-700 p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600 transition-all" title={darkMode ? 'Modo claro' : 'Modo oscuro'}>
-              {darkMode ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>}
-            </button>
             <div className="relative">
-              <button type="button" onClick={() => setShowNotif(!showNotif)} className="cursor-pointer rounded-xl border-none bg-slate-100/80 dark:bg-slate-700 p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600 relative transition-all">
+              <button type="button" onClick={() => setShowNotif(!showNotif)} className="cursor-pointer rounded-xl border-none bg-slate-100/80 p-2 text-slate-500 hover:bg-slate-50 relative transition-all">
                 <Bell size={18} />
                 {unreadCount > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">{unreadCount}</span>}
               </button>
               {showNotif && (
-                <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl z-50 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-slate-700 dark:text-white">Notificaciones</span>
-                    <span className="text-xs text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">{unreadCount} sin leer</span>
+                <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-700">Notificaciones</span>
+                    <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{unreadCount} sin leer</span>
                   </div>
                   <div className="max-h-80 overflow-y-auto">
                     {notificaciones.length === 0 ? (
                       <div className="px-4 py-8 text-center text-sm text-slate-400">Sin notificaciones</div>
                     ) : notificaciones.map((n) => (
-                      <div key={n.id} onClick={() => { if (n.enlace) { navigate(n.enlace); setShowNotif(false); } if (!n.leida) markAsRead(n.id); }} className={`px-4 py-3 border-b border-slate-50 dark:border-slate-700/50 transition-colors flex items-start gap-3 cursor-pointer ${n.leida ? 'bg-white dark:bg-slate-800' : 'bg-blue-50/50 dark:bg-blue-900/20'}`}>
+                      <div key={n.id} onClick={() => { if (n.enlace) { navigate(n.enlace); setShowNotif(false); } if (!n.leida) markAsRead(n.id); }} className={`px-4 py-3 border-b border-slate-50 transition-colors flex items-start gap-3 cursor-pointer ${n.leida ? 'bg-white' : 'bg-blue-50/50'}`}>
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${n.tipo === 'usuario' ? 'bg-emerald-100 text-emerald-600' : n.tipo === 'sistema' ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600'}`}>
                           {n.tipo === 'usuario' ? <Users size={14} /> : n.tipo === 'sistema' ? <Activity size={14} /> : <AlertTriangle size={14} />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className={`text-xs leading-relaxed ${n.leida ? 'text-slate-500 dark:text-slate-400' : 'text-slate-700 dark:text-white font-medium'}`}>{n.titulo}</p>
-                          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 truncate">{n.mensaje}</p>
+                          <p className={`text-xs leading-relaxed ${n.leida ? 'text-slate-500' : 'text-slate-700 font-medium'}`}>{n.titulo}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5 truncate">{n.mensaje}</p>
                         </div>
                         <button type="button" onClick={(e) => { e.stopPropagation(); deleteNotif(n.id); }} className="text-slate-300 hover:text-red-500 transition-colors p-1 shrink-0"><X size={12} /></button>
                       </div>
