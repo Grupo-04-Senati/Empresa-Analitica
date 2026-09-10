@@ -237,6 +237,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: cleanEmail,
         telefono: data.telefono?.trim() || null,
         empresa: data.empresa?.trim() || null,
+        usuario_id: dbData.id,
         activo: true,
       });
     } catch (e) {

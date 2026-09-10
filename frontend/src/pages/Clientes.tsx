@@ -11,8 +11,10 @@ interface ClienteDB {
   telefono: string;
   empresa: string;
   activo: boolean;
+  usuario_id: number | null;
   created_at: string;
   updated_at: string;
+  usuarios?: { rol: string } | null;
 }
 
 const COLORS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#0891b2', '#dc2626'];
@@ -35,7 +37,7 @@ export const Clientes = () => {
     try {
       const { data, error: err } = await supabase
         .from('clientes')
-        .select('*')
+        .select('*, usuarios(rol)')
         .order('created_at', { ascending: false });
       if (err) throw err;
       setClientes(data ?? []);
@@ -229,6 +231,7 @@ export const Clientes = () => {
                   <th className="px-5 py-3">Email</th>
                   <th className="px-5 py-3">Telefono</th>
                   <th className="px-5 py-3">Empresa</th>
+                  <th className="px-5 py-3">Tipo</th>
                   <th className="px-5 py-3">Estado</th>
                   <th className="px-5 py-3">Creado</th>
                   {canEdit && <th className="px-5 py-3 text-right">Acciones</th>}
@@ -236,15 +239,20 @@ export const Clientes = () => {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={canEdit ? 7 : 6} className="px-5 py-12 text-center text-slate-400"><Loader2 className="mx-auto mb-2 animate-spin" size={24} /> Cargando...</td></tr>
+                  <tr><td colSpan={canEdit ? 8 : 7} className="px-5 py-12 text-center text-slate-400"><Loader2 className="mx-auto mb-2 animate-spin" size={24} /> Cargando...</td></tr>
                 ) : filtrados.length === 0 ? (
-                  <tr><td colSpan={canEdit ? 7 : 6} className="px-5 py-12 text-center text-slate-400">No se encontraron clientes</td></tr>
+                  <tr><td colSpan={canEdit ? 8 : 7} className="px-5 py-12 text-center text-slate-400">No se encontraron clientes</td></tr>
                 ) : filtrados.map(c => (
                   <tr key={c.id} className="border-b border-slate-50 transition hover:bg-slate-50">
                     <td className="px-5 py-3 font-medium text-slate-900">{c.nombre}</td>
                     <td className="px-5 py-3 text-slate-600"><span className="inline-flex items-center gap-1.5"><Mail size={14} className="text-slate-400" />{c.email || '—'}</span></td>
                     <td className="px-5 py-3 text-slate-600"><span className="inline-flex items-center gap-1.5"><Phone size={14} className="text-slate-400" />{c.telefono || '—'}</span></td>
                     <td className="px-5 py-3 text-slate-600"><span className="inline-flex items-center gap-1.5"><Building2 size={14} className="text-slate-400" />{c.empresa || '—'}</span></td>
+                    <td className="px-5 py-3">
+                      <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${(c as any).usuarios?.rol === 'ADMIN' ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'}`}>
+                        {(c as any).usuarios?.rol === 'ADMIN' ? 'Admin' : 'Cliente'}
+                      </span>
+                    </td>
                     <td className="px-5 py-3">
                       <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${c.activo ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                         {c.activo ? 'Activo' : 'Inactivo'}
