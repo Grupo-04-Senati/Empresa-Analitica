@@ -51,14 +51,15 @@ const menuData: MenuItem[] = [
     items: [
       { label: 'Lista de clientes', path: '/clientes' },
       { label: 'Nuevo cliente', path: '/clientes/nuevo', adminOnly: true },
-      { label: 'Historial', path: '/clientes-historial' },
+
     ],
   },
   {
     title: 'ATENCION',
     icon: <Headphones size={18} />,
     items: [
-      { label: 'Solicitudes y Comentarios', path: '/comentarios' },
+      { label: 'Solicitudes', path: '/solicitudes' },
+      { label: 'Comentarios', path: '/comentarios' },
       { label: 'Tiempos de atencion', path: '/tiempo-atencion' },
     ],
   },

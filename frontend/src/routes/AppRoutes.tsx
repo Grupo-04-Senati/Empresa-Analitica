@@ -6,7 +6,6 @@ import { Loader2 } from 'lucide-react';
 import DashboardInicio from '../pages/dashboard';
 import Clientes from '../pages/Clientes';
 import ClientesNuevo from '../pages/ClientesNuevo';
-import ClientesHistorial from '../pages/ClientesHistorial';
 import Auditoria from '../pages/Auditoria';
 import AnalizarComentario from '../pages/AnalizarComentario';
 import Categorias from '../pages/Categorias';
@@ -75,8 +74,7 @@ export const AppRoutes = () => (
       <Route index element={<DashboardInicio />} />
       <Route path="clientes" element={<Clientes />} />
       <Route path="clientes/nuevo" element={<ClientesNuevo />} />
-      <Route path="clientes-historial" element={<AdminGuard><ClientesHistorial /></AdminGuard>} />
-      <Route path="solicitudes" element={<Navigate to="/comentarios" replace />} />
+      <Route path="solicitudes" element={<Solicitudes />} />
       <Route path="comentarios" element={<Comentarios />} />
       <Route path="tiempo-atencion" element={<TiempoAtencion />} />
       <Route path="auditoria" element={<AdminGuard><Auditoria /></AdminGuard>} />

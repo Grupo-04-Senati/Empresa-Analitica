@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Face Embedding Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <style>
+    body { font-family: monospace; background: #1a1a2e; color: #eee; padding: 20px; }
+    .result { background: #16213e; padding: 15px; margin: 10px 0; border-radius: 8px; }
+    .ok { border-left: 4px solid #0f0; }
+    .warn { border-left: 4px solid #ff0; }
+    .fail { border-left: 4px solid #f00; }
+    h2 { color: #e94560; }
+    button { background: #e94560; color: white; border: none; padding: 10px 20px;
+             border-radius: 5px; cursor: pointer; font-size: 16px; margin: 5px; }
+    button:hover { background: #c81e45; }
+    input[type=file] { display: none; }
+    .label { font-size: 14px; color: #aaa; }
+    pre { white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h2>Face Embedding Isolation Test</h2>
+  <p class="label">Carga 2 fotos de personas <b>diferentes</b>. El script calcula la distancia entre sus embeddings.</p>
+
+  <div>
+    <button onclick="document.getElementById('file1').click()">📷 Persona 1</button>
+    <button onclick="document.getElementById('file2').click()">📷 Persona 2</button>
+    <input type="file" id="file1" accept="image/*">
+    <input type="file" id="file2" accept="image/*">
+  </div>
+  <div>
+    <img id="preview1" style="max-height:150px; margin:5px;">
+    <img id="preview2" style="max-height:150px; margin:5px;">
+  </div>
+
+  <div style="margin-top:10px">
+    <button onclick="runTest()" id="testBtn" disabled>▶ Ejecutar test</button>
+    <button onclick="runSelfTest()">▶ Test de consistencia (misma imagen)</button>
+  </div>
+
+  <div id="output"></div>
+
+  <script>
+    const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/';
+    let img1Data = null, img2Data = null;
+
+    document.getElementById('file1').onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        img1Data = ev.target.result;
+        document.getElementById('preview1').src = img1Data;
+        checkReady();
+      };
+      reader.readAsDataURL(file);
+    };
+
+    document.getElementById('file2').onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        img2Data = ev.target.result;
+        document.getElementById('preview2').src = img2Data;
+        checkReady();
+      };
+      reader.readAsDataURL(file);
+    };
+
+    function checkReady() {
+      document.getElementById('testBtn').disabled = !(img1Data && img2Data);
+    }
+
+    function log(msg, cls = '') {
+      const div = document.getElementById('output');
+      const el = document.createElement('div');
+      el.className = 'result ' + cls;
+      el.innerHTML = msg;
+      div.appendChild(el);
+    }
+
+    async function loadModels() {
+      log('Loading models from: ' + MODEL_URL);
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+      ]);
+      log('✅ Models loaded', 'ok');
+    }
+
+    async function extractOne(dataUrl, label) {
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise(r => { img.onload = r; });
+
+      // This is EXACTLY what the production code does
+      const detection = await faceapi
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.2 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (!detection) {
+        log(`❌ ${label}: no face detected`, 'fail');
+        return null;
+      }
+
+      const descriptor = detection.descriptor;
+      const embedding = Array.from(descriptor);
+
+      // Normalize (same as production code)
+      const norm = Math.sqrt(embedding.reduce((s, v) => s + v * v, 0));
+      if (norm > 0) {
+        for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
+      }
+
+      const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
+      const absAvg = embedding.reduce((s, v) => s + Math.abs(v), 0) / 128;
+
+      log(`📋 ${label}: score=${detection.detection.score.toFixed(3)}, nonZero=${nonZero}, avgAbs=${absAvg.toFixed(4)}, dims=${embedding.length}`);
+      return embedding;
+    }
+
+    function cosineDistance(a, b) {
+      let dot = 0, nA = 0, nB = 0;
+      for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i];
+        nA += a[i] * a[i];
+        nB += b[i] * b[i];
+      }
+      return 1 - Math.max(-1, Math.min(1, dot / (Math.sqrt(nA) * Math.sqrt(nB))));
+    }
+
+    function l2Distance(a, b) {
+      let sum = 0;
+      for (let i = 0; i < a.length; i++) sum += (a[i] - b[i]) ** 2;
+      return Math.sqrt(sum);
+    }
+
+    async function runTest() {
+      document.getElementById('output').innerHTML = '';
+      log('⏳ Loading models...');
+      await loadModels();
+
+      log('⏳ Extracting embedding from Persona 1...');
+      const emb1 = await extractOne(img1Data, 'Persona 1');
+
+      log('⏳ Extracting embedding from Persona 2...');
+      const emb2 = await extractOne(img2Data, 'Persona 2');
+
+      if (!emb1 || !emb2) {
+        log('❌ Cannot compare — one or both faces failed', 'fail');
+        return;
+      }
+
+      const cosDist = cosineDistance(emb1, emb2);
+      const l2Dist = l2Distance(emb1, emb2);
+
+      log(`<h3>📊 RESULTS</h3>
+        <b>Cosine distance:</b> ${cosDist.toFixed(6)}<br>
+        <b>L2 distance:</b> ${l2Dist.toFixed(6)}<br>
+        <b>Embedding [0..9] P1:</b> ${emb1.slice(0, 10).map(v => v.toFixed(4)).join(', ')}<br>
+        <b>Embedding [0..9] P2:</b> ${emb2.slice(0, 10).map(v => v.toFixed(4)).join(', ')}`,
+        cosDist < 0.15 ? 'fail' : cosDist < 0.35 ? 'warn' : 'ok'
+      );
+
+      if (cosDist < 0.15) {
+        log('⚠️ <b>VERY LOW DISTANCE</b> — Model is NOT distinguishing these two different people. '
+          + 'This confirms the bug is in how face-api.js generates embeddings, NOT in the database.', 'fail');
+      } else if (cosDist < 0.35) {
+        log('⚠️ LOW — Possible confusion. Try with more different-looking people.', 'warn');
+      } else {
+        log('✅ GOOD — Model distinguishes these people. The embeddings contain real identity information.', 'ok');
+      }
+
+      // Also show what the production system would do
+      log(`<h3>🏢 Production System Behavior</h3>
+        With threshold 0.35: ${cosDist < 0.35 ? '<span style="color:#f00">WOULD ALLOW LOGIN (bug!)</span>' : '<span style="color:#0f0">Would reject (correct)</span>'}<br>
+        With threshold 0.15: ${cosDist < 0.15 ? '<span style="color:#f00">WOULD ALLOW LOGIN</span>' : '<span style="color:#0f0">Would reject</span>'}`);
+    }
+
+    async function runSelfTest() {
+      document.getElementById('output').innerHTML = '';
+      if (!img1Data) {
+        log('⚠️ Carga una imagen primero (Persona 1)', 'warn');
+        return;
+      }
+
+      log('⏳ Loading models...');
+      await loadModels();
+
+      log('⏳ Extracting SAME image twice (consistency test)...');
+      const emb1 = await extractOne(img1Data, 'Run 1');
+      const emb2 = await extractOne(img1Data, 'Run 2');
+
+      if (!emb1 || !emb2) {
+        log('❌ Detection failed', 'fail');
+        return;
+      }
+
+      const cosDist = cosineDistance(emb1, emb2);
+      const areEqual = emb1.every((v, i) => v === emb2[i]);
+
+      log(`<h3>📊 SELF-TEST (same image, different run)</h3>
+        <b>Cosine distance:</b> ${cosDist.toFixed(8)}<br>
+        <b>Bit-exact equal:</b> ${areEqual}<br>
+        <b>Max diff:</b> ${Math.max(...emb1.map((v, i) => Math.abs(v - emb2[i])))}`,
+        cosDist < 0.001 ? 'ok' : 'fail'
+      );
+
+      if (cosDist < 0.001) {
+        log('✅ Deterministic — same image produces same embedding (good)', 'ok');
+      } else {
+        log('❌ NON-DETERMINISTIC — same image produces different embeddings (bad!)', 'fail');
+      }
+    }
+  </script>
+</body>
+</html>
