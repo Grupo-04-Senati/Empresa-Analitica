@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 import httpx
 from app.core.config import SUPABASE_URL, SUPABASE_JWKS_URL
-from app.services.supabaseClient import get_supabase
+from app.services.supabase_client import get_supabase
 
 security = HTTPBearer(auto_error=False)
 

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from app.core.deps import get_current_user
-from app.services.supabaseClient import get_supabase
+from app.services.supabase_client import get_supabase
 from app.core.config import SUPABASE_URL
 import logging
 
