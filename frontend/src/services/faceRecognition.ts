@@ -446,16 +446,19 @@ async function generateFullDescriptor(input: HTMLVideoElement | HTMLCanvasElemen
   }
 }
 
-export async function detectBlink(video: HTMLVideoElement, frameCount: number = 20): Promise<{ blinked: boolean; earHistory: number[] }> {
-  const earHistory: number[] = [];
+export async function detectHeadTurn(video: HTMLVideoElement, durationMs: number = 4500): Promise<{ turned: boolean; yawHistory: number[] }> {
+  const yawHistory: number[] = [];
 
   if (!video || video.readyState < 2) {
     await new Promise<void>((r) => setTimeout(r, 500));
-    if (!video || video.readyState < 2) return { blinked: true, earHistory: [] };
+    if (!video || video.readyState < 2) return { turned: true, yawHistory: [] };
   }
 
-  for (let i = 0; i < frameCount; i++) {
-    await new Promise<void>((r) => setTimeout(r, 100));
+  const frameInterval = 80;
+  const totalFrames = Math.floor(durationMs / frameInterval);
+
+  for (let i = 0; i < totalFrames; i++) {
+    await new Promise<void>((r) => setTimeout(r, frameInterval));
 
     try {
       if (video.readyState < 2) continue;
@@ -466,45 +469,46 @@ export async function detectBlink(video: HTMLVideoElement, frameCount: number = 
 
       if (det && det.landmarks) {
         const pts = det.landmarks.positions;
-        if (pts.length >= 48) {
-          const leftEye = pts.slice(36, 42);
-          const rightEye = pts.slice(42, 48);
+        if (pts.length >= 31) {
+          const leftEyeInner = pts[39];
+          const rightEyeInner = pts[35];
+          const noseTip = pts[30];
 
-          const eyeAspectRatio = (eye: { x: number; y: number }[]): number => {
-            const v1 = Math.hypot(eye[1].x - eye[5].x, eye[1].y - eye[5].y);
-            const v2 = Math.hypot(eye[2].x - eye[4].x, eye[2].y - eye[4].y);
-            const h = Math.hypot(eye[0].x - eye[3].x, eye[0].y - eye[3].y);
-            if (h < 1) return 0.3;
-            return (v1 + v2) / (2.0 * h);
-          };
+          const eyeCenterX = (leftEyeInner.x + rightEyeInner.x) / 2;
+          const interEyeDist = Math.hypot(rightEyeInner.x - leftEyeInner.x, rightEyeInner.y - leftEyeInner.y);
 
-          const ear = (eyeAspectRatio(leftEye) + eyeAspectRatio(rightEye)) / 2;
-          if (ear > 0.05 && ear < 0.5) {
-            earHistory.push(ear);
+          if (interEyeDist > 10) {
+            const rawYaw = (noseTip.x - eyeCenterX) / interEyeDist;
+            yawHistory.push(rawYaw);
           }
         }
       }
     } catch {}
   }
 
-  if (earHistory.length < 4) return { blinked: true, earHistory };
+  if (yawHistory.length < 8) return { turned: true, yawHistory: [] };
 
-  const sorted = [...earHistory].sort((a, b) => a - b);
-  const q1 = sorted[Math.floor(sorted.length * 0.25)];
-  const q3 = sorted[Math.floor(sorted.length * 0.75)];
-  const median = sorted[Math.floor(sorted.length * 0.5)];
-  const minEar = sorted[0];
+  const smoothed: number[] = [];
+  const windowSize = 3;
+  for (let i = 0; i < yawHistory.length; i++) {
+    const start = Math.max(0, i - Math.floor(windowSize / 2));
+    const end = Math.min(yawHistory.length, i + Math.floor(windowSize / 2) + 1);
+    const slice = yawHistory.slice(start, end);
+    smoothed.push(slice.reduce((a, b) => a + b, 0) / slice.length);
+  }
 
-  const hasOpen = earHistory.some(e => e > median + 0.02);
-  const hasClosed = earHistory.some(e => e < median - 0.02);
-  const hasDip = hasOpen && hasClosed;
+  const initialFrames = smoothed.slice(0, Math.min(5, Math.floor(smoothed.length * 0.15)));
+  const baselineYaw = initialFrames.reduce((a, b) => a + b, 0) / initialFrames.length;
 
-  const relativeDip = (median - minEar) / median;
-  const absoluteDip = q3 - q1;
+  const maxLeft = Math.max(...smoothed);
+  const maxRight = Math.min(...smoothed);
 
-  const blinked = hasDip && (relativeDip > 0.12 || absoluteDip > 0.03);
+  const turnedLeft = (baselineYaw - maxLeft) > 0.18;
+  const turnedRight = (maxRight - baselineYaw) > 0.18;
 
-  return { blinked, earHistory };
+  const turned = turnedLeft || turnedRight;
+
+  return { turned, yawHistory: smoothed };
 }
 
 export async function registerFace(
@@ -737,9 +741,9 @@ export async function loginByFaceWithLiveness(
       return { ok: false, error: 'Se detectaron multiples rostros. Solo debe haber una persona.' };
     }
 
-    const blinkResult = await detectBlink(video, 20);
-    if (!blinkResult.blinked) {
-      return { ok: false, error: 'Parpadeo no detectado. Parpadee naturalmente.' };
+    const yawResult = await detectHeadTurn(video, 4500);
+    if (!yawResult.turned) {
+      return { ok: false, error: 'Giro de cabeza no detectado. Gire la cabeza lentamente a un lado.' };
     }
 
     const loginEmbeddings: number[][] = [];
