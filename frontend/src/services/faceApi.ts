@@ -175,12 +175,7 @@ export async function faceApiLogin(
 
     const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('vercel.app');
     if (isDev && data._debug) {
-      console.log(`[faceApi] DEBUG: embeddings=${data._debug.embeddingsReceived}, umbral=${data._debug.umbral}, avgDist=${data._debug.avgDist?.toFixed(4)}, matches=${data._debug.matchCount}`);
-      if (data._debug.perEmbedding) {
-        data._debug.perEmbedding.forEach((e: any) => {
-          console.log(`  emb[${e.idx}]: user=${e.userId}, dist=${e.dist?.toFixed(4)}, es_match=${e.esMatch}`);
-        });
-      }
+      console.log(`[faceApi] DEBUG: embeddings=${data._debug.embeddingsReceived}, threshold=${data._debug.threshold}, avgSimilarity=${data._debug.avgSimilarity?.toFixed(4)}, avgDistance=${data._debug.avgDistance?.toFixed(4)}, matches=${data._debug.matchCount}`);
     }
 
     console.log(`[audit] LOGIN OK: user ${data.usuario_id}, nombre=${data.nombre}`);

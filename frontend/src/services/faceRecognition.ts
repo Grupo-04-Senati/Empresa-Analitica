@@ -178,7 +178,7 @@ export async function faceScanLoop(
   }
 }
 
-function cosineDistance(a: number[], b: number[]): number {
+export function cosineDistance(a: number[], b: number[]): number {
   if (a.length !== b.length) return 1;
   let dotProduct = 0, normA = 0, normB = 0;
   for (let i = 0; i < a.length; i++) {
@@ -188,6 +188,18 @@ function cosineDistance(a: number[], b: number[]): number {
   }
   const similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   return 1 - Math.max(-1, Math.min(1, similarity));
+}
+
+export function cosineSimilarity(a: number[], b: number[]): number {
+  return 1 - cosineDistance(a, b);
+}
+
+export function l2Normalize(embedding: number[]): number[] {
+  const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
+  if (norm > 0) {
+    for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
+  }
+  return embedding;
 }
 
 export async function extractEmbeddings(photos: Record<string, string>): Promise<{ frontal: number[] | null; izquierda: number[] | null; derecha: number[] | null }> {
@@ -253,11 +265,7 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       }
 
       const descriptor = detection.descriptor as Float32Array;
-      const embedding: number[] = Array.from(descriptor);
-      const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
-      if (norm > 0) {
-        for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
-      }
+      const embedding: number[] = l2Normalize(Array.from(descriptor));
 
       const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
       if (nonZero < minNonZero) {
@@ -344,11 +352,7 @@ export async function extractEmbeddingsAndShape(photos: Record<string, string>):
       }
 
       const descriptor = detection.descriptor as Float32Array;
-      const embedding: number[] = Array.from(descriptor);
-      const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
-      if (norm > 0) {
-        for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
-      }
+      const embedding: number[] = l2Normalize(Array.from(descriptor));
 
       const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
       console.log(`[face] Embedding ${angle}: dims=${embedding.length}, nonZero=${nonZero}`);

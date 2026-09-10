@@ -5,6 +5,45 @@ const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const sb = createClient(URL, KEY);
 
+const UMBRAL_SIMILITUD = 0.6;
+const UMBRAL_DISTANCIA = 0.4;
+const UMBRAL_GAP = 0.05;
+
+function cosineSimilarity(a, b) {
+  if (!a || !b || a.length !== b.length) return 0;
+  let dot = 0;
+  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+  return Math.max(-1, Math.min(1, dot));
+}
+
+function cosineDistance(a, b) {
+  return 1 - cosineSimilarity(a, b);
+}
+
+function l2Normalize(arr) {
+  let norm = 0;
+  for (let i = 0; i < arr.length; i++) norm += arr[i] * arr[i];
+  norm = Math.sqrt(norm);
+  if (norm > 0) {
+    for (let i = 0; i < arr.length; i++) arr[i] /= norm;
+  }
+  return arr;
+}
+
+function parseEmbedding(val) {
+  if (!val) return null;
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 const SHAPE_SIMILARITY = {
   ovalado:    ['ovalado', 'alargado', 'corazon'],
   redondo:    ['redondo', 'cuadrado'],
@@ -83,15 +122,31 @@ module.exports = async function handler(req, res) {
         });
       }
 
-      const existing = await sb.from('rostros').select('id').eq('usuario_id', usuario_id);
+      const normalizeEmbedding = (emb) => {
+        if (!emb || !Array.isArray(emb) || emb.length !== 128) return null;
+        const hasNaN = emb.some(v => isNaN(v));
+        if (hasNaN) return null;
+        return l2Normalize([...emb]);
+      };
+
+      const frontalNorm = normalizeEmbedding(embeddings.frontal);
+      const izqNorm = normalizeEmbedding(embeddings.izquierda);
+      const derNorm = normalizeEmbedding(embeddings.derecha);
+
+      if (!frontalNorm || !izqNorm || !derNorm) {
+        return res.status(422).json({ error: 'Embeddings invalidos o con NaN' });
+      }
+
       const updateData = {
-        embedding_frontal: embeddings.frontal ? `[${embeddings.frontal.join(',')}]` : null,
-        embedding_izquierda: embeddings.izquierda ? `[${embeddings.izquierda.join(',')}]` : null,
-        embedding_derecha: embeddings.derecha ? `[${embeddings.derecha.join(',')}]` : null,
+        embedding_frontal: `[${frontalNorm.join(',')}]`,
+        embedding_izquierda: `[${izqNorm.join(',')}]`,
+        embedding_derecha: `[${derNorm.join(',')}]`,
         forma_rostro: face_shape || null,
         proporciones: proporciones || null,
         landmarks_68: landmarks_68 || null,
       };
+
+      const existing = await sb.from('rostros').select('id').eq('usuario_id', usuario_id);
 
       if (existing.data && existing.data.length > 0) {
         const { error: updateErr } = await sb.from('rostros').update(updateData).eq('usuario_id', usuario_id);
@@ -131,123 +186,90 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ error: `Se necesitan 3 embeddings, solo se recibieron ${embeddings.length}` });
       }
 
-      const matchCounts = {};
-      const matchDists = {};
-      const debugPerEmb = [];
-      const UMBRAL_ACTIVO = 0.35;
+      const normalizedEmbs = embeddings.map(e => {
+        if (!e || !Array.isArray(e) || e.length !== 128) return null;
+        const hasNaN = e.some(v => isNaN(v));
+        if (hasNaN) return null;
+        return l2Normalize([...e]);
+      }).filter(e => e !== null);
 
-      for (let i = 0; i < embeddings.length; i++) {
-        const loginEmb = embeddings[i];
-        if (!loginEmb || !Array.isArray(loginEmb) || loginEmb.length !== 128) {
-          console.error(`[audit] LOGIN REJECTED: embedding[${i}] invalido (type: ${typeof loginEmb}, length: ${loginEmb?.length})`);
-          debugPerEmb.push({ idx: i, error: 'embedding invalido', type: typeof loginEmb, length: loginEmb?.length });
-          continue;
-        }
+      if (normalizedEmbs.length < 3) {
+        console.error('[audit] LOGIN REJECTED: less than 3 valid embeddings after normalization');
+        return res.status(400).json({ error: 'Embeddings invalidos' });
+      }
 
-        const loginVector = `[${loginEmb.join(',')}]`;
+      const { data: rostros, error: fetchErr } = await sb.from('rostros')
+        .select('usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha, forma_rostro');
 
-        const { data: resultado, error } = await sb.rpc('buscar_rostro_match', {
-          login_embedding: loginVector,
+      if (fetchErr) {
+        console.error('[face] fetch error:', fetchErr.message);
+        return res.status(500).json({ error: 'Error consultando BD' });
+      }
+
+      if (!rostros || rostros.length === 0) {
+        return res.status(401).json({
+          error: 'No hay rostros registrados',
+          _debug: { embeddingsReceived: embeddings.length, storedUsers: 0 }
         });
+      }
 
-        if (error) {
-          console.error(`[face] rpc error emb[${i}]:`, error.message);
-          debugPerEmb.push({ idx: i, error: error.message });
-          continue;
+      const userScores = {};
+
+      for (const row of rostros) {
+        const uid = row.usuario_id;
+        const storedFrontal = parseEmbedding(row.embedding_frontal);
+        const storedIzq = parseEmbedding(row.embedding_izquierda);
+        const storedDer = parseEmbedding(row.embedding_derecha);
+
+        if (!storedFrontal || !storedIzq || !storedDer) continue;
+
+        const storedEmbs = [storedFrontal, storedIzq, storedDer];
+        const allScores = [];
+
+        for (const loginEmb of normalizedEmbs) {
+          let bestScore = -1;
+          for (const storedEmb of storedEmbs) {
+            const score = cosineSimilarity(loginEmb, storedEmb);
+            if (score > bestScore) bestScore = score;
+          }
+          allScores.push(bestScore);
         }
 
-        if (!resultado || resultado.length === 0) {
-          console.log(`[face] emb[${i}]: sin resultado de la DB`);
-          debugPerEmb.push({ idx: i, result: 'empty' });
-          continue;
-        }
+        const avgScore = allScores.reduce((a, b) => a + b, 0) / allScores.length;
+        const matchCount = allScores.filter(s => s >= UMBRAL_SIMILITUD).length;
 
-        const r = resultado[0];
-
-        const distPromedio = Number(r.dist_promedio);
-        const distFrontal = Number(r.dist_frontal);
-        const distIzq = Number(r.dist_izquierda);
-        const distDer = Number(r.dist_derecha);
-        const esMatch = Boolean(r.es_match);
-
-        if (isNaN(distPromedio) || distPromedio === null || distPromedio === undefined) {
-          console.error(`[audit] LOGIN REJECTED: emb[${i}] dist_promedio is invalid:`, r.dist_promedio);
-          debugPerEmb.push({ idx: i, error: 'dist_promedio invalido', raw: r.dist_promedio });
-          continue;
-        }
-
-        if (isNaN(distFrontal) || isNaN(distIzq) || isNaN(distDer)) {
-          console.error(`[audit] LOGIN REJECTED: emb[${i}] distance components contain NaN:`, { distFrontal, distIzq, distDer });
-          debugPerEmb.push({ idx: i, error: 'distancias individuales NaN', frontal: distFrontal, izq: distIzq, der: distDer });
-          continue;
-        }
-
-        console.log(`[face] emb[${i}]: user=${r.usuario_id}, dist=${distPromedio.toFixed(4)}, es_match=${esMatch}, frontal=${distFrontal.toFixed(4)}, izq=${distIzq.toFixed(4)}, der=${distDer.toFixed(4)}`);
-
-        debugPerEmb.push({
-          idx: i,
-          userId: r.usuario_id,
-          dist: distPromedio,
-          esMatch: esMatch,
-          frontal: distFrontal,
-          izq: distIzq,
-          der: distDer,
-        });
-
-        if (esMatch) {
-          const uid = r.usuario_id;
-          matchCounts[uid] = (matchCounts[uid] || 0) + 1;
-          if (!matchDists[uid]) matchDists[uid] = [];
-          matchDists[uid].push(distPromedio);
+        if (matchCount >= 2) {
+          if (!userScores[uid]) userScores[uid] = { scores: [], matchCount: 0 };
+          userScores[uid].scores.push(avgScore);
+          userScores[uid].matchCount += matchCount;
         }
       }
 
-      console.log('[face] matchCounts:', JSON.stringify(matchCounts));
-      console.log('[face] debug per embedding:', JSON.stringify(debugPerEmb));
-
-      const candidatos = Object.entries(matchCounts)
-        .map(([uid, count]) => {
-          const dists = matchDists[uid].filter(d => !isNaN(d) && d !== null && d !== undefined);
-          if (dists.length === 0) {
-            console.error(`[audit] LOGIN REJECTED: user ${uid} has no valid distances`);
-            return null;
-          }
-          const avgDist = dists.reduce((a, b) => a + b, 0) / dists.length;
-          if (isNaN(avgDist)) {
-            console.error(`[audit] LOGIN REJECTED: user ${uid} avgDist is NaN`);
-            return null;
-          }
-          return {
-            userId: Number(uid),
-            matchCount: count,
-            avgDist: avgDist,
-          };
-        })
-        .filter(c => c !== null && c.matchCount >= 2 && !isNaN(c.avgDist) && c.avgDist !== null && c.avgDist !== undefined)
-        .sort((a, b) => b.matchCount - a.matchCount || a.avgDist - b.avgDist);
+      const candidatos = Object.entries(userScores)
+        .map(([uid, data]) => ({
+          userId: Number(uid),
+          avgSimilarity: data.scores.reduce((a, b) => a + b, 0) / data.scores.length,
+          matchCount: data.matchCount,
+        }))
+        .filter(c => c.matchCount >= 2)
+        .sort((a, b) => b.matchCount - a.matchCount || b.avgSimilarity - a.avgSimilarity);
 
       console.log('[face] login candidates:', JSON.stringify(candidatos));
 
       if (candidatos.length === 0) {
-        console.error('[audit] LOGIN REJECTED: no valid candidates after filtering');
         return res.status(401).json({
           error: 'Rostro no reconocido',
           _debug: {
             embeddingsReceived: embeddings.length,
-            perEmbedding: debugPerEmb,
-            matchCounts,
-            umbral: UMBRAL_ACTIVO,
-            message: 'Ningun embedding paso las validaciones de integridad'
+            normalizedEmbs: normalizedEmbs.length,
+            storedUsers: rostros.length,
+            threshold: UMBRAL_SIMILITUD,
           }
         });
       }
 
       const winner = candidatos[0];
-
-      if (winner.avgDist === undefined || winner.avgDist === null || isNaN(winner.avgDist)) {
-        console.error(`[audit] LOGIN REJECTED: winner avgDist is invalid:`, winner.avgDist);
-        return res.status(401).json({ error: 'Error en calculo de distancias' });
-      }
+      const winnerDist = 1 - winner.avgSimilarity;
 
       const { data: rostroData } = await sb.from('rostros')
         .select('forma_rostro')
@@ -260,16 +282,9 @@ module.exports = async function handler(req, res) {
         console.error(`[audit] LOGIN REJECTED: face shape mismatch - detected=${face_shape}, registered=${registeredShape}`);
         return res.status(401).json({
           error: 'Forma facial no coincide',
-          _debug: {
-            detectedShape: face_shape,
-            registeredShape,
-            embeddingsReceived: embeddings.length,
-            perEmbedding: debugPerEmb,
-          }
+          _debug: { detectedShape: face_shape, registeredShape }
         });
       }
-
-      console.log(`[face] shape check: detected=${face_shape}, registered=${registeredShape}, compatible=${!registeredShape || !face_shape || isShapeCompatible(face_shape, registeredShape)}`);
 
       const { data: usuario } = await sb.from('usuarios')
         .select('id, nombre, email, rol')
@@ -277,25 +292,25 @@ module.exports = async function handler(req, res) {
         .limit(1);
 
       if (!usuario || usuario.length === 0) {
-        console.error(`[audit] LOGIN REJECTED: user ${winner.userId} not found in usuarios table`);
         return res.status(404).json({ error: 'Usuario no encontrado' });
       }
 
-      console.log(`[audit] LOGIN OK: user ${winner.userId}, matches=${winner.matchCount}, avgDist=${winner.avgDist.toFixed(4)}, umbral=${UMBRAL_ACTIVO}`);
+      console.log(`[audit] LOGIN OK: user ${winner.userId}, similarity=${winner.avgSimilarity.toFixed(4)}, matchCount=${winner.matchCount}`);
 
       return res.status(200).json({
         ok: true,
         usuario_id: usuario[0].id,
         nombre: usuario[0].nombre,
         email: usuario[0].email,
-        distancia: Math.round(winner.avgDist * 10000) / 10000,
+        distancia: Math.round(winnerDist * 10000) / 10000,
+        similitud: Math.round(winner.avgSimilarity * 10000) / 10000,
         _debug: {
           embeddingsReceived: embeddings.length,
-          perEmbedding: debugPerEmb,
-          matchCounts,
-          umbral: UMBRAL_ACTIVO,
-          avgDist: winner.avgDist,
+          normalizedEmbs: normalizedEmbs.length,
           matchCount: winner.matchCount,
+          avgSimilarity: winner.avgSimilarity,
+          avgDistance: winnerDist,
+          threshold: UMBRAL_SIMILITUD,
           userId: winner.userId,
           detectedShape: face_shape,
           registeredShape,
@@ -345,19 +360,12 @@ module.exports = async function handler(req, res) {
       const user2 = rostros.find(r => r.usuario_id === user2Id);
       if (!user1 || !user2) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-      function cosDist(a, b) {
-        if (!a || !b || a.length !== b.length) return 1;
-        let dot = 0, nA = 0, nB = 0;
-        for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; nA += a[i] * a[i]; nB += b[i] * b[i]; }
-        return 1 - Math.max(-1, Math.min(1, dot / (Math.sqrt(nA) * Math.sqrt(nB))));
-      }
-
       const distances = {};
       for (const a1 of ['frontal', 'izquierda', 'derecha']) {
         for (const a2 of ['frontal', 'izquierda', 'derecha']) {
-          const e1 = user1[`embedding_${a1}`];
-          const e2 = user2[`embedding_${a2}`];
-          if (e1 && e2) distances[`${a1}_vs_${a2}`] = Math.round(cosDist(e1, e2) * 10000) / 10000;
+          const e1 = parseEmbedding(user1[`embedding_${a1}`]);
+          const e2 = parseEmbedding(user2[`embedding_${a2}`]);
+          if (e1 && e2) distances[`${a1}_vs_${a2}`] = Math.round(cosineDistance(e1, e2) * 10000) / 10000;
         }
       }
       const vals = Object.values(distances);
@@ -367,6 +375,7 @@ module.exports = async function handler(req, res) {
         user1: user1Id, user2: user2Id,
         distances,
         averageDistance: Math.round(avg * 10000) / 10000,
+        averageSimilarity: Math.round((1 - avg) * 10000) / 10000,
         interpretation: avg < 0.22 ? 'MUY CERCA (mismo umbral que login)' :
                        avg < 0.4 ? 'CERCA (podria causar confusion)' :
                        avg < 0.6 ? 'MEDIA (distincion razonable)' : 'LEJANA (buena distincion)',
@@ -384,17 +393,17 @@ module.exports = async function handler(req, res) {
       if (vector_a.length !== 128 || vector_b.length !== 128) {
         return res.status(400).json({ error: 'Los vectores deben ser de 128 dimensiones' });
       }
-      let dot = 0, nA = 0, nB = 0;
-      for (let i = 0; i < 128; i++) { dot += vector_a[i] * vector_b[i]; nA += vector_a[i] ** 2; nB += vector_b[i] ** 2; }
-      const dist = 1 - Math.max(-1, Math.min(1, dot / (Math.sqrt(nA) * Math.sqrt(nB))));
+      const normA = l2Normalize([...vector_a]);
+      const normB = l2Normalize([...vector_b]);
+      const dist = cosineDistance(normA, normB);
+      const sim = 1 - dist;
       return res.status(200).json({
         distance: Math.round(dist * 10000) / 10000,
-        threshold_022: dist < 0.22,
-        threshold_015: dist < 0.15,
-        interpretation: dist < 0.15 ? 'MISMO USUARIO (umbral estricto)' :
-                        dist < 0.22 ? 'MISMO USUARIO (umbral normal)' :
-                        dist < 0.4 ? 'POSIBLE CONFUSION' :
-                        dist < 0.6 ? 'DIFERENTES (distancia media)' : 'DIFERENTES (distancia lejana)',
+        similarity: Math.round(sim * 10000) / 10000,
+        threshold_06: sim >= 0.6,
+        interpretation: sim >= 0.6 ? 'MISMO USUARIO (similitud >= 0.6)' :
+                       sim >= 0.4 ? 'PODER CONFLICTO (similitud entre 0.4-0.6)' :
+                       'DIFERENTES PERSONAS (similitud < 0.4)',
       });
     } catch (e) {
       return res.status(500).json({ error: e.message });
