@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION buscar_rostro_match(
   login_embedding vector(128),
-  p_umbral float DEFAULT 0.22,
+  p_umbral float DEFAULT 0.40,
   p_margen float DEFAULT 0.05
 )
 RETURNS TABLE (
@@ -14,7 +14,8 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 AS '
 DECLARE
-  v_umbral_estricto float := 0.15;
+  v_umbral_estricto float := 0.35;
+  v_max_individual float := 0.45;
 BEGIN
   RETURN QUERY
   WITH distancias AS (
@@ -51,10 +52,16 @@ BEGIN
     t.dist_promedio,
     CASE
       WHEN t.second_dist IS NULL THEN
-        (t.dist_promedio < v_umbral_estricto)
+        (t.dist_promedio < v_umbral_estricto
+         AND t.dist_frontal < v_max_individual
+         AND t.dist_izquierda < v_max_individual
+         AND t.dist_derecha < v_max_individual)
       ELSE
         (t.dist_promedio < p_umbral
-         AND (t.second_dist - t.best_dist) > p_margen)
+         AND (t.second_dist - t.best_dist) > p_margen
+         AND t.dist_frontal < v_max_individual
+         AND t.dist_izquierda < v_max_individual
+         AND t.dist_derecha < v_max_individual)
     END AS es_match
   FROM top2 t
   WHERE t.rn = 1;

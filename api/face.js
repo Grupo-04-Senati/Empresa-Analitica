@@ -170,7 +170,16 @@ module.exports = async function handler(req, res) {
       console.log('[face] login candidates:', JSON.stringify(candidatos));
 
       if (candidatos.length === 0) {
-        return res.status(401).json({ error: 'Rostro no reconocido' });
+        return res.status(401).json({
+          error: 'Rostro no reconocido',
+          _debug: {
+            embeddingsReceived: embeddings.length,
+            perEmbedding: debugPerEmb,
+            matchCounts,
+            umbral: 0.35,
+            message: 'Ningun embedding paso el umbral de 0.35'
+          }
+        });
       }
 
       const winner = candidatos[0];
@@ -192,6 +201,12 @@ module.exports = async function handler(req, res) {
         nombre: usuario[0].nombre,
         email: usuario[0].email,
         distancia: Math.round(winner.avgDist * 10000) / 10000,
+        _debug: {
+          embeddingsReceived: embeddings.length,
+          perEmbedding: debugPerEmb,
+          matchCounts,
+          umbral: 0.35,
+        }
       });
     } catch (e) {
       console.error('[face] login error:', e);
