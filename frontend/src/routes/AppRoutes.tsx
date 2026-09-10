@@ -76,7 +76,7 @@ export const AppRoutes = () => (
       <Route path="clientes" element={<Clientes />} />
       <Route path="clientes/nuevo" element={<ClientesNuevo />} />
       <Route path="clientes-historial" element={<AdminGuard><ClientesHistorial /></AdminGuard>} />
-      <Route path="solicitudes" element={<Solicitudes />} />
+      <Route path="solicitudes" element={<Navigate to="/comentarios" replace />} />
       <Route path="comentarios" element={<Comentarios />} />
       <Route path="tiempo-atencion" element={<TiempoAtencion />} />
       <Route path="auditoria" element={<AdminGuard><Auditoria /></AdminGuard>} />
@@ -87,7 +87,7 @@ export const AppRoutes = () => (
       <Route path="estadisticas" element={<Estadisticas />} />
       <Route path="interpolacion" element={<Interpolacion />} />
       <Route path="optimizacion" element={<Optimizacion />} />
-      <Route path="reportes" element={<Estadisticas />} />
+      <Route path="reportes" element={<Navigate to="/reportes/atencion" replace />} />
       <Route path="reportes/atencion" element={<ReportesAtencion />} />
       <Route path="reportes/nlp" element={<ReportesNLP />} />
       <Route path="reportes/estadisticas" element={<ReportesEstadisticas />} />

@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Clock, Plus, Edit3, Trash2, Loader2, X, Search, Filter } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Clock, Plus, Edit3, Trash2, Loader2, X, Search, Filter, BarChart3 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,13 +15,16 @@ interface TiempoRow {
   clientes?: { nombre: string; empresa: string } | null;
 }
 
+interface ClienteOption { id: number; nombre: string; }
+
 const SLA_MINUTOS = 30;
+const COLORS = ['#059669', '#dc2626'];
 const emptyForm = { cliente_id: '', tiempo_minutos: '', fecha: new Date().toISOString().split('T')[0], operador: '' };
 
 export const TiempoAtencion = () => {
   const { canEdit } = useAuth();
   const [datos, setDatos] = useState<TiempoRow[]>([]);
-  const [clientes, setClientes] = useState<{ id: number; nombre: string }[]>([]);
+  const [clientes, setClientes] = useState<ClienteOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -42,6 +46,41 @@ export const TiempoAtencion = () => {
     if (clientesRes.data) setClientes(clientesRes.data);
     setLoading(false);
   };
+
+  const stats = useMemo(() => {
+    const total = datos.length;
+    const promedio = total > 0 ? Math.round(datos.reduce((s, d) => s + Number(d.tiempo_minutos), 0) / total) : 0;
+    const cumple = datos.filter(d => Number(d.tiempo_minutos) <= SLA_MINUTOS).length;
+    const pctCumple = total > 0 ? Math.round((cumple / total) * 100) : 0;
+    const menor = total > 0 ? Math.min(...datos.map(d => Number(d.tiempo_minutos))) : 0;
+    const mayor = total > 0 ? Math.max(...datos.map(d => Number(d.tiempo_minutos))) : 0;
+    return { total, promedio, cumple, pctCumple, menor, mayor };
+  }, [datos]);
+
+  const chartData = useMemo(() => {
+    const porOperador: Record<string, { total: number; suma: number }> = {};
+    datos.forEach(d => {
+      const op = d.operador || 'Sin operador';
+      if (!porOperador[op]) porOperador[op] = { total: 0, suma: 0 };
+      porOperador[op].total++;
+      porOperador[op].suma += Number(d.tiempo_minutos);
+    });
+    return Object.entries(porOperador).map(([name, v]) => ({
+      name, registros: v.total, promedio: Math.round(v.suma / v.total),
+    })).sort((a, b) => b.registros - a.registros).slice(0, 8);
+  }, [datos]);
+
+  const slaPieData = [
+    { name: 'Cumple SLA', value: stats.cumple, color: '#059669' },
+    { name: 'Excede SLA', value: stats.total - stats.cumple, color: '#dc2626' },
+  ];
+
+  const filtrados = datos.filter(d => {
+    const matchBusq = `${d.clientes?.nombre || ''} ${d.operador || ''}`.toLowerCase().includes(busqueda.toLowerCase());
+    const tiempo = Number(d.tiempo_minutos);
+    const matchFiltro = filtroCumple === 'todos' || (filtroCumple === 'cumple' && tiempo <= SLA_MINUTOS) || (filtroCumple === 'excede' && tiempo > SLA_MINUTOS);
+    return matchBusq && matchFiltro;
+  });
 
   const openCreate = () => { setEditando(null); setForm(emptyForm); setShowModal(true); };
   const openEdit = (d: TiempoRow) => {
@@ -84,23 +123,12 @@ export const TiempoAtencion = () => {
     if (!error) fetchData();
   };
 
-  const filtrados = datos.filter(d => {
-    const matchBusq = `${d.clientes?.nombre || ''} ${d.operador || ''}`.toLowerCase().includes(busqueda.toLowerCase());
-    const tiempo = Number(d.tiempo_minutos);
-    const matchFiltro = filtroCumple === 'todos' || (filtroCumple === 'cumple' && tiempo <= SLA_MINUTOS) || (filtroCumple === 'excede' && tiempo > SLA_MINUTOS);
-    return matchBusq && matchFiltro;
-  });
-
-  const promedio = datos.length > 0 ? Math.round(datos.reduce((s, d) => s + Number(d.tiempo_minutos), 0) / datos.length) : 0;
-  const cumpleSLA = datos.filter(d => Number(d.tiempo_minutos) <= SLA_MINUTOS).length;
-  const porcentajeCumple = datos.length > 0 ? Math.round((cumpleSLA / datos.length) * 100) : 0;
-
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Tiempos de Atención</h2>
-          <p className="text-slate-500 text-sm mt-1">Gestión y seguimiento de tiempos de respuesta (SLA: {SLA_MINUTOS} min)</p>
+          <h2 className="text-2xl font-bold text-slate-800">Tiempos de Atencion</h2>
+          <p className="text-slate-500 text-sm mt-1">Control de tiempos de respuesta (SLA: {SLA_MINUTOS} min)</p>
         </div>
         {canEdit && (
           <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition">
@@ -109,20 +137,53 @@ export const TiempoAtencion = () => {
         )}
       </div>
 
-      {error && <div className="rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 mb-4">{error}</div>}
+      {error && <div className="rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm p-3 mb-4 flex items-center gap-2"><X size={14} />{error}</div>}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
-          <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-50 text-blue-600"><Clock size={20} /></span>
-          <div><p className="text-xs text-slate-500 uppercase">Total Registros</p><p className="text-xl font-bold text-slate-800">{datos.length}</p></div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        {[
+          { label: 'Total', valor: stats.total, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Promedio', valor: `${stats.promedio}m`, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { label: 'Cumple SLA', valor: `${stats.pctCumple}%`, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { label: 'Minimo', valor: `${stats.menor}m`, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Maximo', valor: `${stats.mayor}m`, color: 'text-red-600', bg: 'bg-red-50' },
+        ].map(k => (
+          <div key={k.label} className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
+            <span className={`flex items-center justify-center w-10 h-10 rounded-lg ${k.bg} ${k.color}`}><Clock size={20} /></span>
+            <div><p className="text-xs text-slate-500 uppercase">{k.label}</p><p className="text-xl font-bold text-slate-800">{k.valor}</p></div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 mb-6 lg:grid-cols-2">
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
+          <h3 className="mb-4 font-semibold text-slate-700 flex items-center gap-2"><BarChart3 size={16} className="text-blue-600" /> Tiempo por Operador</h3>
+          {chartData.length === 0 ? <div className="h-48 flex items-center justify-center text-sm text-slate-400">Sin datos</div> : (
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Bar dataKey="promedio" name="Promedio (min)" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
-          <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-amber-50 text-amber-600"><Clock size={20} /></span>
-          <div><p className="text-xs text-slate-500 uppercase">Promedio</p><p className="text-xl font-bold text-slate-800">{promedio} min</p></div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
-          <span className={`flex items-center justify-center w-10 h-10 rounded-lg ${porcentajeCumple >= 80 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}><Clock size={20} /></span>
-          <div><p className="text-xs text-slate-500 uppercase">Cumple SLA</p><p className="text-xl font-bold text-slate-800">{porcentajeCumple}%</p></div>
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
+          <h3 className="mb-4 font-semibold text-slate-700 flex items-center gap-2"><BarChart3 size={16} className="text-emerald-600" /> Cumplimiento SLA</h3>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={slaPieData} dataKey="value" nameKey="name" innerRadius={40} outerRadius={70} paddingAngle={3} strokeWidth={0}>
+                  {slaPieData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
@@ -139,12 +200,11 @@ export const TiempoAtencion = () => {
             <Filter size={14} className="text-slate-400" />
             {(['todos', 'cumple', 'excede'] as const).map(f => (
               <button key={f} onClick={() => setFiltroCumple(f)} className={`px-2.5 py-1 rounded-full text-xs font-medium transition ${filtroCumple === f ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-                {f === 'todos' ? 'Todos' : f === 'cumple' ? 'Cumple SLA' : 'Excede SLA'}
+                {f === 'todos' ? 'Todos' : f === 'cumple' ? 'Cumple' : 'Excede'}
               </button>
             ))}
           </div>
         </div>
-
         {loading ? (
           <div className="py-16 flex items-center justify-center"><Loader2 size={24} className="animate-spin text-blue-500" /></div>
         ) : (
@@ -153,7 +213,7 @@ export const TiempoAtencion = () => {
               <thead>
                 <tr className="border-b border-slate-100">
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Cliente</th>
-                  <th className="text-left py-3 px-4 font-medium text-slate-500">Tiempo (min)</th>
+                  <th className="text-left py-3 px-4 font-medium text-slate-500">Tiempo</th>
                   <th className="text-left py-3 px-4 font-medium text-slate-500">SLA</th>
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Operador</th>
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Fecha</th>
@@ -163,7 +223,7 @@ export const TiempoAtencion = () => {
               <tbody>
                 {filtrados.length === 0 ? (
                   <tr><td colSpan={6} className="py-12 text-center text-slate-400">No hay registros</td></tr>
-                ) : filtrados.map((d) => {
+                ) : filtrados.map(d => {
                   const tiempo = Number(d.tiempo_minutos);
                   const cumple = tiempo <= SLA_MINUTOS;
                   return (
@@ -172,7 +232,7 @@ export const TiempoAtencion = () => {
                         <p className="font-medium text-slate-800">{d.clientes?.nombre || 'Sin cliente'}</p>
                         {d.clientes?.empresa && <p className="text-xs text-slate-400">{d.clientes.empresa}</p>}
                       </td>
-                      <td className="py-3 px-4 font-medium text-slate-800">{tiempo}</td>
+                      <td className="py-3 px-4 font-medium text-slate-800">{tiempo} min</td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${cumple ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                           {cumple ? 'Cumple' : 'Excede'}
@@ -214,12 +274,12 @@ export const TiempoAtencion = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Tiempo (minutos)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Tiempo (minutos) *</label>
                 <input type="number" step="0.01" required value={form.tiempo_minutos} onChange={e => setForm(f => ({ ...f, tiempo_minutos: e.target.value }))}
                   placeholder="Ej: 25" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Fecha *</label>
                 <input type="date" required value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
               </div>
@@ -231,8 +291,7 @@ export const TiempoAtencion = () => {
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={closeModal} className="px-4 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
                 <button type="submit" disabled={saving} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-                  {saving && <Loader2 size={14} className="animate-spin" />}
-                  {editando ? 'Guardar' : 'Crear'}
+                  {saving && <Loader2 size={14} className="animate-spin" />} {editando ? 'Guardar' : 'Crear'}
                 </button>
               </div>
             </form>

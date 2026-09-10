@@ -58,8 +58,7 @@ const menuData: MenuItem[] = [
     title: 'ATENCION',
     icon: <Headphones size={18} />,
     items: [
-      { label: 'Solicitudes', path: '/solicitudes' },
-      { label: 'Comentarios', path: '/comentarios' },
+      { label: 'Solicitudes y Comentarios', path: '/comentarios' },
       { label: 'Tiempos de atencion', path: '/tiempo-atencion' },
     ],
   },
