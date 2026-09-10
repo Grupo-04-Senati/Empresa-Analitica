@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '@/services/supabase';
+import TinoBot from '../components/TinoBot';
 
 interface SubMenuItem { label: string; path: string; adminOnly?: boolean; }
 interface MenuItem { title: string; icon: React.ReactNode; adminOnly?: boolean; items: SubMenuItem[]; }
@@ -235,6 +236,7 @@ export const DashboardLayout = () => {
         </header>
         <main className="flex-1 p-4 lg:p-6"><Outlet /></main>
       </div>
+      <TinoBot />
     </div>
   );
 };

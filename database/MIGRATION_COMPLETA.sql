@@ -3,8 +3,11 @@
 -- Ejecutar en Supabase SQL Editor en orden
 -- =====================================================
 
--- 1. UNIQUE constraint en email (corrige el INSERT que falla)
-ALTER TABLE clientes ADD CONSTRAINT IF NOT EXISTS clientes_email_unique UNIQUE (email);
+-- 1. UNIQUE constraint en email (solo si no existe)
+DO $$ BEGIN
+  ALTER TABLE clientes ADD CONSTRAINT clientes_email_unique UNIQUE (email);
+EXCEPTION WHEN duplicate_table THEN NULL;
+END $$;
 
 -- 2. Columnas nuevas en comentarios/solicitudes
 ALTER TABLE comentarios ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) DEFAULT 'comentario';
