@@ -48,10 +48,10 @@ const menuData: MenuItem[] = [
   {
     title: 'CLIENTES',
     icon: <Users size={18} />,
+    adminOnly: true,
     items: [
       { label: 'Lista de clientes', path: '/clientes' },
       { label: 'Nuevo cliente', path: '/clientes/nuevo', adminOnly: true },
-
     ],
   },
   {
@@ -60,12 +60,13 @@ const menuData: MenuItem[] = [
     items: [
       { label: 'Solicitudes', path: '/solicitudes' },
       { label: 'Comentarios', path: '/comentarios' },
-      { label: 'Tiempos de atencion', path: '/tiempo-atencion' },
+      { label: 'Tiempos de atencion', path: '/tiempo-atencion', adminOnly: true },
     ],
   },
   {
     title: 'INTELIGENCIA NLP',
     icon: <Brain size={18} />,
+    adminOnly: true,
     items: [
       { label: 'Analizar comentario', path: '/analizar-comentario' },
       { label: 'Palabras frecuentes', path: '/palabras-frecuentes' },
@@ -76,6 +77,7 @@ const menuData: MenuItem[] = [
   {
     title: 'SCIENTIFIC DATA',
     icon: <Database size={18} />,
+    adminOnly: true,
     items: [
       { label: 'Estadisticas', path: '/estadisticas' },
       { label: 'Interpolacion', path: '/interpolacion' },
@@ -85,6 +87,7 @@ const menuData: MenuItem[] = [
   {
     title: 'REPORTES',
     icon: <FileText size={18} />,
+    adminOnly: true,
     items: [
       { label: 'Atencion', path: '/reportes/atencion' },
       { label: 'NLP', path: '/reportes/nlp' },
@@ -94,6 +97,7 @@ const menuData: MenuItem[] = [
   {
     title: 'CONFIGURACION',
     icon: <Settings size={18} />,
+    adminOnly: true,
     items: [
       { label: 'Usuarios', path: '/usuarios', adminOnly: true },
       { label: 'Categorias', path: '/configuracion', adminOnly: true },
@@ -193,10 +197,13 @@ export const DashboardLayout = () => {
     return user?.email ? user.email.slice(0, 2).toUpperCase() : 'U';
   };
 
-  const visibleMenu = menuData.map((section) => ({
-    ...section,
-    items: section.items.filter((item) => !item.adminOnly || isAdmin),
-  })).filter((section) => section.items.length > 0);
+  const visibleMenu = menuData
+    .filter((section) => !section.adminOnly || isAdmin)
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => !item.adminOnly || isAdmin),
+    }))
+    .filter((section) => section.items.length > 0);
 
   const sidebarContent = (
     <div className="flex h-full flex-col justify-between">
