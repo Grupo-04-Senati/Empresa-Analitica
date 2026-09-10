@@ -11,6 +11,7 @@ interface SolicitudDB {
   canal: string;
   estado: string;
   prioridad: string;
+  tipo: string;
   fecha: string;
   created_at: string;
   clientes?: { nombre: string; empresa: string; usuario_id: number | null } | null;
@@ -54,7 +55,7 @@ export const Solicitudes = () => {
   const fetchData = async () => {
     setLoading(true);
     const [solRes, cliRes] = await Promise.all([
-      supabase.from('comentarios').select('*, clientes(nombre, empresa, usuario_id)').order('fecha', { ascending: false }),
+      supabase.from('comentarios').select('*, clientes(nombre, empresa, usuario_id)').eq('tipo', 'solicitud').order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre, empresa, usuario_id').eq('activo', true),
     ]);
     if (solRes.error) { setError(solRes.error.message); setLoading(false); return; }
@@ -74,6 +75,7 @@ export const Solicitudes = () => {
         contenido,
         canal,
         prioridad,
+        tipo: 'solicitud',
         estado: 'pendiente',
         procesado: false,
         fecha: new Date().toISOString(),

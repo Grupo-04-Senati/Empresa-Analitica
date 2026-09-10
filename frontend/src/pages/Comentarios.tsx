@@ -12,6 +12,7 @@ interface ComentarioDB {
   canal: string;
   estado: string;
   categoria: string | null;
+  tipo: string;
   fecha: string;
   procesado: boolean;
   clientes?: { nombre: string; empresa: string; usuario_id: number | null } | null;
@@ -51,7 +52,7 @@ export const Comentarios = () => {
   const fetchData = async () => {
     setLoading(true);
     const [comRes, cliRes, anRes] = await Promise.all([
-      supabase.from('comentarios').select('*, clientes(nombre, empresa, usuario_id)').order('fecha', { ascending: false }),
+      supabase.from('comentarios').select('*, clientes(nombre, empresa, usuario_id)').eq('tipo', 'comentario').order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre, empresa, usuario_id').eq('activo', true),
       supabase.from('analisis_nlp').select('id, comentario_id, categoria_detectada, confianza'),
     ]);
@@ -72,6 +73,7 @@ export const Comentarios = () => {
         usuario_id: user?.id ? Number(user.id) : null,
         contenido,
         canal,
+        tipo: 'comentario',
         estado: 'pendiente',
         procesado: false,
         fecha: new Date().toISOString(),
