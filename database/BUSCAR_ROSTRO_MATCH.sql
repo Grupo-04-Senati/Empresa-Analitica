@@ -28,21 +28,29 @@ BEGIN
     WHERE r.embedding_frontal IS NOT NULL
       AND r.embedding_izquierda IS NOT NULL
       AND r.embedding_derecha IS NOT NULL
+  ),
+  top2 AS (
+    SELECT
+      d.usuario_id,
+      d.dist_frontal,
+      d.dist_izquierda,
+      d.dist_derecha,
+      d.dist_promedio,
+      ROW_NUMBER() OVER (ORDER BY d.dist_promedio ASC) AS rn,
+      MIN(d.dist_promedio) OVER () AS best_dist,
+      LEAD(d.dist_promedio) OVER (ORDER BY d.dist_promedio ASC) AS second_dist
+    FROM distancias d
   )
   SELECT
-    d.usuario_id,
-    d.dist_frontal,
-    d.dist_izquierda,
-    d.dist_derecha,
-    d.dist_promedio,
-    (d.dist_promedio < p_umbral
-     AND (
-       (SELECT MIN(d2.dist_promedio) FROM distancias d2 WHERE d2.usuario_id != d.usuario_id)
-       - d.dist_promedio
-     ) > p_margen
+    t.usuario_id,
+    t.dist_frontal,
+    t.dist_izquierda,
+    t.dist_derecha,
+    t.dist_promedio,
+    (t.dist_promedio < p_umbral
+     AND (t.second_dist IS NULL OR (t.second_dist - t.best_dist) > p_margen)
     ) AS es_match
-  FROM distancias d
-  ORDER BY d.dist_promedio ASC
-  LIMIT 1;
+  FROM top2 t
+  WHERE t.rn = 1;
 END;
 ';
