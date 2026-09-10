@@ -4,6 +4,8 @@
   "installCommand": "npm install && cd frontend && npm install",
   "framework": "vite",
   "rewrites": [
+    { "source": "/api/face-test-distance", "destination": "/api/face-test-distance.js" },
+    { "source": "/api/face/(.*)", "destination": "/api/face.js" },
     { "source": "/api/(.*)", "destination": "/api/face.js" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ]

@@ -199,5 +199,99 @@ module.exports = async function handler(req, res) {
     }
   }
 
+  if (req.method === 'GET' && action === 'test-distance-list') {
+    try {
+      const { data: rostros, error } = await sb.from('rostros')
+        .select('usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha');
+      if (error) return res.status(500).json({ error: error.message });
+      if (!rostros || rostros.length === 0) {
+        return res.status(200).json({ users: 0, message: 'No hay usuarios con rostro registrado' });
+      }
+      const users = rostros.map(r => ({
+        usuario_id: r.usuario_id,
+        hasFrontal: !!r.embedding_frontal,
+        hasIzquierda: !!r.embedding_izquierda,
+        hasDerecha: !!r.embedding_derecha,
+      }));
+      return res.status(200).json({ users: users.length, data: users });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  if (req.method === 'GET' && action === 'test-distance-compare') {
+    try {
+      const user1Id = parseInt(parsedUrl.searchParams.get('user1'));
+      const user2Id = parseInt(parsedUrl.searchParams.get('user2'));
+      if (!user1Id || !user2Id) {
+        return res.status(400).json({ error: 'Faltan user1 y user2' });
+      }
+      const { data: rostros, error } = await sb.from('rostros')
+        .select('usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha')
+        .in('usuario_id', [user1Id, user2Id]);
+      if (error) return res.status(500).json({ error: error.message });
+      if (!rostros || rostros.length < 2) {
+        return res.status(404).json({ error: 'Se necesitan 2 usuarios con rostro registrado' });
+      }
+      const user1 = rostros.find(r => r.usuario_id === user1Id);
+      const user2 = rostros.find(r => r.usuario_id === user2Id);
+      if (!user1 || !user2) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+      function cosDist(a, b) {
+        if (!a || !b || a.length !== b.length) return 1;
+        let dot = 0, nA = 0, nB = 0;
+        for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; nA += a[i] * a[i]; nB += b[i] * b[i]; }
+        return 1 - Math.max(-1, Math.min(1, dot / (Math.sqrt(nA) * Math.sqrt(nB))));
+      }
+
+      const distances = {};
+      for (const a1 of ['frontal', 'izquierda', 'derecha']) {
+        for (const a2 of ['frontal', 'izquierda', 'derecha']) {
+          const e1 = user1[`embedding_${a1}`];
+          const e2 = user2[`embedding_${a2}`];
+          if (e1 && e2) distances[`${a1}_vs_${a2}`] = Math.round(cosDist(e1, e2) * 10000) / 10000;
+        }
+      }
+      const vals = Object.values(distances);
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+
+      return res.status(200).json({
+        user1: user1Id, user2: user2Id,
+        distances,
+        averageDistance: Math.round(avg * 10000) / 10000,
+        interpretation: avg < 0.22 ? 'MUY CERCA (mismo umbral que login)' :
+                       avg < 0.4 ? 'CERCA (podria causar confusion)' :
+                       avg < 0.6 ? 'MEDIA (distincion razonable)' : 'LEJANA (buena distincion)',
+      });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  if (req.method === 'POST' && action === 'test-distance-vectors') {
+    try {
+      const body = await parseBody(req);
+      const { vector_a, vector_b } = body;
+      if (!vector_a || !vector_b) return res.status(400).json({ error: 'Faltan vector_a y vector_b' });
+      if (vector_a.length !== 128 || vector_b.length !== 128) {
+        return res.status(400).json({ error: 'Los vectores deben ser de 128 dimensiones' });
+      }
+      let dot = 0, nA = 0, nB = 0;
+      for (let i = 0; i < 128; i++) { dot += vector_a[i] * vector_b[i]; nA += vector_a[i] ** 2; nB += vector_b[i] ** 2; }
+      const dist = 1 - Math.max(-1, Math.min(1, dot / (Math.sqrt(nA) * Math.sqrt(nB))));
+      return res.status(200).json({
+        distance: Math.round(dist * 10000) / 10000,
+        threshold_022: dist < 0.22,
+        threshold_015: dist < 0.15,
+        interpretation: dist < 0.15 ? 'MISMO USUARIO (umbral estricto)' :
+                        dist < 0.22 ? 'MISMO USUARIO (umbral normal)' :
+                        dist < 0.4 ? 'POSIBLE CONFUSION' :
+                        dist < 0.6 ? 'DIFERENTES (distancia media)' : 'DIFERENTES (distancia lejana)',
+      });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
   return res.status(404).json({ error: 'Accion no encontrada' });
 };

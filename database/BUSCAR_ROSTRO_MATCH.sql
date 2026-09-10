@@ -13,6 +13,8 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 AS '
+DECLARE
+  v_umbral_estricto float := 0.15;
 BEGIN
   RETURN QUERY
   WITH distancias AS (
@@ -47,9 +49,13 @@ BEGIN
     t.dist_izquierda,
     t.dist_derecha,
     t.dist_promedio,
-    (t.dist_promedio < p_umbral
-     AND (t.second_dist IS NULL OR (t.second_dist - t.best_dist) > p_margen)
-    ) AS es_match
+    CASE
+      WHEN t.second_dist IS NULL THEN
+        (t.dist_promedio < v_umbral_estricto)
+      ELSE
+        (t.dist_promedio < p_umbral
+         AND (t.second_dist - t.best_dist) > p_margen)
+    END AS es_match
   FROM top2 t
   WHERE t.rn = 1;
 END;

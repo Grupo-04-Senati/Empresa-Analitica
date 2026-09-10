@@ -1,4 +1,4 @@
-import { extractEmbeddings, extractEmbeddingsAndShape } from './faceRecognition';
+import { extractEmbeddings, extractEmbeddingsAndShape, detectMultipleFaces } from './faceRecognition';
 
 const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || '';
 
@@ -77,11 +77,34 @@ export async function faceApiLogin(
   photos: Record<string, string>
 ): Promise<{ ok: boolean; usuario_id?: number; nombre?: string; email?: string; error?: string; debug?: any }> {
   try {
+    const photoKeys = Object.keys(photos);
+    if (photoKeys.length === 0) {
+      return { ok: false, error: 'No se capturaron fotos' };
+    }
+
+    const firstPhotoDataUrl = photos[photoKeys[0]];
+    const img = new Image();
+    img.src = firstPhotoDataUrl;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
+    });
+
+    const multiCheck = await detectMultipleFaces(img);
+    if (!multiCheck.ok) {
+      if (multiCheck.count === 0) {
+        return { ok: false, error: 'No se detecta ningun rostro. Colocate frente a la camara.' };
+      }
+      return { ok: false, error: 'Se detectaron multiples personas. Solo debe haber una.' };
+    }
+
+    console.log('[faceApi] multi-face check passed: 1 face detected');
+
     const embeddings = await extractEmbeddings(photos);
     const embList = Object.values(embeddings).filter((e): e is number[] => e !== null);
 
     if (embList.length === 0) {
-      return { ok: false, error: 'No se detecto ningun rostro' };
+      return { ok: false, error: 'No se detecto ningun rostro en las capturas' };
     }
 
     console.log('[faceApi] login embeddings:', embList.length, 'dims:', embList[0]?.length);

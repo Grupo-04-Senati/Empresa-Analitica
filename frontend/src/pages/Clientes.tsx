@@ -112,6 +112,10 @@ export const Clientes = () => {
         };
         const { error: err } = await supabase.from('usuarios').update(updates).eq('id', editando.id);
         if (err) throw err;
+        await supabase.from('historial_clientes').insert({
+          usuario_id: editando.id, nombre: form.nombre.trim(), email: editando.email,
+          telefono: form.telefono || null, empresa: form.empresa || null, accion: 'Editado',
+        });
       } else {
         if (!form.password || form.password.length < 6) {
           setError('La contraseña debe tener al menos 6 caracteres');
@@ -134,7 +138,7 @@ export const Clientes = () => {
           setSaving(false);
           return;
         }
-        const { error: dbErr } = await supabase.from('usuarios').insert({
+        const { data: newUserData, error: dbErr } = await supabase.from('usuarios').insert({
           nombre: form.nombre.trim(),
           email: form.email.trim().toLowerCase(),
           password_hash: 'auth_managed',
@@ -142,8 +146,12 @@ export const Clientes = () => {
           activo: true,
           telefono: form.telefono || null,
           empresa: form.empresa || null,
-        });
+        }).select('id').single();
         if (dbErr) throw dbErr;
+        await supabase.from('historial_clientes').insert({
+          usuario_id: newUserData?.id, nombre: form.nombre.trim(), email: form.email.trim().toLowerCase(),
+          telefono: form.telefono || null, empresa: form.empresa || null, accion: 'Creado',
+        });
         try { await supabase.auth.signOut(); } catch {}
       }
       closeModal();
@@ -163,6 +171,11 @@ export const Clientes = () => {
     try {
       const { error: err } = await supabase.from('usuarios').update({ activo: nuevoEstado, updated_at: new Date().toISOString() }).eq('id', c.id);
       if (err) throw err;
+      await supabase.from('historial_clientes').insert({
+        usuario_id: c.id, nombre: c.nombre, email: c.email,
+        telefono: c.telefono || null, empresa: c.empresa || null,
+        accion: nuevoEstado ? 'Reactivado' : 'Desactivado',
+      });
       fetchClientes();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cambiar estado');

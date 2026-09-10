@@ -1,34 +1,67 @@
 import { useState, useEffect } from 'react';
-import { History, Filter, Loader2, Search, Download, Trash2, X } from 'lucide-react';
+import { History, Filter, Loader2, Search, Download, Trash2 } from 'lucide-react';
 import { supabase } from '@/services/supabase';
 
-interface UsuarioDB {
+interface HistorialEntry {
   id: number;
+  usuario_id: number | null;
   nombre: string;
-  empresa: string;
   email: string;
   telefono: string;
-  activo: boolean;
-  rol: string;
-  created_at: string;
+  empresa: string;
+  accion: string;
+  fecha: string;
+  is_active?: boolean;
 }
 
 export const ClientesHistorial = () => {
-  const [usuarios, setUsuarios] = useState<UsuarioDB[]>([]);
+  const [historial, setHistorial] = useState<HistorialEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState<'todos' | 'activo' | 'inactivo'>('todos');
   const [busqueda, setBusqueda] = useState('');
   const [clearing, setClearing] = useState(false);
 
-  const fetchUsuarios = async () => {
+  const fetchHistorial = async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
+      const { data: activeUsers } = await supabase
         .from('usuarios')
+        .select('id, nombre, email, telefono, empresa, activo, created_at')
+        .in('rol', ['USUARIO', 'usuario']);
+
+      const { data: historyLogs } = await supabase
+        .from('historial_clientes')
         .select('*')
-        .in('rol', ['USUARIO', 'usuario'])
-        .order('created_at', { ascending: false });
-      setUsuarios(data ?? []);
+        .order('fecha', { ascending: false });
+
+      const activeIds = new Set((activeUsers || []).map(u => u.id));
+
+      const merged: HistorialEntry[] = [];
+
+      for (const u of (activeUsers || [])) {
+        merged.push({
+          id: u.id,
+          usuario_id: u.id,
+          nombre: u.nombre,
+          email: u.email,
+          telefono: u.telefono || '',
+          empresa: u.empresa || '',
+          accion: u.activo ? 'Activo' : 'Desactivado',
+          fecha: u.created_at,
+          is_active: true,
+        });
+      }
+
+      for (const h of (historyLogs || [])) {
+        if (h.usuario_id && activeIds.has(h.usuario_id)) continue;
+        merged.push({
+          ...h,
+          is_active: false,
+        });
+      }
+
+      merged.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+      setHistorial(merged);
     } catch {
       // silent
     } finally {
@@ -37,26 +70,26 @@ export const ClientesHistorial = () => {
   };
 
   useEffect(() => {
-    fetchUsuarios();
+    fetchHistorial();
   }, []);
 
-  const filtrados = usuarios.filter((c) => {
+  const filtrados = historial.filter((c) => {
     const texto = `${c.nombre} ${c.email} ${c.empresa || ''}`.toLowerCase();
     const matchBusqueda = !busqueda || texto.includes(busqueda.toLowerCase());
-    if (filtroEstado === 'activo') return c.activo && matchBusqueda;
-    if (filtroEstado === 'inactivo') return !c.activo && matchBusqueda;
+    if (filtroEstado === 'activo') return (c.accion === 'Activo' || c.accion === 'Reactivado') && matchBusqueda;
+    if (filtroEstado === 'inactivo') return (c.accion !== 'Activo') && matchBusqueda;
     return matchBusqueda;
   });
 
   const exportCSV = () => {
-    const headers = ['Nombre', 'Email', 'Telefono', 'Empresa', 'Estado', 'Fecha Alta'];
+    const headers = ['Nombre', 'Email', 'Telefono', 'Empresa', 'Accion', 'Fecha'];
     const rows = filtrados.map((u) => [
       u.nombre,
       u.email,
       u.telefono || '',
       u.empresa || '',
-      u.activo ? 'Activo' : 'Inactivo',
-      new Date(u.created_at).toLocaleDateString('es-ES'),
+      u.accion,
+      new Date(u.fecha).toLocaleDateString('es-ES'),
     ]);
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -68,19 +101,38 @@ export const ClientesHistorial = () => {
     URL.revokeObjectURL(url);
   };
 
-  const clearHistory = async () => {
-    if (!confirm('¿Estas seguro de borrar TODO el historial de clientes? Esta accion no se puede deshacer.')) return;
+  const vaciarHistorial = async () => {
+    if (!confirm('¿VACIAR historial? Esto eliminara los registros antiguos pero mantendra los clientes activos.')) return;
     setClearing(true);
     try {
-      for (const u of usuarios) {
-        await supabase.from('rostros').delete().eq('usuario_id', u.id);
+      const { data: activeUsers } = await supabase
+        .from('usuarios')
+        .select('id')
+        .in('rol', ['USUARIO', 'usuario']);
+      const activeIds = (activeUsers || []).map(u => u.id);
+
+      if (activeIds.length > 0) {
+        await supabase.from('historial_clientes').delete().not('usuario_id', 'in', `(${activeIds.join(',')})`);
+      } else {
+        await supabase.from('historial_clientes').delete().neq('id', 0);
       }
-      await supabase.from('usuarios').delete().in('rol', ['USUARIO', 'usuario']);
-      setUsuarios([]);
+      fetchHistorial();
     } catch {
       // silent
     } finally {
       setClearing(false);
+    }
+  };
+
+  const getAccionBadge = (accion: string) => {
+    switch (accion) {
+      case 'Activo': return 'bg-emerald-50 text-emerald-700';
+      case 'Reactivado': return 'bg-blue-50 text-blue-700';
+      case 'Desactivado': return 'bg-amber-50 text-amber-700';
+      case 'Eliminado': return 'bg-red-50 text-red-700';
+      case 'Creado': return 'bg-indigo-50 text-indigo-700';
+      case 'Editado': return 'bg-slate-100 text-slate-600';
+      default: return 'bg-slate-100 text-slate-500';
     }
   };
 
@@ -97,9 +149,9 @@ export const ClientesHistorial = () => {
               <Download size={16} />
               Exportar CSV
             </button>
-            <button onClick={clearHistory} disabled={clearing || usuarios.length === 0} className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600 shadow-sm transition hover:bg-red-100 disabled:opacity-50">
+            <button onClick={vaciarHistorial} disabled={clearing} className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600 shadow-sm transition hover:bg-red-100 disabled:opacity-50">
               {clearing ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-              Borrar Historial
+              VACIAR
             </button>
           </div>
         </div>
@@ -133,7 +185,7 @@ export const ClientesHistorial = () => {
                   <th className="px-5 py-3">Telefono</th>
                   <th className="px-5 py-3">Empresa</th>
                   <th className="px-5 py-3">Estado</th>
-                  <th className="px-5 py-3">Fecha Alta</th>
+                  <th className="px-5 py-3">Fecha</th>
                 </tr>
               </thead>
               <tbody>
@@ -151,8 +203,8 @@ export const ClientesHistorial = () => {
                     </td>
                   </tr>
                 ) : (
-                  filtrados.map((c) => (
-                    <tr key={c.id} className="border-b border-slate-50 transition hover:bg-slate-50">
+                  filtrados.map((c, idx) => (
+                    <tr key={`${c.usuario_id || c.id}-${idx}`} className="border-b border-slate-50 transition hover:bg-slate-50">
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-3">
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-semibold text-blue-600">
@@ -165,12 +217,12 @@ export const ClientesHistorial = () => {
                       <td className="px-5 py-3 text-slate-600">{c.telefono || '—'}</td>
                       <td className="px-5 py-3 text-slate-600">{c.empresa || '—'}</td>
                       <td className="px-5 py-3">
-                        <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${c.activo ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {c.activo ? 'Activo' : 'Inactivo'}
+                        <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${getAccionBadge(c.accion)}`}>
+                          {c.accion}
                         </span>
                       </td>
                       <td className="px-5 py-3 text-slate-500">
-                        {new Date(c.created_at).toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' })}
+                        {new Date(c.fecha).toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' })}
                       </td>
                     </tr>
                   ))

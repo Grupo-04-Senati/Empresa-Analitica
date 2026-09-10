@@ -201,7 +201,7 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
       const detection = await (faceapi as any)
-        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.2 }))
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
@@ -210,7 +210,7 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
         continue;
       }
 
-      if (detection.detection.score < 0.2) {
+      if (detection.detection.score < 0.5) {
         console.warn(`[face] Score muy bajo en ${angle}: ${detection.detection.score}`);
         continue;
       }
@@ -227,7 +227,7 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       const leftMouth = pts[48];
       const rightMouth = pts[54];
       const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
-      if (eyeDist < 8) {
+      if (eyeDist < 20) {
         console.warn(`[face] Ojos muy pequenos en ${angle}: ${eyeDist}`);
         continue;
       }
@@ -254,7 +254,7 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       }
 
       const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
-      if (nonZero < 32) {
+      if (nonZero < 64) {
         console.warn(`[face] Embedding poco informativo en ${angle}: ${nonZero} non-zero dims`);
         continue;
       }
@@ -819,10 +819,10 @@ export async function loginByFace(
   }
 }
 
-export async function detectMultipleFaces(input: HTMLVideoElement | HTMLCanvasElement): Promise<{ ok: boolean; count: number }> {
+export async function detectMultipleFaces(input: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement): Promise<{ ok: boolean; count: number }> {
   try {
     const detections = await (faceapi as any)
-      .detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+      .detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
       .withFaceLandmarks();
 
     if (!detections || detections.length === 0) return { ok: false, count: 0 };
