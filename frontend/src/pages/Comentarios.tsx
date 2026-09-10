@@ -14,7 +14,7 @@ interface ComentarioDB {
   categoria: string | null;
   fecha: string;
   procesado: boolean;
-  clientes?: { nombre: string; empresa: string } | null;
+  clientes?: { nombre: string; empresa: string; usuario_id: number | null } | null;
 }
 
 interface AnalisisNLP {

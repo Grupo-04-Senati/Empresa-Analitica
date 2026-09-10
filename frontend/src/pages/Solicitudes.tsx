@@ -13,7 +13,7 @@ interface SolicitudDB {
   prioridad: string;
   fecha: string;
   created_at: string;
-  clientes?: { nombre: string; empresa: string } | null;
+  clientes?: { nombre: string; empresa: string; usuario_id: number | null } | null;
 }
 
 interface ClienteOption { id: number; nombre: string; empresa: string; usuario_id: number | null; }
