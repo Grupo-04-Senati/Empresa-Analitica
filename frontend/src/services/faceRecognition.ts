@@ -446,11 +446,11 @@ async function generateFullDescriptor(input: HTMLVideoElement | HTMLCanvasElemen
   }
 }
 
-export async function detectBlink(video: HTMLVideoElement, frameCount: number = 12): Promise<{ blinked: boolean; earHistory: number[] }> {
+export async function detectBlink(video: HTMLVideoElement, frameCount: number = 15): Promise<{ blinked: boolean; earHistory: number[] }> {
   const earHistory: number[] = [];
 
   for (let i = 0; i < frameCount; i++) {
-    await new Promise<void>((r) => setTimeout(r, 100));
+    await new Promise<void>((r) => setTimeout(r, 150));
 
     try {
       const det = await (faceapi as any)
@@ -466,20 +466,21 @@ export async function detectBlink(video: HTMLVideoElement, frameCount: number = 
           const vertical1 = Math.sqrt((eye[1].x - eye[5].x) ** 2 + (eye[1].y - eye[5].y) ** 2);
           const vertical2 = Math.sqrt((eye[2].x - eye[4].x) ** 2 + (eye[2].y - eye[4].y) ** 2);
           const horizontal = Math.sqrt((eye[0].x - eye[3].x) ** 2 + (eye[0].y - eye[3].y) ** 2);
+          if (horizontal === 0) return 0;
           return (vertical1 + vertical2) / (2.0 * horizontal);
         }
 
         const ear = (eyeAspectRatio(leftEye) + eyeAspectRatio(rightEye)) / 2;
-        earHistory.push(ear);
+        if (ear > 0) earHistory.push(ear);
       }
     } catch {}
   }
 
-  if (earHistory.length < 3) return { blinked: false, earHistory };
+  if (earHistory.length < 2) return { blinked: false, earHistory };
 
   const avgEar = earHistory.reduce((a, b) => a + b, 0) / earHistory.length;
   const minEar = Math.min(...earHistory);
-  const blinked = minEar < avgEar * 0.65;
+  const blinked = minEar < avgEar * 0.78;
 
   return { blinked, earHistory };
 }
