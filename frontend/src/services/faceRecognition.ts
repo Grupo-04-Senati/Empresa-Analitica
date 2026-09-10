@@ -200,7 +200,7 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
       const detection = await (faceapi as any)
-        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
@@ -209,7 +209,7 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
         continue;
       }
 
-      if (detection.detection.score < 0.5) {
+      if (detection.detection.score < 0.4) {
         console.warn(`[face] Score muy bajo en ${angle}: ${detection.detection.score}`);
         continue;
       }
@@ -226,21 +226,21 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
       const leftMouth = pts[48];
       const rightMouth = pts[54];
       const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
-      if (eyeDist < 20) {
+      if (eyeDist < 15) {
         console.warn(`[face] Ojos muy pequenos en ${angle}: ${eyeDist}`);
         continue;
       }
 
       const noseToEye = Math.sqrt((nose.x - (leftEye.x + rightEye.x) / 2) ** 2 + (nose.y - (leftEye.y + rightEye.y) / 2) ** 2);
       const faceRatio = noseToEye / eyeDist;
-      if (faceRatio < 0.3 || faceRatio > 1.2) {
+      if (faceRatio < 0.2 || faceRatio > 1.5) {
         console.warn(`[face] Proporcion facial invalida en ${angle}: ${faceRatio}`);
         continue;
       }
 
       const mouthWidth = Math.sqrt((rightMouth.x - leftMouth.x) ** 2 + (rightMouth.y - leftMouth.y) ** 2);
       const mouthToEye = mouthWidth / eyeDist;
-      if (mouthToEye < 0.2 || mouthToEye > 2.0) {
+      if (mouthToEye < 0.1 || mouthToEye > 2.5) {
         console.warn(`[face] Proporcion boca-ojos invalida en ${angle}: ${mouthToEye}`);
         continue;
       }
@@ -581,7 +581,7 @@ export async function registerFace(
 }
 
 const UMBRAL_EMBEDDING = 0.25;
-const MIN_MATCHES = 3;
+const MIN_MATCHES = 2;
 
 export async function loginByFace(
   photos: Record<string, string>

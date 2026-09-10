@@ -3,7 +3,7 @@ import { Camera, X, CheckCircle, AlertCircle, Loader2, Shield, Eye, Scan } from 
 import {
   loadFaceModels, detectFace, analyzeFaceQuality, checkAngle,
 } from '../services/faceRecognition';
-import { faceApiRegister, faceApiLogin, faceApiCheckRegistered } from '../services/faceApi';
+import { faceApiRegister, faceApiLogin } from '../services/faceApi';
 import { LivenessDetector } from '../services/livenessDetection';
 
 interface FaceCaptureProps {
@@ -20,10 +20,12 @@ const ANGLES = [
   { key: 'derecha', label: 'Derecha', instruction: 'Gira a la DERECHA' },
 ];
 
+type Phase = 'loading' | 'liveness' | 'scanning' | 'countdown' | 'processing' | 'done' | 'error';
+
 export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCapture, onLoginMatch, onClose }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [phase, setPhase] = useState<'loading' | 'liveness' | 'scanning' | 'countdown' | 'processing' | 'done' | 'error'>('loading');
+  const [phase, setPhase] = useState<Phase>('loading');
   const [currentAngle, setCurrentAngle] = useState(0);
   const [countdown, setCountdown] = useState(0);
   const [capturedPhotos, setCapturedPhotos] = useState<Record<string, string>>({});
@@ -38,10 +40,11 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   const goodFramesRef = useRef(0);
   const photosRef = useRef<Record<string, string>>({});
   const angleRef = useRef(0);
-  const phaseRef = useRef('loading');
+  const phaseRef = useRef<Phase>('loading');
   const startCaptureRef = useRef<() => void>(() => {});
   const doLoginRef = useRef<(photos: Record<string, string>) => void>(() => {});
   const livenessRef = useRef<LivenessDetector | null>(null);
+  const livenessPassedRef = useRef(false);
 
   photosRef.current = capturedPhotos;
   angleRef.current = currentAngle;
@@ -52,6 +55,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     if (timerRef.current) { clearTimeout(timerRef.current); }
     if (intervalRef.current) { clearInterval(intervalRef.current); }
+    livenessPassedRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -62,13 +66,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } });
         if (!alive) { stream.getTracks().forEach(t => t.stop()); return; }
         streamRef.current = stream;
-        if (mode === 'login') {
-          setPhase('liveness');
-          setStatusMsg('Verificando que eres una persona real...');
-        } else {
-          setPhase('scanning');
-          setStatusMsg('Coloque su rostro frente a la camara');
-        }
+        setPhase('liveness');
+        setStatusMsg(mode === 'login' ? 'Verificando que eres una persona real...' : 'Verifica tu identidad antes de capturar');
       } catch (err: any) {
         if (!alive) return;
         setErrorMsg(err?.name === 'NotAllowedError' ? 'Permiso de camara denegado.' : 'No se pudo acceder a la camara.');
@@ -86,28 +85,39 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   }, [phase]);
 
   useEffect(() => {
-    if (phase !== 'liveness' || mode !== 'login') return;
+    if (phase !== 'liveness') return;
     const video = videoRef.current;
     if (!video || !streamRef.current) return;
 
     video.srcObject = streamRef.current;
     video.play().catch(() => {});
 
+    livenessPassedRef.current = false;
     const detector = new LivenessDetector();
     livenessRef.current = detector;
 
     detector.start(
       video,
-      (stage, detail) => {
+      (_stage, detail) => {
         setStatusMsg(detail);
       },
       (result) => {
-        if (result.passed) {
-          setStatusMsg(`Identidad verificada (${result.method === 'blink' ? 'parpadeo' : 'giro de cabeza'})`);
-          setTimeout(() => {
-            setPhase('scanning');
-            setStatusMsg('Ahora posicione su rostro para captura');
-          }, 800);
+        if (result.passed && !livenessPassedRef.current) {
+          livenessPassedRef.current = true;
+          const methodName = result.method === 'blink' ? 'parpadeo' : 'giro de cabeza';
+          setStatusMsg(`Identidad verificada (${methodName})`);
+
+          if (mode === 'register') {
+            setTimeout(() => {
+              setPhase('scanning');
+              setStatusMsg(`Posicion: ${ANGLES[angleRef.current].instruction}`);
+            }, 800);
+          } else {
+            setTimeout(() => {
+              setPhase('scanning');
+              setStatusMsg('Ahora posicione su rostro para captura');
+            }, 800);
+          }
         }
       }
     );
@@ -180,12 +190,10 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     setPhase('countdown');
     let c = 3;
     setCountdown(c);
-    const angle = ANGLES[angleRef.current]?.key as 'frontal' | 'izquierda' | 'derecha';
 
     const tick = async () => {
       c--;
       if (c <= 0) {
-
         const video = videoRef.current;
         const canvas = canvasRef.current;
         if (!video || !canvas) return;
@@ -211,7 +219,9 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           if (angleIdx < ANGLES.length - 1) {
             setCurrentAngle(angleIdx + 1);
             goodFramesRef.current = 0;
-            setPhase('scanning');
+            livenessPassedRef.current = false;
+            setPhase('liveness');
+            setStatusMsg(`Verifica tu identidad para: ${ANGLES[angleIdx + 1].instruction}`);
           } else if (mode === 'login') {
             doLoginRef.current(newPhotos);
           } else if (mode === 'register' && usuarioId) {
@@ -229,7 +239,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
       const video = videoRef.current;
       if (video && video.readyState >= 2) {
-        const angleCheck = await checkAngle(video, angle);
+        const angleCheck = await checkAngle(video, ANGLES[angleRef.current]?.key || 'frontal');
         if (!angleCheck.ok) {
           setStatusMsg('Manteniendo posicion...');
         } else {
@@ -241,7 +251,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       timerRef.current = setTimeout(tick, 700);
     };
     timerRef.current = setTimeout(tick, 700);
-  }, [mode, onCapture, usuarioId]);
+  }, [mode, onCapture, usuarioId, stopAll]);
 
   startCaptureRef.current = startCapture;
 
@@ -289,6 +299,62 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
   const handleClose = () => { stopAll(); onClose(); };
 
+  const getAngleIcon = () => {
+    if (currentAngle === 0) return (
+      <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
+        quality?.detected && quality?.centered ? 'text-green-400' :
+        quality?.detected ? 'text-yellow-400' : 'text-white/60'
+      }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+        <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
+        <path d="M60 95 Q65 80 75 78" strokeWidth="2" />
+        <path d="M140 95 Q135 80 125 78" strokeWidth="2" />
+        <circle cx="78" cy="98" r="3" fill="currentColor" stroke="none" />
+        <circle cx="122" cy="98" r="3" fill="currentColor" stroke="none" />
+        <path d="M92 120 Q100 128 108 120" strokeWidth="2" />
+        <line x1="100" y1="112" x2="100" y2="122" strokeWidth="2" />
+        <path d="M85 145 Q100 158 115 145" strokeWidth="2" />
+        <path d="M35 85 Q30 110 35 140" strokeWidth="2" strokeDasharray="6 4" />
+        <path d="M165 85 Q170 110 165 140" strokeWidth="2" strokeDasharray="6 4" />
+      </svg>
+    );
+    if (currentAngle === 1) return (
+      <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
+        quality?.angleOk ? 'text-green-400' :
+        quality?.detected ? 'text-yellow-400' : 'text-white/60'
+      }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+        <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
+        <path d="M55 92 Q62 76 74 76" strokeWidth="2" />
+        <path d="M130 88 Q124 76 116 78" strokeWidth="2" />
+        <circle cx="72" cy="95" r="3" fill="currentColor" stroke="none" />
+        <circle cx="112" cy="98" r="3" fill="currentColor" stroke="none" />
+        <path d="M88 118 Q96 126 106 120" strokeWidth="2" />
+        <line x1="96" y1="110" x2="98" y2="122" strokeWidth="2" />
+        <path d="M80 144 Q96 156 112 144" strokeWidth="2" />
+        <path d="M30 82 Q24 110 30 140" strokeWidth="2" strokeDasharray="6 4" />
+        <path d="M160 82 Q168 110 162 140" strokeWidth="2" strokeDasharray="6 4" />
+        <path d="M170 100 L185 95 L185 105 Z" fill="currentColor" stroke="none" opacity="0.5" />
+      </svg>
+    );
+    return (
+      <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
+        quality?.angleOk ? 'text-green-400' :
+        quality?.detected ? 'text-yellow-400' : 'text-white/60'
+      }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+        <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
+        <path d="M70 88 Q76 76 84 78" strokeWidth="2" />
+        <path d="M145 92 Q138 76 126 76" strokeWidth="2" />
+        <circle cx="88" cy="98" r="3" fill="currentColor" stroke="none" />
+        <circle cx="128" cy="95" r="3" fill="currentColor" stroke="none" />
+        <path d="M94 120 Q104 126 112 118" strokeWidth="2" />
+        <line x1="102" y1="110" x2="100" y2="122" strokeWidth="2" />
+        <path d="M88 144 Q104 156 120 144" strokeWidth="2" />
+        <path d="M40 82 Q32 110 38 140" strokeWidth="2" strokeDasharray="6 4" />
+        <path d="M170 82 Q176 110 170 140" strokeWidth="2" strokeDasharray="6 4" />
+        <path d="M30 100 L15 95 L15 105 Z" fill="currentColor" stroke="none" opacity="0.5" />
+      </svg>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
@@ -333,7 +399,11 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                   <div className="bg-blue-600/90 rounded-2xl px-6 py-4 text-center max-w-xs">
                     <Shield size={24} className="text-white mx-auto mb-2" />
                     <p className="text-white text-base font-bold">{statusMsg}</p>
-                    <p className="text-white/70 text-xs mt-2">Gire la cabeza o parpadee naturalmente</p>
+                    <p className="text-white/70 text-xs mt-2">
+                      {mode === 'register'
+                        ? `Paso ${currentAngle + 1}/3: Gire la cabeza o parpadee`
+                        : 'Gire la cabeza o parpadee naturalmente'}
+                    </p>
                   </div>
                 </div>
                 <div className="absolute top-3 left-3 bg-black/60 rounded-lg px-3 py-2">
@@ -341,6 +411,11 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                     <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
                     <span className="text-white text-xs">Verificando vida...</span>
                   </div>
+                </div>
+                <div className="absolute top-3 right-3 bg-black/60 rounded-lg px-2 py-1">
+                  <span className="text-white text-xs font-bold">
+                    {mode === 'register' ? `${currentAngle + 1}/3` : 'Login'}
+                  </span>
                 </div>
               </div>
               <div className="mt-3 flex items-center justify-center gap-2">
@@ -350,73 +425,13 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
             </>
           )}
 
-          {phase === 'done' && (
-            <div className="flex flex-col items-center py-8 gap-3">
-              <CheckCircle size={28} className="text-emerald-500" />
-              <p className="text-sm text-emerald-700 font-medium">{successMsg || 'Completado!'}</p>
-              <button onClick={handleClose} className="px-4 py-2 text-sm rounded-xl bg-blue-600 text-white hover:bg-blue-700 mt-2">Cerrar</button>
-            </div>
-          )}
-
           {(phase === 'scanning' || phase === 'countdown') && (
             <>
               <div className="relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3]">
                 <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
 
                 <div className="absolute inset-0 flex items-center justify-center z-5 pointer-events-none">
-                  {currentAngle === 0 && (
-                    <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
-                      quality?.detected && quality?.centered ? 'text-green-400' :
-                      quality?.detected ? 'text-yellow-400' : 'text-white/60'
-                    }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                      <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
-                      <path d="M60 95 Q65 80 75 78" strokeWidth="2" />
-                      <path d="M140 95 Q135 80 125 78" strokeWidth="2" />
-                      <circle cx="78" cy="98" r="3" fill="currentColor" stroke="none" />
-                      <circle cx="122" cy="98" r="3" fill="currentColor" stroke="none" />
-                      <path d="M92 120 Q100 128 108 120" strokeWidth="2" />
-                      <line x1="100" y1="112" x2="100" y2="122" strokeWidth="2" />
-                      <path d="M85 145 Q100 158 115 145" strokeWidth="2" />
-                      <path d="M35 85 Q30 110 35 140" strokeWidth="2" strokeDasharray="6 4" />
-                      <path d="M165 85 Q170 110 165 140" strokeWidth="2" strokeDasharray="6 4" />
-                    </svg>
-                  )}
-                  {currentAngle === 1 && (
-                    <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
-                      quality?.angleOk ? 'text-green-400' :
-                      quality?.detected ? 'text-yellow-400' : 'text-white/60'
-                    }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                      <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
-                      <path d="M55 92 Q62 76 74 76" strokeWidth="2" />
-                      <path d="M130 88 Q124 76 116 78" strokeWidth="2" />
-                      <circle cx="72" cy="95" r="3" fill="currentColor" stroke="none" />
-                      <circle cx="112" cy="98" r="3" fill="currentColor" stroke="none" />
-                      <path d="M88 118 Q96 126 106 120" strokeWidth="2" />
-                      <line x1="96" y1="110" x2="98" y2="122" strokeWidth="2" />
-                      <path d="M80 144 Q96 156 112 144" strokeWidth="2" />
-                      <path d="M30 82 Q24 110 30 140" strokeWidth="2" strokeDasharray="6 4" />
-                      <path d="M160 82 Q168 110 162 140" strokeWidth="2" strokeDasharray="6 4" />
-                      <path d="M170 100 L185 95 L185 105 Z" fill="currentColor" stroke="none" opacity="0.5" />
-                    </svg>
-                  )}
-                  {currentAngle === 2 && (
-                    <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
-                      quality?.angleOk ? 'text-green-400' :
-                      quality?.detected ? 'text-yellow-400' : 'text-white/60'
-                    }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                      <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
-                      <path d="M70 88 Q76 76 84 78" strokeWidth="2" />
-                      <path d="M145 92 Q138 76 126 76" strokeWidth="2" />
-                      <circle cx="88" cy="98" r="3" fill="currentColor" stroke="none" />
-                      <circle cx="128" cy="95" r="3" fill="currentColor" stroke="none" />
-                      <path d="M94 120 Q104 126 112 118" strokeWidth="2" />
-                      <line x1="102" y1="110" x2="100" y2="122" strokeWidth="2" />
-                      <path d="M88 144 Q104 156 120 144" strokeWidth="2" />
-                      <path d="M40 82 Q32 110 38 140" strokeWidth="2" strokeDasharray="6 4" />
-                      <path d="M170 82 Q176 110 170 140" strokeWidth="2" strokeDasharray="6 4" />
-                      <path d="M30 100 L15 95 L15 105 Z" fill="currentColor" stroke="none" opacity="0.5" />
-                    </svg>
-                  )}
+                  {getAngleIcon()}
                 </div>
 
                 {phase === 'countdown' && countdown > 0 && (
@@ -497,6 +512,14 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                 <div className="flex items-center gap-1"><Scan size={12} /><span>3 angulos</span></div>
               </div>
             </>
+          )}
+
+          {phase === 'done' && (
+            <div className="flex flex-col items-center py-8 gap-3">
+              <CheckCircle size={28} className="text-emerald-500" />
+              <p className="text-sm text-emerald-700 font-medium">{successMsg || 'Completado!'}</p>
+              <button onClick={handleClose} className="px-4 py-2 text-sm rounded-xl bg-blue-600 text-white hover:bg-blue-700 mt-2">Cerrar</button>
+            </div>
           )}
         </div>
 

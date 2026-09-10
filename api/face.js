@@ -7,7 +7,7 @@ const sb = createClient(URL, KEY);
 
 const UMBRAL = 0.25;
 const UMBRAL_GAP = 0.12;
-const MIN_MATCHES = 3;
+const MIN_MATCHES = 2;
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
