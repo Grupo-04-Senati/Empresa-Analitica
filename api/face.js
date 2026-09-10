@@ -107,41 +107,51 @@ module.exports = async function handler(req, res) {
         return res.status(404).json({ error: 'No hay usuarios registrados' });
       }
 
-      const userScores = {};
+      const userResults = [];
 
-      for (const loginEmb of embeddings) {
-        for (const r of rostros) {
-          const uid = r.usuario_id;
-          for (const key of ['embedding_frontal', 'embedding_izquierda', 'embedding_derecha']) {
-            const stored = r[key];
-            if (!stored) continue;
+      for (const r of rostros) {
+        const uid = r.usuario_id;
+        const storedEmbeds = [];
+        if (r.embedding_frontal) storedEmbeds.push(r.embedding_frontal);
+        if (r.embedding_izquierda) storedEmbeds.push(r.embedding_izquierda);
+        if (r.embedding_derecha) storedEmbeds.push(r.embedding_derecha);
+
+        if (storedEmbeds.length < 2) continue;
+
+        let totalBestDist = 0;
+        let matchCount = 0;
+
+        for (const loginEmb of embeddings) {
+          let bestDistForThisLogin = Infinity;
+          for (const stored of storedEmbeds) {
             const dist = cosineDistance(loginEmb, stored);
-            if (!userScores[uid]) userScores[uid] = [];
-            userScores[uid].push({ dist, angle: key, loginIdx: embeddings.indexOf(loginEmb) });
+            if (dist < bestDistForThisLogin) bestDistForThisLogin = dist;
+          }
+          if (bestDistForThisLogin <= UMBRAL) {
+            totalBestDist += bestDistForThisLogin;
+            matchCount++;
           }
         }
-      }
 
-      const results = [];
-      for (const [uid, matches] of Object.entries(userScores)) {
-        const closeMatches = matches.filter(m => m.dist <= UMBRAL);
-        if (closeMatches.length >= MIN_MATCHES) {
-          const bestDist = Math.min(...closeMatches.map(m => m.dist));
-          results.push({ userId: Number(uid), bestDist, matchCount: closeMatches.length });
+        console.log(`[face] user ${uid}: matchCount=${matchCount}, totalBestDist=${totalBestDist.toFixed(4)}, storedEmbeds=${storedEmbeds.length}`);
+
+        if (matchCount >= MIN_MATCHES) {
+          const avgDist = totalBestDist / matchCount;
+          userResults.push({ userId: uid, avgDist, matchCount });
         }
       }
 
-      if (results.length === 0) {
+      if (userResults.length === 0) {
         return res.status(401).json({ error: 'Rostro no reconocido' });
       }
 
-      results.sort((a, b) => a.bestDist - b.bestDist);
+      userResults.sort((a, b) => a.avgDist - b.avgDist);
 
-      if (results.length > 1 && (results[1].bestDist - results[0].bestDist) < UMBRAL_GAP) {
+      if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < UMBRAL_GAP) {
         return res.status(401).json({ error: 'Rostro ambiguo, intente de nuevo' });
       }
 
-      const winner = results[0];
+      const winner = userResults[0];
       const { data: usuario } = await sb.from('usuarios').select('id, nombre, email, rol').eq('id', winner.userId).limit(1);
 
       if (!usuario || usuario.length === 0) {
@@ -153,7 +163,7 @@ module.exports = async function handler(req, res) {
         usuario_id: usuario[0].id,
         nombre: usuario[0].nombre,
         email: usuario[0].email,
-        distancia: Math.round(winner.bestDist * 10000) / 10000,
+        distancia: Math.round(winner.avgDist * 10000) / 10000,
       });
     } catch (e) {
       console.error('[face] login error:', e);

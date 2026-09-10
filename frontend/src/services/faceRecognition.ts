@@ -529,45 +529,49 @@ export async function loginByFace(
       return { ok: false, error: 'No hay usuarios con rostro registrado. Registrate primero.' };
     }
 
-    const userScores: Record<number, number[]> = {};
+    const userResults: { userId: number; avgDist: number; matchCount: number }[] = [];
 
-    for (const loginEmb of loginEmbeddings) {
-      for (const r of rostros) {
-        const uid = r.usuario_id;
-        for (const key of ['embedding_frontal', 'embedding_izquierda', 'embedding_derecha']) {
-          const stored = (r as Record<string, any>)[key];
-          if (!stored) continue;
+    for (const r of rostros) {
+      const uid = r.usuario_id;
+      const storedEmbeds: number[][] = [];
+      if (r.embedding_frontal) storedEmbeds.push(r.embedding_frontal);
+      if (r.embedding_izquierda) storedEmbeds.push(r.embedding_izquierda);
+      if (r.embedding_derecha) storedEmbeds.push(r.embedding_derecha);
+
+      if (storedEmbeds.length < 2) continue;
+
+      let totalBestDist = 0;
+      let matchCount = 0;
+
+      for (const loginEmb of loginEmbeddings) {
+        let bestDistForThisLogin = Infinity;
+        for (const stored of storedEmbeds) {
           const dist = cosineDistance(loginEmb, stored);
-          if (!userScores[uid]) userScores[uid] = [];
-          userScores[uid].push(dist);
+          if (dist < bestDistForThisLogin) bestDistForThisLogin = dist;
+        }
+        if (bestDistForThisLogin <= UMBRAL_EMBEDDING) {
+          totalBestDist += bestDistForThisLogin;
+          matchCount++;
         }
       }
-    }
 
-    const results: { userId: number; bestDist: number; matchCount: number }[] = [];
-
-    for (const [uid, dists] of Object.entries(userScores)) {
-      const matches = dists.filter(d => d <= UMBRAL_EMBEDDING);
-      if (matches.length >= MIN_MATCHES) {
-        results.push({
-          userId: Number(uid),
-          bestDist: Math.min(...matches),
-          matchCount: matches.length,
-        });
+      if (matchCount >= MIN_MATCHES) {
+        const avgDist = totalBestDist / matchCount;
+        userResults.push({ userId: uid, avgDist, matchCount });
       }
     }
 
-    if (results.length === 0) {
+    if (userResults.length === 0) {
       return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
     }
 
-    results.sort((a, b) => a.bestDist - b.bestDist);
+    userResults.sort((a, b) => a.avgDist - b.avgDist);
 
-    if (results.length > 1 && (results[1].bestDist - results[0].bestDist) < 0.15) {
+    if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < 0.15) {
       return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
     }
 
-    const winner = results[0];
+    const winner = userResults[0];
     const { data: usuario } = await supabase
       .from('usuarios')
       .select('id, nombre, email')
