@@ -60,6 +60,7 @@ export const Interpolacion = () => {
       setLoading(true);
       try {
         const { data, error } = await supabase.from('tiempos_atencion').select('fecha, tiempo_minutos').order('fecha');
+        console.log('[Interpolacion] data:', data?.length, 'error:', error);
         if (error) throw error;
         const rows = (data || []) as TiempoRow[];
         const grouped: Record<string, number[]> = {};
@@ -82,8 +83,8 @@ export const Interpolacion = () => {
           const meanObs = withObs.length > 0 ? withObs.reduce((s, p) => s + p.observado!, 0) / withObs.length : 1;
           setErrorRelativo(meanObs !== 0 ? Math.round((mae / meanObs) * 10000) / 100 : 0);
         }
-      } catch {
-        /* empty */
+      } catch (e) {
+        console.error('[Interpolacion] Error:', e);
       } finally {
         setLoading(false);
       }

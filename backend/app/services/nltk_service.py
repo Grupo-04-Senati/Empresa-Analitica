@@ -1,22 +1,27 @@
 import re
 import unicodedata
 from collections import Counter
-import nltk
-from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
-from nltk.stem import SnowballStemmer
-from nltk.classify import NaiveBayesClassifier
-from nltk.classify.util import accuracy
 
-for resource in ["punkt", "punkt_tab", "stopwords", "vader_lexicon", "movie_reviews"]:
-    try:
-        nltk.download(resource, quiet=True)
-    except Exception:
-        pass
-
+# Try to import NLTK, fallback to basic implementation
 try:
-    stemmer = SnowballStemmer("spanish")
-except Exception:
+    import nltk
+    from nltk.stem import SnowballStemmer
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
+
+if NLTK_AVAILABLE:
+    for resource in ["punkt", "punkt_tab", "stopwords", "vader_lexicon", "movie_reviews"]:
+        try:
+            nltk.download(resource, quiet=True)
+        except Exception:
+            pass
+
+    try:
+        stemmer = SnowballStemmer("spanish")
+    except Exception:
+        stemmer = None
+else:
     stemmer = None
 
 def normalize_text(text: str) -> str:
@@ -33,12 +38,14 @@ SPANISH_STOPWORDS_FALLBACK = {
 }
 
 def obtener_stopwords() -> set[str]:
-    try:
-        raw_words = set(stopwords.words("spanish"))
-        if len(raw_words) > 50:
-            return {normalize_text(w) for w in raw_words}
-    except Exception:
-        pass
+    if NLTK_AVAILABLE:
+        try:
+            from nltk.corpus import stopwords
+            raw_words = set(stopwords.words("spanish"))
+            if len(raw_words) > 50:
+                return {normalize_text(w) for w in raw_words}
+        except Exception:
+            pass
     return SPANISH_STOPWORDS_FALLBACK
 
 # Categorías con vocabulario normalizado (sin acentos)
@@ -68,10 +75,14 @@ NEGATIVAS = set(CATEGORIA_KEYWORDS["RECLAMO"] + ["inutil", "nunca", "pesima", "n
 
 def tokenizar_seguro(texto: str) -> list[str]:
     norm = normalize_text(texto)
-    try:
-        tokens = word_tokenize(norm, language="spanish")
-    except Exception:
-        tokens = re.findall(r"\b[a-z]{2,}\b", norm)
+    if NLTK_AVAILABLE:
+        try:
+            from nltk.tokenize import word_tokenize
+            tokens = word_tokenize(norm, language="spanish")
+            return tokens
+        except Exception:
+            pass
+    tokens = re.findall(r"\b[a-z]{2,}\b", norm)
     return tokens
 
 def analizar_texto(texto: str) -> dict:
@@ -264,18 +275,38 @@ def _extraer_features(texto: str) -> dict:
     return features
 
 def _entrenar_clasificador():
-    features_labeled = [(_extraer_features(texto), cat) for texto, cat in DATOS_ENTRENAMIENTO]
-    train_set = features_labeled[:int(len(features_labeled) * 0.8)]
-    test_set = features_labeled[int(len(features_labeled) * 0.8):]
-    classifier = NaiveBayesClassifier.train(train_set)
-    acc = accuracy(classifier, test_set) if test_set else 0.0
-    return classifier, acc
+    if not NLTK_AVAILABLE:
+        return None, 0.0
+    try:
+        from nltk.classify import NaiveBayesClassifier
+        from nltk.classify.util import accuracy
+        features_labeled = [(_extraer_features(texto), cat) for texto, cat in DATOS_ENTRENAMIENTO]
+        train_set = features_labeled[:int(len(features_labeled) * 0.8)]
+        test_set = features_labeled[int(len(features_labeled) * 0.8):]
+        classifier = NaiveBayesClassifier.train(train_set)
+        acc = accuracy(classifier, test_set) if test_set else 0.0
+        return classifier, acc
+    except Exception:
+        return None, 0.0
 
 clasificador_nb, precision_nb = _entrenar_clasificador()
+
+def clasificar_keywords(texto: str) -> dict:
+    """Clasificación por keywords cuando NaiveBayes no está disponible"""
+    if not texto or not texto.strip():
+        return {"categoria": "CONSULTA", "confianza": 80.0, "metodo": "keywords", "detalles": {}}
+    
+    analisis = analizar_texto(texto)
+    categoria = analisis.get("categoria", "CONSULTA")
+    confianza = 70.0
+    
+    return {"categoria": categoria, "confianza": confianza, "metodo": "keywords", "detalles": {}}
 
 def clasificar_nb(texto: str) -> dict:
     if not texto or not texto.strip():
         return {"categoria": "CONSULTA", "confianza": 80.0, "metodo": "naive_bayes", "detalles": {}}
+    if clasificador_nb is None:
+        return clasificar_keywords(texto)
     features = _extraer_features(texto)
     prob_dist = clasificador_nb.prob_classify(features)
     categoria = prob_dist.max()
