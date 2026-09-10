@@ -1,4 +1,4 @@
-import { extractEmbeddings } from './faceRecognition';
+import { extractEmbeddings, extractEmbeddingsAndShape } from './faceRecognition';
 
 const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || '';
 
@@ -28,9 +28,9 @@ export async function faceApiCheckRegistered(): Promise<number> {
 export async function faceApiRegister(
   usuarioId: number,
   photos: Record<string, string>
-): Promise<{ ok: boolean; error?: string; missing?: string[] }> {
+): Promise<{ ok: boolean; error?: string; missing?: string[]; faceShape?: string }> {
   try {
-    const embeddings = await extractEmbeddings(photos);
+    const { embeddings, faceShape, proportions, landmarks } = await extractEmbeddingsAndShape(photos);
     const missing: string[] = [];
     if (!embeddings.frontal) missing.push('frontal');
     if (!embeddings.izquierda) missing.push('izquierda');
@@ -44,10 +44,17 @@ export async function faceApiRegister(
       frontal: embeddings.frontal ? `${embeddings.frontal.length} dims` : 'NULL',
       izquierda: embeddings.izquierda ? `${embeddings.izquierda.length} dims` : 'NULL',
       derecha: embeddings.derecha ? `${embeddings.derecha.length} dims` : 'NULL',
+      faceShape,
     });
 
-    const body = { usuario_id: usuarioId, embeddings };
-    console.log('[faceApi] register body:', JSON.stringify({ usuario_id: usuarioId, embeddingsKeys: Object.keys(embeddings), embeddingsValues: Object.values(embeddings).map(e => e ? e.length : null) }));
+    const body = {
+      usuario_id: usuarioId,
+      embeddings,
+      face_shape: faceShape,
+      proporciones: proportions,
+      landmarks_68: landmarks,
+    };
+    console.log('[faceApi] register body:', JSON.stringify({ usuario_id: usuarioId, embeddingsKeys: Object.keys(embeddings), embeddingsValues: Object.values(embeddings).map(e => e ? e.length : null), faceShape }));
 
     const res = await fetch(apiUrl('register'), {
       method: 'POST',

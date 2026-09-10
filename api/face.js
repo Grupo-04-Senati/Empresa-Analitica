@@ -46,12 +46,12 @@ module.exports = async function handler(req, res) {
   if (req.method === 'POST' && action === 'register') {
     try {
       const body = await parseBody(req);
-      const { usuario_id, embeddings } = body;
+      const { usuario_id, embeddings, face_shape, proporciones, landmarks_68 } = body;
       if (!usuario_id || !embeddings) {
         return res.status(400).json({ error: 'Faltan datos' });
       }
 
-      console.log('[face] register:', { usuario_id, frontal: !!embeddings.frontal, izquierda: !!embeddings.izquierda, derecha: !!embeddings.derecha });
+      console.log('[face] register:', { usuario_id, frontal: !!embeddings.frontal, izquierda: !!embeddings.izquierda, derecha: !!embeddings.derecha, face_shape });
 
       const validCount = Object.values(embeddings).filter(e => e !== null).length;
       if (validCount < 3) {
@@ -71,6 +71,9 @@ module.exports = async function handler(req, res) {
         embedding_frontal: embeddings.frontal ? `[${embeddings.frontal.join(',')}]` : null,
         embedding_izquierda: embeddings.izquierda ? `[${embeddings.izquierda.join(',')}]` : null,
         embedding_derecha: embeddings.derecha ? `[${embeddings.derecha.join(',')}]` : null,
+        forma_rostro: face_shape || null,
+        proporciones: proporciones || null,
+        landmarks_68: landmarks_68 || null,
       };
 
       if (existing.data && existing.data.length > 0) {

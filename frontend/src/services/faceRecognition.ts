@@ -1,5 +1,6 @@
 import * as faceapi from 'face-api.js';
 import { supabase } from './supabase';
+import { classifyFromLandmarks, FaceProportions, FaceShape, FaceLandmark } from './faceShapeClassification';
 
 const MODEL_URL = '/models';
 
@@ -266,6 +267,109 @@ export async function extractEmbeddings(photos: Record<string, string>): Promise
   }
 
   return result;
+}
+
+export interface EmbeddingResult {
+  embeddings: { frontal: number[] | null; izquierda: number[] | null; derecha: number[] | null };
+  faceShape: FaceShape | null;
+  proportions: FaceProportions | null;
+  landmarks: FaceLandmark[] | null;
+}
+
+/**
+ * Extract embeddings AND face shape from photos.
+ * Face shape is derived from the frontal photo's 68 landmarks.
+ */
+export async function extractEmbeddingsAndShape(photos: Record<string, string>): Promise<EmbeddingResult> {
+  const embeddings: { frontal: number[] | null; izquierda: number[] | null; derecha: number[] | null } = { frontal: null, izquierda: null, derecha: null };
+  let faceShape: FaceShape | null = null;
+  let proportions: FaceProportions | null = null;
+  let landmarks: FaceLandmark[] | null = null;
+
+  for (const [angle, dataUrl] of Object.entries(photos)) {
+    if (!dataUrl || !embeddings.hasOwnProperty(angle)) continue;
+    try {
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise<void>((resolve) => { img.onload = () => resolve(); });
+
+      const detection = await (faceapi as any)
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (!detection) {
+        console.warn(`[face] No se detecto rostro en ${angle}`);
+        continue;
+      }
+
+      if (detection.detection.score < 0.4) {
+        console.warn(`[face] Score muy bajo en ${angle}: ${detection.detection.score}`);
+        continue;
+      }
+
+      const pts = detection.landmarks.positions;
+      if (pts.length < 68) {
+        console.warn(`[face] Landmarks insuficientes en ${angle}: ${pts.length}`);
+        continue;
+      }
+
+      const leftEye = pts[36];
+      const rightEye = pts[45];
+      const nose = pts[30];
+      const leftMouth = pts[48];
+      const rightMouth = pts[54];
+      const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
+      if (eyeDist < 15) {
+        console.warn(`[face] Ojos muy pequenos en ${angle}: ${eyeDist}`);
+        continue;
+      }
+
+      const noseToEye = Math.sqrt((nose.x - (leftEye.x + rightEye.x) / 2) ** 2 + (nose.y - (leftEye.y + rightEye.y) / 2) ** 2);
+      const faceRatio = noseToEye / eyeDist;
+      if (faceRatio < 0.2 || faceRatio > 1.5) {
+        console.warn(`[face] Proporcion facial invalida en ${angle}: ${faceRatio}`);
+        continue;
+      }
+
+      const mouthWidth = Math.sqrt((rightMouth.x - leftMouth.x) ** 2 + (rightMouth.y - leftMouth.y) ** 2);
+      const mouthToEye = mouthWidth / eyeDist;
+      if (mouthToEye < 0.1 || mouthToEye > 2.5) {
+        console.warn(`[face] Proporcion boca-ojos invalida en ${angle}: ${mouthToEye}`);
+        continue;
+      }
+
+      const descriptor = detection.descriptor as Float32Array;
+      const embedding: number[] = Array.from(descriptor);
+      const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
+      if (norm > 0) {
+        for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
+      }
+
+      const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
+      if (nonZero < 64) {
+        console.warn(`[face] Embedding poco informativo en ${angle}: ${nonZero} non-zero dims`);
+        continue;
+      }
+
+      console.log(`[face] OK ${angle}: score=${detection.detection.score.toFixed(3)}, eyeDist=${eyeDist.toFixed(1)}, faceRatio=${faceRatio.toFixed(3)}, nonZero=${nonZero}`);
+      (embeddings as any)[angle] = embedding;
+
+      // Extract face shape from frontal angle (most reliable)
+      if (angle === 'frontal') {
+        const ptsArray: FaceLandmark[] = pts.map((p: any) => ({ x: p.x, y: p.y }));
+        const result = classifyFromLandmarks(ptsArray);
+        faceShape = result.shape;
+        proportions = result.proportions;
+        landmarks = ptsArray;
+        console.log(`[face] Shape: ${faceShape}`, proportions?.ratios);
+      }
+    } catch (e) {
+      console.error(`[face] Error extracting ${angle}:`, e);
+    }
+  }
+
+  return { embeddings, faceShape, proportions, landmarks };
 }
 
 export async function hasFaceRegistered(userId: number): Promise<boolean> {
