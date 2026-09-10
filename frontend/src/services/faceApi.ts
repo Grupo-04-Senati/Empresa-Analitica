@@ -59,7 +59,7 @@ export async function faceApiRegister(
 
 export async function faceApiLogin(
   photos: Record<string, string>
-): Promise<{ ok: boolean; usuario_id?: number; nombre?: string; email?: string; error?: string }> {
+): Promise<{ ok: boolean; usuario_id?: number; nombre?: string; email?: string; error?: string; debug?: any }> {
   try {
     const embeddings = await extractEmbeddings(photos);
     const embList = Object.values(embeddings).filter((e): e is number[] => e !== null);
@@ -78,15 +78,24 @@ export async function faceApiLogin(
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Error del servidor' }));
-      return { ok: false, error: err.error || 'Rostro no reconocido' };
+      const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('vercel.app');
+      const debugMsg = isDev && err._debug
+        ? ` (dist: ${err._debug.avgDist?.toFixed(3)}, umbral: ${err._debug.umbral})`
+        : '';
+      return { ok: false, error: (err.error || 'Rostro no reconocido') + debugMsg, debug: err._debug };
     }
 
     const data = await res.json();
+    const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('vercel.app');
+    if (isDev && data._debug) {
+      console.log(`[faceApi] DEBUG: avgDist=${data._debug.avgDist?.toFixed(4)}, umbral=${data._debug.umbral}, gap=${data._debug.gap?.toFixed(4)}`);
+    }
     return {
       ok: data.ok,
       usuario_id: data.usuario_id,
       nombre: data.nombre,
       email: data.email,
+      debug: data._debug,
     };
   } catch (e: any) {
     return { ok: false, error: e?.message || 'No se pudo conectar al servidor' };

@@ -5,9 +5,9 @@ const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const sb = createClient(URL, KEY);
 
-const UMBRAL = 0.18;
-const UMBRAL_GAP = 0.15;
-const MIN_ANGLES_REQUIRED = 3;
+const UMBRAL = 0.20;
+const UMBRAL_GAP = 0.10;
+const MIN_MATCHES = 2;
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -127,59 +127,37 @@ module.exports = async function handler(req, res) {
         const storedIzq = parseVector(r.embedding_izquierda);
         const storedDer = parseVector(r.embedding_derecha);
 
-        const storedByAngle = [];
-        if (storedFrontal) storedByAngle.push({ angle: 'frontal', emb: storedFrontal });
-        if (storedIzq) storedByAngle.push({ angle: 'izquierda', emb: storedIzq });
-        if (storedDer) storedByAngle.push({ angle: 'derecha', emb: storedDer });
-
-        if (storedByAngle.length < MIN_ANGLES_REQUIRED) {
-          console.log(`[face] user ${uid}: skipped (only ${storedByAngle.length}/${MIN_ANGLES_REQUIRED} angles)`);
+        const allStored = [storedFrontal, storedIzq, storedDer].filter(Boolean);
+        if (allStored.length < 2) {
+          console.log(`[face] user ${uid}: skipped (only ${allStored.length} stored embeddings)`);
           continue;
         }
 
-        const angleNames = ['frontal', 'izquierda', 'derecha'];
-        const loginByAngle = {};
-        for (const name of angleNames) {
-          loginByAngle[name] = null;
-        }
-
+        const allDists = [];
         for (const loginEmb of embeddings) {
-          let bestAngle = null;
-          let bestDist = Infinity;
-          for (const stored of storedByAngle) {
-            const dist = cosineDistance(loginEmb, stored.emb);
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestAngle = stored.angle;
-            }
-          }
-          if (bestAngle && (!loginByAngle[bestAngle] || bestDist < loginByAngle[bestAngle].dist)) {
-            loginByAngle[bestAngle] = { dist: bestDist, loginEmb };
+          for (const stored of allStored) {
+            allDists.push(cosineDistance(loginEmb, stored));
           }
         }
 
-        const matchedAngles = [];
-        const distsByAngle = [];
-        for (const angle of angleNames) {
-          const match = loginByAngle[angle];
-          if (match && match.dist <= UMBRAL) {
-            matchedAngles.push(angle);
-            distsByAngle.push(match.dist);
-          }
-        }
+        allDists.sort((a, b) => a - b);
+        const topK = allDists.slice(0, Math.min(3, allDists.length));
+        const avgTopK = topK.reduce((a, b) => a + b, 0) / topK.length;
 
-        const avgDist = distsByAngle.length > 0
-          ? distsByAngle.reduce((a, b) => a + b, 0) / distsByAngle.length
-          : 999;
+        const closeMatches = allDists.filter(d => d <= UMBRAL);
 
-        console.log(`[face] user ${uid}: matchedAngles=${matchedAngles.length}/${MIN_ANGLES_REQUIRED}, avgDist=${avgDist.toFixed(4)}, details=[${distsByAngle.map(d => d.toFixed(4)).join(', ')}]`);
+        console.log(`[face] user ${uid}: avgTopK=${avgTopK.toFixed(4)}, closeMatches=${closeMatches.length}/${allDists.length}, topDists=[${topK.map(d => d.toFixed(4)).join(', ')}]`);
 
-        if (matchedAngles.length >= MIN_ANGLES_REQUIRED) {
-          userResults.push({ userId: uid, avgDist, matchedAngles: matchedAngles.length });
+        if (closeMatches.length >= MIN_MATCHES && avgTopK <= UMBRAL) {
+          userResults.push({ userId: uid, avgDist: avgTopK, matchCount: closeMatches.length });
         }
       }
 
       if (userResults.length === 0) {
+        const debugInfo = userResults.length > 0
+          ? userResults.map(u => `user ${u.userId}: dist=${u.avgDist.toFixed(4)}`).join('; ')
+          : 'no users matched';
+        console.log(`[face] login REJECTED: ${debugInfo}`);
         return res.status(401).json({ error: 'Rostro no reconocido' });
       }
 
@@ -205,6 +183,12 @@ module.exports = async function handler(req, res) {
         nombre: usuario[0].nombre,
         email: usuario[0].email,
         distancia: Math.round(winner.avgDist * 10000) / 10000,
+        _debug: {
+          umbral: UMBRAL,
+          avgDist: winner.avgDist,
+          matchCount: winner.matchCount,
+          gap,
+        },
       });
     } catch (e) {
       console.error('[face] login error:', e);

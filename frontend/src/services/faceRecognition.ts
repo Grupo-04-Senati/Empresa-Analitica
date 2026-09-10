@@ -580,8 +580,8 @@ export async function registerFace(
   }
 }
 
-const UMBRAL_EMBEDDING = 0.18;
-const MIN_MATCHES = 3;
+const UMBRAL_EMBEDDING = 0.20;
+const MIN_MATCHES = 2;
 
 export async function loginByFace(
   photos: Record<string, string>
