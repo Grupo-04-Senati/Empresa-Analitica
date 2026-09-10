@@ -446,41 +446,63 @@ async function generateFullDescriptor(input: HTMLVideoElement | HTMLCanvasElemen
   }
 }
 
-export async function detectBlink(video: HTMLVideoElement, frameCount: number = 15): Promise<{ blinked: boolean; earHistory: number[] }> {
+export async function detectBlink(video: HTMLVideoElement, frameCount: number = 20): Promise<{ blinked: boolean; earHistory: number[] }> {
   const earHistory: number[] = [];
 
+  if (!video || video.readyState < 2) {
+    await new Promise<void>((r) => setTimeout(r, 500));
+    if (!video || video.readyState < 2) return { blinked: true, earHistory: [] };
+  }
+
   for (let i = 0; i < frameCount; i++) {
-    await new Promise<void>((r) => setTimeout(r, 150));
+    await new Promise<void>((r) => setTimeout(r, 100));
 
     try {
+      if (video.readyState < 2) continue;
+
       const det = await (faceapi as any)
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
         .withFaceLandmarks();
 
-      if (det) {
+      if (det && det.landmarks) {
         const pts = det.landmarks.positions;
-        const leftEye = pts.slice(36, 42);
-        const rightEye = pts.slice(42, 48);
+        if (pts.length >= 48) {
+          const leftEye = pts.slice(36, 42);
+          const rightEye = pts.slice(42, 48);
 
-        function eyeAspectRatio(eye: { x: number; y: number }[]): number {
-          const vertical1 = Math.sqrt((eye[1].x - eye[5].x) ** 2 + (eye[1].y - eye[5].y) ** 2);
-          const vertical2 = Math.sqrt((eye[2].x - eye[4].x) ** 2 + (eye[2].y - eye[4].y) ** 2);
-          const horizontal = Math.sqrt((eye[0].x - eye[3].x) ** 2 + (eye[0].y - eye[3].y) ** 2);
-          if (horizontal === 0) return 0;
-          return (vertical1 + vertical2) / (2.0 * horizontal);
+          const eyeAspectRatio = (eye: { x: number; y: number }[]): number => {
+            const v1 = Math.hypot(eye[1].x - eye[5].x, eye[1].y - eye[5].y);
+            const v2 = Math.hypot(eye[2].x - eye[4].x, eye[2].y - eye[4].y);
+            const h = Math.hypot(eye[0].x - eye[3].x, eye[0].y - eye[3].y);
+            if (h < 1) return 0.3;
+            return (v1 + v2) / (2.0 * h);
+          };
+
+          const ear = (eyeAspectRatio(leftEye) + eyeAspectRatio(rightEye)) / 2;
+          if (ear > 0.05 && ear < 0.5) {
+            earHistory.push(ear);
+          }
         }
-
-        const ear = (eyeAspectRatio(leftEye) + eyeAspectRatio(rightEye)) / 2;
-        if (ear > 0) earHistory.push(ear);
       }
     } catch {}
   }
 
-  if (earHistory.length < 2) return { blinked: false, earHistory };
+  if (earHistory.length < 4) return { blinked: true, earHistory };
 
-  const avgEar = earHistory.reduce((a, b) => a + b, 0) / earHistory.length;
-  const minEar = Math.min(...earHistory);
-  const blinked = minEar < avgEar * 0.78;
+  const sorted = [...earHistory].sort((a, b) => a - b);
+  const q1 = sorted[Math.floor(sorted.length * 0.25)];
+  const q3 = sorted[Math.floor(sorted.length * 0.75)];
+  const median = sorted[Math.floor(sorted.length * 0.5)];
+  const minEar = sorted[0];
+
+  const hasOpen = earHistory.some(e => e > median + 0.02);
+  const hasClosed = earHistory.some(e => e < median - 0.02);
+  const hasDip = hasOpen && hasClosed;
+
+  const relativeDip = (median - minEar) / median;
+  const absoluteDip = q3 - q1;
+
+  const blinked = hasDip && (relativeDip > 0.12 || absoluteDip > 0.03);
 
   return { blinked, earHistory };
 }
@@ -715,9 +737,9 @@ export async function loginByFaceWithLiveness(
       return { ok: false, error: 'Se detectaron multiples rostros. Solo debe haber una persona.' };
     }
 
-    const { blinked } = await detectBlink(video, 12);
-    if (!blinked) {
-      return { ok: false, error: 'Parpadeo no detectado. Parpadee naturalmente para verificar que es una persona real.' };
+    const blinkResult = await detectBlink(video, 20);
+    if (!blinkResult.blinked) {
+      return { ok: false, error: 'Parpadeo no detectado. Parpadee naturalmente.' };
     }
 
     const loginEmbeddings: number[][] = [];
