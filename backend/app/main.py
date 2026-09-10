@@ -36,8 +36,12 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 
 @app.on_event("startup")
 async def startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    if engine is not None:
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        except Exception:
+            pass
 
 @app.get("/api/health")
 async def health():
