@@ -52,8 +52,15 @@ module.exports = async function handler(req, res) {
       }
 
       const validCount = Object.values(embeddings).filter(e => e !== null).length;
-      if (validCount < 2) {
-        return res.status(422).json({ error: 'Se necesitan al menos 2 embeddings validos' });
+      if (validCount < 3) {
+        const missing = [];
+        if (!embeddings.frontal) missing.push('frontal');
+        if (!embeddings.izquierda) missing.push('izquierda');
+        if (!embeddings.derecha) missing.push('derecha');
+        return res.status(422).json({
+          error: `Faltan embeddings: ${missing.join(', ')}. Captura los 3 ángulos.`,
+          missing,
+        });
       }
 
       const existing = await sb.from('rostros').select('id').eq('usuario_id', usuario_id);
@@ -87,8 +94,10 @@ module.exports = async function handler(req, res) {
 
       const matchCounts = {};
       const matchDists = {};
+      const debugPerEmb = [];
 
-      for (const loginEmb of embeddings) {
+      for (let i = 0; i < embeddings.length; i++) {
+        const loginEmb = embeddings[i];
         if (!loginEmb || !Array.isArray(loginEmb)) continue;
 
         const loginVector = `[${loginEmb.join(',')}]`;
@@ -98,13 +107,30 @@ module.exports = async function handler(req, res) {
         });
 
         if (error) {
-          console.error('[face] rpc error:', error.message);
+          console.error(`[face] rpc error emb[${i}]:`, error.message);
+          debugPerEmb.push({ idx: i, error: error.message });
           continue;
         }
 
-        if (!resultado || resultado.length === 0) continue;
+        if (!resultado || resultado.length === 0) {
+          console.log(`[face] emb[${i}]: sin resultado`);
+          debugPerEmb.push({ idx: i, result: 'empty' });
+          continue;
+        }
 
         const r = resultado[0];
+        console.log(`[face] emb[${i}]: user=${r.usuario_id}, dist=${r.dist_promedio?.toFixed(4)}, es_match=${r.es_match}, frontal=${r.dist_frontal?.toFixed(4)}, izq=${r.dist_izquierda?.toFixed(4)}, der=${r.dist_derecha?.toFixed(4)}`);
+
+        debugPerEmb.push({
+          idx: i,
+          userId: r.usuario_id,
+          dist: r.dist_promedio,
+          esMatch: r.es_match,
+          frontal: r.dist_frontal,
+          izq: r.dist_izquierda,
+          der: r.dist_derecha,
+        });
+
         if (r.es_match) {
           const uid = r.usuario_id;
           matchCounts[uid] = (matchCounts[uid] || 0) + 1;
@@ -112,6 +138,9 @@ module.exports = async function handler(req, res) {
           matchDists[uid].push(r.dist_promedio);
         }
       }
+
+      console.log('[face] matchCounts:', JSON.stringify(matchCounts));
+      console.log('[face] debug per embedding:', JSON.stringify(debugPerEmb));
 
       const candidatos = Object.entries(matchCounts)
         .map(([uid, count]) => ({
