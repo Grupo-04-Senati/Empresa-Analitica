@@ -23,6 +23,9 @@ import {
   MessageSquare,
   Clock,
   Activity,
+  Moon,
+  Sun,
+  BarChart3,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '@/services/supabase';
@@ -124,6 +127,7 @@ export const DashboardLayout = () => {
   });
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
   const [notificaciones, setNotificaciones] = useState<{ id: number; titulo: string; mensaje: string; tipo: string; enlace: string | null; leida: boolean; created_at: string }[]>([]);
   const [showNotif, setShowNotif] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -138,6 +142,11 @@ export const DashboardLayout = () => {
     };
     fetchAvatar();
   }, [user]);
+
+  useEffect(() => {
+    localStorage.setItem('darkMode', String(darkMode));
+    document.documentElement.classList.toggle('dark', darkMode);
+  }, [darkMode]);
 
   useEffect(() => {
     fetchNotificaciones();
@@ -210,10 +219,12 @@ export const DashboardLayout = () => {
     <div className="flex h-full flex-col justify-between">
       <div>
         <div className="flex items-center gap-3 border-b border-white/10 px-4 py-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white shadow-lg shadow-blue-600/30">N</div>
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white shadow-lg shadow-blue-600/30">
+            <BarChart3 size={16} />
+          </div>
           <div>
-            <h2 className="m-0 text-[15px] font-bold text-white tracking-tight">NEXUS Corp</h2>
-            <span className="text-[10px] tracking-wider text-slate-500 uppercase">Plataforma de Analisis</span>
+            <h2 className="m-0 text-[15px] font-bold text-white tracking-tight">BADI Corp</h2>
+            <span className="text-[9px] tracking-wider text-slate-500 leading-tight block">Bases de datos, Analitica,<br/>Desarrollo e Innovacion</span>
           </div>
         </div>
 
@@ -282,7 +293,7 @@ export const DashboardLayout = () => {
   );
 
   return (
-    <div className="flex min-h-screen bg-[#f8fafc]">
+    <div className={`flex min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-[#f8fafc]'}`}>
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
@@ -299,17 +310,25 @@ export const DashboardLayout = () => {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col lg:ml-64">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/80 backdrop-blur-xl px-4 lg:px-6">
+        <header className={`sticky top-0 z-30 flex h-16 items-center justify-between border-b px-4 lg:px-6 ${darkMode ? 'border-slate-700/80 bg-slate-800/80 backdrop-blur-xl' : 'border-slate-200/80 bg-white/80 backdrop-blur-xl'}`}>
           <button type="button" onClick={() => setSidebarOpen(true)} className="cursor-pointer rounded-lg border-none bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 lg:hidden">
             <Menu size={20} />
           </button>
 
-          <div className="hidden items-center gap-2 rounded-xl bg-slate-100/80 px-3 py-2 sm:flex sm:w-80">
-            <Search size={16} className="text-slate-400" />
-            <input type="text" placeholder="Buscar en el sistema..." className="w-full border-none bg-transparent text-[13px] text-slate-700 outline-none placeholder:text-slate-400" />
+          <div className={`hidden items-center gap-2 rounded-xl px-3 py-2 sm:flex sm:w-80 ${darkMode ? 'bg-slate-700/80' : 'bg-slate-100/80'}`}>
+            <Search size={16} className={darkMode ? 'text-slate-400' : 'text-slate-400'} />
+            <input type="text" placeholder="Buscar en el sistema..." className={`w-full border-none bg-transparent text-[13px] outline-none placeholder:text-slate-400 ${darkMode ? 'text-slate-200' : 'text-slate-700'}`} />
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setDarkMode(!darkMode)}
+              className="cursor-pointer rounded-xl border-none bg-slate-100/80 p-2 text-slate-500 hover:bg-slate-200 transition-all"
+              title={darkMode ? 'Modo claro' : 'Modo oscuro'}
+            >
+              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
             <div className="relative">
               <button type="button" onClick={() => setShowNotif(!showNotif)} className="cursor-pointer rounded-xl border-none bg-slate-100/80 p-2 text-slate-500 hover:bg-slate-200 relative transition-all">
                 <Bell size={18} />
@@ -356,7 +375,7 @@ export const DashboardLayout = () => {
           </div>
         </header>
 
-        <main className="flex-1 p-4 lg:p-6">
+        <main className={`flex-1 p-4 lg:p-6 ${darkMode ? 'text-slate-200' : ''}`}>
           <Outlet />
         </main>
       </div>
