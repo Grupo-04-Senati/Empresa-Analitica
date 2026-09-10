@@ -446,7 +446,7 @@ async function generateFullDescriptor(input: HTMLVideoElement | HTMLCanvasElemen
   }
 }
 
-async function detectBlink(video: HTMLVideoElement, frameCount: number = 10): Promise<{ blinked: boolean; earHistory: number[] }> {
+export async function detectBlink(video: HTMLVideoElement, frameCount: number = 12): Promise<{ blinked: boolean; earHistory: number[] }> {
   const earHistory: number[] = [];
 
   for (let i = 0; i < frameCount; i++) {
@@ -553,7 +553,7 @@ export async function registerFace(
   }
 }
 
-const UMBRAL_EMBEDDING = 0.35;
+const UMBRAL_EMBEDDING = 0.25;
 const MIN_MATCHES = 3;
 
 export async function loginByFace(
@@ -662,7 +662,7 @@ export async function loginByFace(
 
     userResults.sort((a, b) => a.avgDist - b.avgDist);
 
-    if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < 0.08) {
+    if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < 0.12) {
       return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
     }
 
@@ -678,6 +678,145 @@ export async function loginByFace(
     }
 
     console.log(`[face-login] MATCH: user ${winner.userId} (${winner.avgDist.toFixed(4)})`);
+
+    return {
+      ok: true,
+      usuario_id: usuario[0].id,
+      nombre: usuario[0].nombre,
+      email: usuario[0].email,
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Error en login facial' };
+  }
+}
+
+export async function detectMultipleFaces(input: HTMLVideoElement | HTMLCanvasElement): Promise<{ ok: boolean; count: number }> {
+  try {
+    const detections = await (faceapi as any)
+      .detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+      .withFaceLandmarks();
+
+    if (!detections || detections.length === 0) return { ok: false, count: 0 };
+    if (detections.length > 1) return { ok: false, count: detections.length };
+    return { ok: true, count: 1 };
+  } catch {
+    return { ok: false, count: 0 };
+  }
+}
+
+export async function loginByFaceWithLiveness(
+  video: HTMLVideoElement
+): Promise<{ ok: boolean; usuario_id?: number; nombre?: string; email?: string; error?: string }> {
+  try {
+    const multiCheck = await detectMultipleFaces(video);
+    if (!multiCheck.ok) {
+      if (multiCheck.count === 0) return { ok: false, error: 'No se detecto ningun rostro. Mire a la camara.' };
+      return { ok: false, error: 'Se detectaron multiples rostros. Solo debe haber una persona.' };
+    }
+
+    const { blinked } = await detectBlink(video, 12);
+    if (!blinked) {
+      return { ok: false, error: 'Parpadeo no detectado. Parpadee naturalmente para verificar que es una persona real.' };
+    }
+
+    const loginEmbeddings: number[][] = [];
+    const angles = ['frontal', 'izquierda', 'derecha'];
+
+    for (const angle of angles) {
+      await new Promise<void>((r) => setTimeout(r, 800));
+
+      const det = await (faceapi as any)
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (!det || det.detection.score < 0.5) continue;
+
+      const pts = det.landmarks.positions;
+      if (pts.length < 68) continue;
+
+      const leftEye = pts[36];
+      const rightEye = pts[45];
+      const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
+      if (eyeDist < 20) continue;
+
+      const descriptor = det.descriptor as Float32Array;
+      const embedding: number[] = Array.from(descriptor);
+      const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
+      if (norm > 0) {
+        for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
+      }
+
+      const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
+      if (nonZero < 64) continue;
+
+      loginEmbeddings.push(embedding);
+    }
+
+    if (loginEmbeddings.length < 2) {
+      return { ok: false, error: 'No se pudieron capturar suficientes angulos. Intente de nuevo.' };
+    }
+
+    const { data: rostros } = await supabase
+      .from('rostros')
+      .select('usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha');
+
+    if (!rostros || rostros.length === 0) {
+      return { ok: false, error: 'No hay usuarios con rostro registrado.' };
+    }
+
+    const userResults: { userId: number; avgDist: number; matchCount: number }[] = [];
+
+    for (const r of rostros) {
+      const uid = r.usuario_id;
+      const storedEmbeds: number[][] = [];
+      if (r.embedding_frontal) storedEmbeds.push(r.embedding_frontal);
+      if (r.embedding_izquierda) storedEmbeds.push(r.embedding_izquierda);
+      if (r.embedding_derecha) storedEmbeds.push(r.embedding_derecha);
+
+      if (storedEmbeds.length < 2) continue;
+
+      let totalBestDist = 0;
+      let matchCount = 0;
+
+      for (const loginEmb of loginEmbeddings) {
+        let bestDistForThisLogin = Infinity;
+        for (const stored of storedEmbeds) {
+          const dist = cosineDistance(loginEmb, stored);
+          if (dist < bestDistForThisLogin) bestDistForThisLogin = dist;
+        }
+        if (bestDistForThisLogin <= UMBRAL_EMBEDDING) {
+          totalBestDist += bestDistForThisLogin;
+          matchCount++;
+        }
+      }
+
+      if (matchCount >= MIN_MATCHES) {
+        const avgDist = totalBestDist / matchCount;
+        userResults.push({ userId: uid, avgDist, matchCount });
+      }
+    }
+
+    if (userResults.length === 0) {
+      return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
+    }
+
+    userResults.sort((a, b) => a.avgDist - b.avgDist);
+
+    if (userResults.length > 1 && (userResults[1].avgDist - userResults[0].avgDist) < 0.12) {
+      return { ok: false, error: 'Rostro ambiguo. Asegurese de que solo su rostro este visible.' };
+    }
+
+    const winner = userResults[0];
+    const { data: usuario } = await supabase
+      .from('usuarios')
+      .select('id, nombre, email')
+      .eq('id', winner.userId)
+      .limit(1);
+
+    if (!usuario || usuario.length === 0) {
+      return { ok: false, error: 'Usuario no encontrado' };
+    }
 
     return {
       ok: true,

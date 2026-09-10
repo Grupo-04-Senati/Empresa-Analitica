@@ -5,8 +5,8 @@ const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const sb = createClient(URL, KEY);
 
-const UMBRAL = 0.35;
-const UMBRAL_GAP = 0.08;
+const UMBRAL = 0.25;
+const UMBRAL_GAP = 0.12;
 const MIN_MATCHES = 3;
 
 function parseBody(req) {
@@ -36,6 +36,15 @@ function cosineDistance(a, b) {
     normB += b[i] * b[i];
   }
   return 1 - Math.max(-1, Math.min(1, dot / (Math.sqrt(normA) * Math.sqrt(normB))));
+}
+
+function parseVector(v) {
+  if (!v) return null;
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    try { return JSON.parse(v.replace(/^\[/, '[').replace(/\]$/, ']')); } catch { return null; }
+  }
+  return null;
 }
 
 module.exports = async function handler(req, res) {
@@ -112,9 +121,12 @@ module.exports = async function handler(req, res) {
       for (const r of rostros) {
         const uid = r.usuario_id;
         const storedEmbeds = [];
-        if (r.embedding_frontal) storedEmbeds.push(r.embedding_frontal);
-        if (r.embedding_izquierda) storedEmbeds.push(r.embedding_izquierda);
-        if (r.embedding_derecha) storedEmbeds.push(r.embedding_derecha);
+        const frontal = parseVector(r.embedding_frontal);
+        const izq = parseVector(r.embedding_izquierda);
+        const der = parseVector(r.embedding_derecha);
+        if (frontal) storedEmbeds.push(frontal);
+        if (izq) storedEmbeds.push(izq);
+        if (der) storedEmbeds.push(der);
 
         if (storedEmbeds.length < 2) continue;
 

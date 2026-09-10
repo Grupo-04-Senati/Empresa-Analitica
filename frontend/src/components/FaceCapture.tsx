@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Camera, X, CheckCircle, AlertCircle, Loader2, Shield, Eye, Scan } from 'lucide-react';
 import {
   loadFaceModels, detectFace, analyzeFaceQuality, checkAngle,
+  loginByFaceWithLiveness, detectMultipleFaces,
 } from '../services/faceRecognition';
 import { faceApiRegister, faceApiLogin, faceApiCheckRegistered } from '../services/faceApi';
 
@@ -231,7 +232,13 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     setPhase('processing');
     try {
       setStatusMsg('Verificando identidad en el servidor...');
-      const result = await faceApiLogin(photos);
+      const video = videoRef.current;
+      if (!video) {
+        setErrorMsg('Error de camara');
+        setPhase('error');
+        return;
+      }
+      const result = await loginByFaceWithLiveness(video);
       if (!result.ok) {
         setErrorMsg(result.error || 'Rostro no reconocido');
         setPhase('error');
