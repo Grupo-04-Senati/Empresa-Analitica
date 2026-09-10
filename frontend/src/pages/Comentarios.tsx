@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, Plus, Search, Filter, Loader2, Clock, CheckCircle2, AlertTriangle, X, Send, BarChart3 } from 'lucide-react';
+import { MessageSquare, Plus, Search, Filter, Loader2, Clock, CheckCircle2, AlertTriangle, X, Send, BarChart3, Trash2 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -91,6 +91,13 @@ export const Comentarios = () => {
   };
 
   const getAnalisis = (comentarioId: number) => analisis.find((a) => a.comentario_id === comentarioId);
+
+  const eliminarComentario = async (id: number) => {
+    if (!confirm('Eliminar este comentario?')) return;
+    await supabase.from('analisis_nlp').delete().eq('comentario_id', id);
+    const { error } = await supabase.from('comentarios').delete().eq('id', id);
+    if (!error) fetchData();
+  };
 
   const filtrados = comentarios.filter((c) => {
     const matchBusq = `${c.clientes?.nombre || ''} ${c.contenido} ${c.categoria || ''}`.toLowerCase().includes(busqueda.toLowerCase());
@@ -211,6 +218,7 @@ export const Comentarios = () => {
                   {isAdmin && <th className="text-left py-3 px-4 font-medium text-slate-500">Categoria NLP</th>}
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Estado</th>
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Fecha</th>
+                  {isAdmin && <th className="text-right py-3 px-4 font-medium text-slate-500">Acciones</th>}
                 </tr>
               </thead>
               <tbody>
@@ -237,6 +245,13 @@ export const Comentarios = () => {
                       )}
                       <td className="py-3 px-4"><span className={`px-2 py-1 rounded-full text-xs font-medium ${est.cls}`}>{est.label}</span></td>
                       <td className="py-3 px-4 text-slate-500 text-xs whitespace-nowrap">{new Date(c.fecha).toLocaleDateString('es-ES')}</td>
+                      {isAdmin && (
+                        <td className="py-3 px-4 text-right">
+                          <button onClick={() => eliminarComentario(c.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Eliminar">
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

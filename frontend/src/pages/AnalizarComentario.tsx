@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  BrainCircuit, Send, Sparkles, Tag, Hash, Loader2,
+  BrainCircuit, Send, Sparkles, Tag, Hash, Loader2, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { supabase } from '@/services/supabase';
 
@@ -29,9 +29,10 @@ interface ResultadoLocal {
   palabrasFrecuentes: { palabra: string; frecuencia: number }[];
   categoria: string;
   confianza: number;
+  sentimiento: 'positivo' | 'negativo' | 'neutro';
 }
 
-const STOPWORDS_ES = new Set(['de','la','el','en','y','a','los','del','las','un','por','con','una','su','para','es','al','lo','como','más','o','pero','sus','le','ya','este','ha','sí','porque','esta','son','entre','cuando','muy','sin','sobre','también','me','hasta','hay','donde','quien','desde','todo','nos','durante','todos','uno','les','ni','contra','otros','ese','eso','ante','ellos','e','esto','mí','antes','algunos','qué','unos','yo','otro','otras','otra','él','tanto','esa','estos','mucho','quienes','nada','muchos','cual','poco','ella','estar','estas','algunas','algo','nosotros','mi','mis','tú','te','ti','tu','tus','ellas','nosotras','vosotros','vosotras','os','mío','mía','míos','mías','tuyo','tuya','tuyos','tuyas','suyo','suya','suyos','suyas','nuestro','nuestra','nuestros','nuestras','vuestro','vuestra','vuestros','vuestras','esos','esas','estoy','estás','está','estamos','estáis','están','esté','estés','estemos','estéis','estén','estaré','estarás','estará','estaremos','estaréis','estarán','estaría','estarías','estaríamos','estaríais','estarían','estaba','estabas','estábamos','estabais','estaban','estuve','estuviste','estuvo','estuvimos','estuvisteis','estuvieron','estuviera','estuvieras','estuviéramos','estuvierais','estuvieran','estuviese','estuvieses','estuviésemos','estuvieseis','estuviesen','estando','estado','estada','estados','estadas','estad','he','has','ha','hemos','habéis','han','haya','hayas','hayamos','hayáis','hayan','habré','habrás','habrá','habremos','habréis','habrán','habría','habrías','habríamos','habríais','habrían','había','habías','habíamos','habíais','habían','hube','hubiste','hubo','hubimos','hubisteis','hubieron','hubiera','hubieras','hubiéramos','hubierais','hubieran','hubiese','hubieses','hubiésemos','hubieseis','hubiesen','habiendo','habido','habida','habidos','habidas','soy','eres','es','somos','sois','son','sea','seas','seamos','seáis','sean','seré','serás','será','seremos','seréis','serán','sería','serías','seríamos','seríais','serían','fui','fuiste','fue','fuimos','fuisteis','fueron','fuera','fueras','fuéramos','fuerais','fueran','fuese','fueses','fuésemos','fueseis','fuesen','siendo','sido','tengo','tienes','tiene','tenemos','tenéis','tienen','tenga','tengas','tengamos','tengáis','tengan','tendré','tendrás','tendrá','tendremos','tendréis','tendrán','tendría','tendrías','tendríamos','tendríais','tendrían','tenía','tenías','teníamos','teníais','tenían','tuve','tuviste','tuvo','tuvimos','tuvisteis','tuvieron','tuviera','tuvieras','tuviéramos','tuvierais','tuvieran','tuviese','tuvieses','tuviésemos','tuvieseis','tuviesen','teniendo','tenido','tenida','tenidos','tenidas','tened']);
+const STOPWORDS_ES = new Set(['de','la','el','en','y','a','los','del','las','un','por','con','una','su','para','es','al','lo','como','más','o','pero','sus','le','ya','este','ha','sí','porque','esta','son','entre','cuando','muy','sin','sobre','también','me','hasta','hay','donde','quien','desde','todo','nos','durante','todos','uno','les','ni','contra','otros','ese','eso','ante','ellos','e','esto','mí','antes','algunos','qué','unos','yo','otro','otras','otra','él','tanto','esa','estos','mucho','quienes','nada','muchos','cual','poco','ella','estar','estas','algunas','algo','nosotros','mi','mis','tú','te','ti','tu','tus','ellas','nosotras','vosotros','vosotras','os','mío','mía','míos','mías','tuyo','tuya','tuyos','tuyas','suyo','suya','suyos','suyas','nuestro','nuestra','nuestros','nuestras','vuestro','vuestra','vuestros','vuestras','esos','esas','estoy','estás','está','estamos','estáis','están','esté','estés','estemos','estéis','estén','estaré','estarás','estará','estaremos','estaréis','estarán','estaría','estarías','estaríamos','estaríais','estarían','estaba','estabas','estábamos','estabais','estaban','estuve','estuviste','estuvo','estuvimos','estuvisteis','estuvieron','estuviera','estuvieras','estuviéramos','estuvierais','estuvieran','estuviese','estuvieses','estuviésemos','estuvieseis','estuviesen','estando','estado','estada','estados','estadas','estad','he','has','ha','hemos','habéis','han','haya','hayas','hayamos','hayáis','hayan','habré','habrás','habrá','habremos','habréis','habrán','habría','habrías','habríamos','habríais','habrían','había','habías','habíamos','habíais','habían','hube','hubiste','hubo','hubimos','hubisteis','hubieron','hubiera','hubieras','hubiéramos','hubierais','hubieran','hubiese','hubieses','hubiésemos','hubieseis','hubiesen','habiendo','habido','habida','habidos','habidas','soy','eres','es','somos','sois','son','sea','seas','seamos','seáis','sean','seré','serás','será','seremos','seréis','serán','sería','serías','seríamos','seríais','serían','era','eras','éramos','erais','eran','fui','fuiste','fue','fuimos','fuisteis','fueron','fuera','fueras','fuéramos','fuerais','fueran','fuese','fueses','fuésemos','fueseis','fuesen','siendo','sido','tengo','tienes','tiene','tenemos','tenéis','tienen','tenga','tengas','tengamos','tengáis','tengan','tendré','tendrás','tendrá','tendremos','tendréis','tendrán','tendría','tendrías','tendríamos','tendríais','tendrían','tenía','tenías','teníamos','teníais','tenían','tuve','tuviste','tuvo','tuvimos','tuvisteis','tuvieron','tuviera','tuvieras','tuviéramos','tuvierais','tuvieran','tuviese','tuvieses','tuviésemos','tuvieseis','tuviesen','teniendo','tenido','tenida','tenidos','tenidas','tened']);
 
 function analizarConCategorias(texto: string, categorias: CategoriaDB[]): ResultadoLocal {
   const limpio = texto.toLowerCase().replace(/[^\w\sáéíóúñ]/g, ' ');
@@ -40,8 +41,8 @@ function analizarConCategorias(texto: string, categorias: CategoriaDB[]): Result
   tokens.forEach((t) => { freq[t] = (freq[t] || 0) + 1; });
   const palabrasFrecuentes = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([palabra, frecuencia]) => ({ palabra, frecuencia }));
 
-  const positivas = ['excelente','bueno','buen','muy bien','genial','increíble','perfecto','agradecido','gracias','feliz','satisfecho','recomiendo','me gusta','maravilloso','fantástico','rápido','eficiente'];
-  const negativas = ['malo','terrible','pésimo','horrible','lento','error','problema','queja','reclamo','insatisfecho','decepcionado','no funciona','no sirve','muy lento','deficiente','lamentable'];
+  const positivas = ['excelente','bueno','buen','muy bien','genial','increíble','perfecto','agradecido','gracias','feliz','satisfecho','recomiendo','me gusta','maravilloso','fantástico','rápido','eficiente','calidad','profesional','amable','resolvio','ayuda'];
+  const negativas = ['malo','terrible','pésimo','horrible','lento','error','problema','queja','reclamo','insatisfecho','decepcionado','no funciona','no sirve','muy lento','deficiente','lamentable','estafa','fraude','furioso','molesto','incumplimiento'];
 
   let posCount = 0, negCount = 0;
   const textoLower = texto.toLowerCase();
@@ -76,13 +77,18 @@ function analizarConCategorias(texto: string, categorias: CategoriaDB[]): Result
   const total = posCount + negCount || 1;
   const confianza = Math.min(95, Math.round(50 + (Math.abs(posCount - negCount) / total) * 45));
 
-  return { tokens, palabrasFrecuentes, categoria, confianza };
+  let sentimiento: 'positivo' | 'negativo' | 'neutro' = 'neutro';
+  if (posCount > negCount && posCount >= 2) sentimiento = 'positivo';
+  else if (negCount > posCount && negCount >= 2) sentimiento = 'negativo';
+
+  return { tokens, palabrasFrecuentes, categoria, confianza, sentimiento };
 }
 
 export const AnalizarComentario = () => {
   const [texto, setTexto] = useState('');
   const [resultado, setResultado] = useState<ResultadoLocal | null>(null);
   const [cargando, setCargando] = useState(false);
+  const [guardando, setGuardando] = useState(false);
   const [recientes, setRecientes] = useState<AnalisisReciente[]>([]);
   const [categorias, setCategorias] = useState<CategoriaDB[]>([]);
 
@@ -118,21 +124,63 @@ export const AnalizarComentario = () => {
     setCargando(false);
   };
 
+  const guardarEnBD = async () => {
+    if (!resultado || !texto.trim()) return;
+    setGuardando(true);
+    try {
+      const { data: comentario, error: err1 } = await supabase.from('comentarios').insert({
+        contenido: texto,
+        canal: 'web',
+        tipo: 'comentario',
+        estado: 'pendiente',
+        procesado: true,
+        fecha: new Date().toISOString(),
+      }).select('id').single();
+
+      if (err1) throw err1;
+      if (comentario) {
+        await supabase.from('analisis_nlp').insert({
+          comentario_id: comentario.id,
+          idioma: 'es',
+          cantidad_palabras: resultado.tokens.length,
+          palabras_limpias: resultado.tokens,
+          palabras_frecuentes: resultado.palabrasFrecuentes.map(p => p.palabra),
+          categoria_detectada: resultado.categoria,
+          confianza: resultado.confianza / 100,
+          fecha_analisis: new Date().toISOString(),
+        });
+      }
+      setTexto('');
+      setResultado(null);
+      const { data } = await supabase
+        .from('comentarios')
+        .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes)')
+        .eq('procesado', true)
+        .order('fecha', { ascending: false })
+        .limit(10);
+      if (data) setRecientes(data as unknown as AnalisisReciente[]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Analizar Comentario</h2>
-          <p className="text-slate-500 text-sm mt-1">Análisis de sentimiento y clasificación automática</p>
+          <p className="text-slate-500 text-sm mt-1">Analisis de sentimiento y clasificacion automatica</p>
         </div>
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full">
             <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-            Análisis local activo
+            Analisis local activo
           </span>
           <span className="inline-flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full">
             <Tag size={14} />
-            {categorias.length} categorías DB
+            {categorias.length} categorias DB
           </span>
         </div>
       </div>
@@ -145,11 +193,11 @@ export const AnalizarComentario = () => {
           </div>
           <textarea
             className="w-full h-40 p-4 border border-slate-200 rounded-lg text-sm text-slate-700 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-            placeholder="Pega aquí el comentario del cliente para analizarlo..."
+            placeholder="Pega aqui el comentario del cliente para analizarlo..."
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
           />
-          <div className="flex justify-end mt-4">
+          <div className="flex justify-end gap-2 mt-4">
             <button
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
               onClick={analizar}
@@ -163,9 +211,19 @@ export const AnalizarComentario = () => {
 
         {resultado ? (
           <div className="bg-white rounded-xl shadow-sm p-6">
-            <div className="flex items-center gap-2 mb-5">
-              <Sparkles size={18} className="text-blue-600" />
-              <h3 className="font-semibold text-slate-700">Resultado del Análisis</h3>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <Sparkles size={18} className="text-blue-600" />
+                <h3 className="font-semibold text-slate-700">Resultado del Analisis</h3>
+              </div>
+              <button
+                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition"
+                onClick={guardarEnBD}
+                disabled={guardando}
+              >
+                {guardando ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                Guardar en BD
+              </button>
             </div>
 
             <div className="grid grid-cols-2 gap-4 mb-6">
@@ -174,7 +232,7 @@ export const AnalizarComentario = () => {
                 <p className="text-lg font-bold text-slate-800">{resultado.tokens.length}</p>
               </div>
               <div className="bg-slate-50 rounded-lg p-3">
-                <p className="text-xs text-slate-500 mb-1">Categoría detectada</p>
+                <p className="text-xs text-slate-500 mb-1">Categoria detectada</p>
                 <p className="text-lg font-bold text-slate-800">{resultado.categoria}</p>
               </div>
               <div className="bg-slate-50 rounded-lg p-3">
@@ -185,14 +243,28 @@ export const AnalizarComentario = () => {
                 </div>
               </div>
               <div className="bg-slate-50 rounded-lg p-3">
-                <p className="text-xs text-slate-500 mb-1">Palabras únicas</p>
-                <p className="text-lg font-bold text-slate-800">{new Set(resultado.tokens).size}</p>
+                <p className="text-xs text-slate-500 mb-1">Sentimiento</p>
+                <div className="flex items-center gap-2 mt-1">
+                  {resultado.sentimiento === 'positivo' ? (
+                    <>
+                      <ThumbsUp size={20} className="text-emerald-500" />
+                      <span className="text-lg font-bold text-emerald-600">Positivo</span>
+                    </>
+                  ) : resultado.sentimiento === 'negativo' ? (
+                    <>
+                      <ThumbsDown size={20} className="text-red-500" />
+                      <span className="text-lg font-bold text-red-600">Negativo</span>
+                    </>
+                  ) : (
+                    <span className="text-lg font-bold text-slate-500">Neutro</span>
+                  )}
+                </div>
               </div>
             </div>
 
             <div className="mb-4">
               <p className="flex items-center gap-1.5 text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
-                <Hash size={13} /> Palabras más frecuentes
+                <Hash size={13} /> Palabras mas frecuentes
               </p>
               <div className="flex flex-wrap gap-2">
                 {resultado.palabrasFrecuentes.length > 0 ? resultado.palabrasFrecuentes.map((w) => (
@@ -207,7 +279,7 @@ export const AnalizarComentario = () => {
 
             <div>
               <p className="flex items-center gap-1.5 text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
-                <Tag size={13} /> Categoría
+                <Tag size={13} /> Categoria
               </p>
               <div className="flex flex-wrap gap-2">
                 <span className="px-2.5 py-1 bg-blue-50 text-blue-600 text-xs rounded-full font-medium">
@@ -221,7 +293,7 @@ export const AnalizarComentario = () => {
             <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
               <BrainCircuit size={34} className="text-slate-400" />
             </div>
-            <p className="font-semibold text-slate-700 mb-1">Esperando análisis</p>
+            <p className="font-semibold text-slate-700 mb-1">Esperando analisis</p>
             <p className="text-sm text-slate-400 max-w-xs">
               Ingresa un comentario y presiona "Analizar" para ver el resultado.
             </p>
@@ -232,10 +304,10 @@ export const AnalizarComentario = () => {
       <div className="bg-white rounded-xl shadow-sm mt-6 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Sparkles size={18} className="text-blue-600" />
-          <h3 className="font-semibold text-slate-700">Análisis Recientes</h3>
+          <h3 className="font-semibold text-slate-700">Analisis Recientes</h3>
         </div>
         {recientes.length === 0 ? (
-          <p className="text-sm text-slate-400 text-center py-8">No hay análisis recientes en la base de datos.</p>
+          <p className="text-sm text-slate-400 text-center py-8">No hay analisis recientes en la base de datos.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -244,7 +316,7 @@ export const AnalizarComentario = () => {
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Fecha</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Canal</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Comentario</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Categoría</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Categoria</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Confianza</th>
                 </tr>
               </thead>
