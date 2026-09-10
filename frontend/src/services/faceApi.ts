@@ -3,7 +3,11 @@ import { extractEmbeddings, extractEmbeddingsAndShape, detectMultipleFaces, extr
 const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || '';
 
 function apiUrl(action: string): string {
-  return `${FACE_API_BASE}/api/face?action=${action}`;
+  if (action === 'health') return `${FACE_API_BASE}/health`;
+  if (action === 'check-registered') return `${FACE_API_BASE}/face/check-registered`;
+  if (action === 'register') return `${FACE_API_BASE}/face/register`;
+  if (action === 'login') return `${FACE_API_BASE}/face/login`;
+  return `${FACE_API_BASE}/${action}`;
 }
 
 export async function faceApiHealth(): Promise<boolean> {

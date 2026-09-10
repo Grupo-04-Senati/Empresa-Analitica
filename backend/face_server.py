@@ -3,9 +3,9 @@ Backend de reconocimiento facial + borrado de cuenta.
 Corre en puerto 8001.
 
 Flujo:
-  POST /face/register  - Recibe 3 imagenes (frontal, izquierda, derecha) + usuario_id
+  POST /face/register  - Recibe 3 embeddings (frontal, izquierda, derecha) + usuario_id
                          Guarda cada embedding por separado en su columna
-  POST /face/login     - Recibe 3 imagenes -> compara contra TODOS los embeddings de cada usuario -> retorna usuario_id
+  POST /face/login     - Recibe 3 embeddings -> compara contra TODOS los embeddings de cada usuario -> retorna usuario_id
   DELETE /delete-account - Verifica contrasena -> borra de rostros, usuarios, auth.users
 """
 
@@ -14,7 +14,6 @@ import base64
 import traceback
 import requests
 
-import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,74 +41,16 @@ UMBRAL = 0.35
 UMBRAL_GAP = 0.08
 MIN_MATCHES = 2
 
-_deepface = None
-
-
-def get_deepface():
-    global _deepface
-    if _deepface is None:
-        from deepface import DeepFace
-        _deepface = DeepFace
-    return _deepface
-
-
-def imagen_base64_a_frame(imagen_b64: str):
-    if "," in imagen_b64:
-        imagen_b64 = imagen_b64.split(",")[1]
-    datos = base64.b64decode(imagen_b64)
-    arr = np.frombuffer(datos, dtype=np.uint8)
-    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    return frame
-
-
-def detectar_y_recortar_cara(frame):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-    face_cascade = cv2.CascadeClassifier(cascade_path)
-
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80))
-
-    if len(faces) == 0:
-        return None
-
-    x, y, w, h = faces[0]
-    pad = int(max(w, h) * 0.3)
-    x1 = max(0, x - pad)
-    y1 = max(0, y - pad)
-    x2 = min(frame.shape[1], x + w + pad)
-    y2 = min(frame.shape[0], y + h + pad)
-
-    cara = frame[y1:y2, x1:x2]
-    cara = cv2.resize(cara, (160, 160))
-    return cara
-
-
-def obtener_embedding(frame):
-    cara = detectar_y_recortar_cara(frame)
-    if cara is None:
-        print("[face] No se detecto cara en la imagen")
-        return None
-
-    rgb = cv2.cvtColor(cara, cv2.COLOR_BGR2RGB)
-    DeepFace = get_deepface()
-    try:
-        results = DeepFace.represent(
-            img_path=rgb,
-            model_name="Facenet",
-            enforce_detection=False,
-        )
-        if results and len(results) > 0:
-            emb = np.array(results[0]["embedding"])
-            norm = np.linalg.norm(emb)
-            if norm > 0:
-                emb = emb / norm
-            return emb
-    except Exception as e:
-        print(f"[face] Error obteniendo embedding: {e}")
-    return None
-
 
 def distancia(a, b):
+    a = np.array(a)
+    b = np.array(b)
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a > 0:
+        a = a / norm_a
+    if norm_b > 0:
+        b = b / norm_b
     dot = np.dot(a, b)
     dot = np.clip(dot, -1.0, 1.0)
     return float(1.0 - dot)
@@ -130,9 +71,10 @@ def check_registered():
 
 class FaceRegisterReq(BaseModel):
     usuario_id: int
-    frontal: str
-    izquierda: str
-    derecha: str
+    embeddings: dict
+    face_shape: str | None = None
+    proporciones: dict | None = None
+    landmarks_68: dict | None = None
 
 
 @app.post("/face/register")
@@ -140,30 +82,7 @@ def face_register(req: FaceRegisterReq):
     try:
         print(f"[face] Register called: usuario_id={req.usuario_id}")
 
-        embeddings = {"frontal": None, "izquierda": None, "derecha": None}
-        foto_preview = None
-
-        for angle_name, angle_img in [("frontal", req.frontal), ("izquierda", req.izquierda), ("derecha", req.derecha)]:
-            try:
-                frame = imagen_base64_a_frame(angle_img)
-                if frame is None:
-                    print(f"[face] Imagen {angle_name}: frame None")
-                    continue
-
-                emb = obtener_embedding(frame)
-                if emb is not None:
-                    embeddings[angle_name] = [float(x) for x in emb]
-                    print(f"[face] Imagen {angle_name}: embedding OK (len={len(emb)})")
-                    if angle_name == "frontal":
-                        thumb = cv2.resize(frame, (100, 100))
-                        _, buf = cv2.imencode('.jpg', thumb, [cv2.IMWRITE_JPEG_QUALITY, 60])
-                        foto_preview = 'data:image/jpeg;base64,' + base64.b64encode(buf).decode('utf-8')
-                else:
-                    print(f"[face] Imagen {angle_name}: no se detecto rostro")
-            except Exception as e:
-                print(f"[face] Error procesando {angle_name}: {e}")
-                traceback.print_exc()
-
+        embeddings = req.embeddings
         valid_count = sum(1 for v in embeddings.values() if v is not None)
         print(f"[face] Embeddings validos: {valid_count}/3")
 
@@ -173,10 +92,14 @@ def face_register(req: FaceRegisterReq):
         existing = sb.table("rostros").select("id").eq("usuario_id", req.usuario_id).execute()
 
         update_data = {
-            "embedding_frontal": embeddings["frontal"],
-            "embedding_izquierda": embeddings["izquierda"],
-            "embedding_derecha": embeddings["derecha"],
-            "foto_preview": foto_preview,
+            "embedding_frontal": embeddings.get("frontal"),
+            "embedding_izquierda": embeddings.get("izquierda"),
+            "embedding_derecha": embeddings.get("derecha"),
+            "metadata": {
+                "face_shape": req.face_shape,
+                "proporciones": req.proporciones,
+                "landmarks_68": req.landmarks_68,
+            },
         }
 
         if existing.data:
@@ -200,28 +123,14 @@ def face_register(req: FaceRegisterReq):
 # ── FACE LOGIN (compara contra cada embedding individual) ─────
 
 class FaceLoginReq(BaseModel):
-    frontal: str
-    izquierda: str | None = None
-    derecha: str | None = None
+    embeddings: list
+    face_shape: str | None = None
 
 
 @app.post("/face/login")
 def face_login(req: FaceLoginReq):
     try:
-        login_embeddings = []
-
-        for i, angle_img in enumerate([req.frontal, req.izquierda, req.derecha]):
-            if angle_img is None:
-                continue
-            frame = imagen_base64_a_frame(angle_img)
-            if frame is None:
-                continue
-            emb = obtener_embedding(frame)
-            if emb is not None:
-                login_embeddings.append(emb)
-                print(f"[face] Login angle {i}: embedding OK")
-            else:
-                print(f"[face] Login angle {i}: no detection")
+        login_embeddings = req.embeddings
 
         if not login_embeddings:
             raise HTTPException(status_code=422, detail="No se detecto ningun rostro en las imagenes")
