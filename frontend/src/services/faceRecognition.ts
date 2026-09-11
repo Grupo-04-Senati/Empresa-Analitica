@@ -682,45 +682,11 @@ export async function registerFace(
   photos: Record<string, string>
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const embeddings: { frontal: number[] | null; izquierda: number[] | null; derecha: number[] | null } = { frontal: null, izquierda: null, derecha: null };
-
-    for (const [angle, dataUrl] of Object.entries(photos)) {
-      if (!dataUrl || !embeddings.hasOwnProperty(angle)) continue;
-      try {
-        const img = new Image();
-        img.src = dataUrl;
-        await new Promise<void>((resolve) => { img.onload = () => resolve(); });
-
-        const detection = await (faceapi as any)
-          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
-          .withFaceLandmarks()
-          .withFaceDescriptor();
-
-        if (!detection || detection.detection.score < 0.5) continue;
-
-        const pts = detection.landmarks.positions;
-        if (pts.length < 68) continue;
-
-        const leftEye = pts[36];
-        const rightEye = pts[45];
-        const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
-        if (eyeDist < 20) continue;
-
-        const descriptor = detection.descriptor as Float32Array;
-        const embedding: number[] = Array.from(descriptor);
-        const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
-        if (norm > 0) {
-          for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
-        }
-
-        const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
-        if (nonZero < 64) continue;
-
-        (embeddings as any)[angle] = embedding;
-      } catch (e) {
-        console.error(`[face-register] Error extracting ${angle}:`, e);
-      }
-    }
+    const result = await extractEmbeddingsAndShape(photos);
+    const embeddings = result.embeddings;
+    const faceShape = result.faceShape;
+    const proportions = result.proportions;
+    const landmarks = result.landmarks;
 
     const validCount = Object.values(embeddings).filter(e => e !== null).length;
     if (validCount < 2) {
