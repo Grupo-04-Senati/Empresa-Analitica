@@ -208,6 +208,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (authError) {
+        if (authError.message.includes('already registered')) {
+          const { data: signInData, error: signInErr } = await auth.signInWithPassword({
+            email: cleanEmail,
+            password: data.password,
+          });
+          if (!signInErr && signInData?.user) {
+            const profile = await waitForProfile(signInData.user.id, 10);
+            if (profile) {
+              await supabase.from('usuarios').update({
+                nombre: data.nombre.trim(),
+                rol: rolAsignado,
+                telefono: data.telefono?.trim() || null,
+                empresa: data.empresa?.trim() || null,
+                updated_at: new Date().toISOString(),
+              }).eq('id', profile.id);
+              registeringRef.current = false;
+              return { success: true, userId: profile.id };
+            }
+            const { data: newProfile } = await supabase.from('usuarios').insert({
+              auth_user_id: signInData.user.id,
+              nombre: data.nombre.trim(),
+              email: cleanEmail,
+              password_hash: 'auth_managed',
+              rol: rolAsignado,
+              activo: true,
+              telefono: data.telefono?.trim() || null,
+              empresa: data.empresa?.trim() || null,
+            }).select('id').single();
+            if (newProfile) {
+              registeringRef.current = false;
+              return { success: true, userId: newProfile.id };
+            }
+          }
+          registeringRef.current = false;
+          return { success: false, message: 'Este email ya esta registrado pero la contrasena no coincide. Intenta con otra contrasena o crea una cuenta nueva con otro email.' };
+        }
         console.error('[auth] signup error:', authError.message);
         registeringRef.current = false;
         return { success: false, message: 'Error al crear cuenta: ' + authError.message };
