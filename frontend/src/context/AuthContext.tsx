@@ -168,73 +168,88 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     registeringRef.current = true;
 
-    const existingUser = await supabase.from('usuarios').select('id').eq('email', cleanEmail).maybeSingle();
-
-    const { error: authError } = await auth.signUp({
-      email: cleanEmail,
-      password: data.password,
-      options: { data: { nombre: data.nombre.trim(), rol: rolAsignado } },
-    });
-
-    if (authError && !authError.message.includes('already registered')) {
-      registeringRef.current = false;
-      return { success: false, message: authError.message };
-    }
-
-    if (existingUser.data) {
-      registeringRef.current = false;
-      return { success: true, userId: existingUser.data.id };
-    }
-
-    const { data: dbData, error: dbError } = await supabase.from('usuarios').insert({
-      nombre: data.nombre.trim(),
-      email: cleanEmail,
-      password_hash: 'auth_managed',
-      rol: rolAsignado,
-      activo: true,
-      telefono: data.telefono?.trim() || null,
-      empresa: data.empresa?.trim() || null,
-    }).select('id').single();
-
-    if (dbError) {
-      console.error('DB insert error:', dbError.message);
-      registeringRef.current = false;
-      return { success: false, message: 'Error al crear perfil: ' + dbError.message };
-    }
-
     try {
-      await supabase.from('notificaciones').insert({
-        tipo: 'usuario',
-        titulo: 'Nuevo usuario registrado',
-        mensaje: `${data.nombre.trim()} se ha unido a la plataforma (${cleanEmail})`,
-        enlace: '/usuarios',
-        leida: false,
-        usuario_email: null,
+      const existingUser = await supabase.from('usuarios').select('id').eq('email', cleanEmail).maybeSingle();
+
+      if (existingUser.data) {
+        const { data: signInData, error: signInErr } = await auth.signInWithPassword({
+          email: cleanEmail,
+          password: data.password,
+        });
+        if (!signInErr && signInData?.user) {
+          registeringRef.current = false;
+          return { success: true, userId: existingUser.data.id };
+        }
+        await supabase.from('clientes').delete().eq('email', cleanEmail);
+        await supabase.from('usuarios').delete().eq('id', existingUser.data.id);
+      }
+
+      const { data: authData, error: authError } = await auth.signUp({
+        email: cleanEmail,
+        password: data.password,
+        options: { data: { nombre: data.nombre.trim(), rol: rolAsignado } },
       });
-    } catch {}
 
-    try {
-      const { error: clienteErr } = await supabase.from('clientes').upsert({
+      if (authError) {
+        console.error('[auth] signup error:', authError.message);
+        registeringRef.current = false;
+        return { success: false, message: 'Error al crear cuenta: ' + authError.message };
+      }
+
+      const { data: dbData, error: dbError } = await supabase.from('usuarios').insert({
         nombre: data.nombre.trim(),
         email: cleanEmail,
+        password_hash: 'auth_managed',
+        rol: rolAsignado,
+        activo: true,
         telefono: data.telefono?.trim() || null,
         empresa: data.empresa?.trim() || null,
-        usuario_id: dbData.id,
-        activo: true,
-      }, { onConflict: 'email' });
-      if (clienteErr) {
-        console.warn('[auth] Cliente upsert err:', clienteErr.message);
+      }).select('id').single();
+
+      if (dbError) {
+        console.error('DB insert error:', dbError.message);
+        registeringRef.current = false;
+        return { success: false, message: 'Error al crear perfil: ' + dbError.message };
       }
-    } catch (e) {
-      console.warn('[auth] No se pudo crear cliente automaticamente:', e);
+
+      try {
+        await supabase.from('notificaciones').insert({
+          tipo: 'usuario',
+          titulo: 'Nuevo usuario registrado',
+          mensaje: `${data.nombre.trim()} se ha unido a la plataforma (${cleanEmail})`,
+          enlace: '/usuarios',
+          leida: false,
+          usuario_email: null,
+        });
+      } catch {}
+
+      try {
+        const { error: clienteErr } = await supabase.from('clientes').upsert({
+          nombre: data.nombre.trim(),
+          email: cleanEmail,
+          telefono: data.telefono?.trim() || null,
+          empresa: data.empresa?.trim() || null,
+          usuario_id: dbData.id,
+          activo: true,
+        }, { onConflict: 'email' });
+        if (clienteErr) {
+          console.warn('[auth] Cliente upsert err:', clienteErr.message);
+        }
+      } catch (e) {
+        console.warn('[auth] No se pudo crear cliente automaticamente:', e);
+      }
+
+      logAudit({ accion: 'REGISTER', tabla: 'usuarios', registro_id: dbData.id, usuario_email: cleanEmail, modulo: 'Auth', detalles: `Nuevo registro: ${data.nombre.trim()} (${cleanEmail})`, datos_nuevos: { nombre: data.nombre.trim(), email: cleanEmail, rol: rolAsignado } });
+
+      await auth.signOut();
+      registeringRef.current = false;
+
+      return { success: true, userId: dbData.id };
+    } catch (e: any) {
+      console.error('[auth] register exception:', e);
+      registeringRef.current = false;
+      return { success: false, message: 'Error inesperado: ' + (e?.message || 'Desconocido') };
     }
-
-    logAudit({ accion: 'REGISTER', tabla: 'usuarios', registro_id: dbData.id, usuario_email: cleanEmail, modulo: 'Auth', detalles: `Nuevo registro: ${data.nombre.trim()} (${cleanEmail})`, datos_nuevos: { nombre: data.nombre.trim(), email: cleanEmail, rol: rolAsignado } });
-
-    await auth.signOut();
-    registeringRef.current = false;
-
-    return { success: true, userId: dbData.id };
   }, []);
 
   const loginUser = useCallback(async (email: string, password: string) => {
