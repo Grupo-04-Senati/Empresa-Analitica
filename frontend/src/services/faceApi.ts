@@ -156,7 +156,7 @@ export async function faceApiRegister(
 
       const pgVectorStr = (arr: number[]): string => '[' + arr.map(v => v.toFixed(6)).join(',') + ']';
 
-      const saveData: Record<string, any> = {
+      const fullData: Record<string, any> = {
         usuario_id: usuarioId,
         embedding_frontal: pgVectorStr(frontalArr),
         embedding_izquierda: pgVectorStr(izqArr),
@@ -173,22 +173,36 @@ export async function faceApiRegister(
         },
       };
 
-      console.log('[faceApi] Fallback saveData keys:', Object.keys(saveData));
-      console.log('[faceApi] embedding_frontal length:', frontalArr.length, 'sample:', frontalArr.slice(0, 5));
-      console.log('[faceApi] pgVector format:', saveData.embedding_frontal.substring(0, 50));
+      const minimalData: Record<string, any> = {
+        usuario_id: usuarioId,
+        embedding_frontal: pgVectorStr(frontalArr),
+        embedding_izquierda: pgVectorStr(izqArr),
+        embedding_derecha: pgVectorStr(derArr),
+        metadata: {
+          engine: 'face-api.js+fallback',
+          embedding_dims: 128,
+          registered_via: 'direct_supabase',
+          timestamp: new Date().toISOString(),
+        },
+      };
 
-      if (existing.data) {
-        const { error } = await supabase.from('rostros').update(saveData).eq('usuario_id', usuarioId);
-        if (error) {
-          console.error('[faceApi] Fallback update error:', error);
-          return { ok: false, error: 'Error guardando rostro: ' + error.message };
+      const doSave = async (data: Record<string, any>) => {
+        if (existing.data) {
+          return await supabase.from('rostros').update(data).eq('usuario_id', usuarioId);
+        } else {
+          return await supabase.from('rostros').insert(data);
         }
-      } else {
-        const { error } = await supabase.from('rostros').insert(saveData);
-        if (error) {
-          console.error('[faceApi] Fallback insert error:', error);
-          return { ok: false, error: 'Error guardando rostro: ' + error.message };
-        }
+      };
+
+      let { error } = await doSave(fullData);
+      if (error) {
+        console.warn('[faceApi] Fallback full save failed, trying minimal:', error.message);
+        ({ error } = await doSave(minimalData));
+      }
+
+      if (error) {
+        console.error('[faceApi] Fallback minimal save also failed:', error);
+        return { ok: false, error: 'Error guardando rostro: ' + error.message };
       }
 
       console.log('[faceApi] Fallback: rostro guardado directamente en Supabase');
