@@ -7,6 +7,7 @@ function apiUrl(action: string): string {
   if (action === 'check-registered') return `${FACE_API_BASE}/face/check-registered`;
   if (action === 'register') return `${FACE_API_BASE}/face/register`;
   if (action === 'login') return `${FACE_API_BASE}/face/login`;
+  if (action === 'validate') return `${FACE_API_BASE}/face/validate`;
   return `${FACE_API_BASE}/${action}`;
 }
 
@@ -26,6 +27,19 @@ export async function faceApiCheckRegistered(): Promise<number> {
     return data.count;
   } catch {
     return 0;
+  }
+}
+
+export async function faceApiValidate(image: string): Promise<{ ok: boolean; error?: string; metricas?: any }> {
+  try {
+    const res = await fetch(apiUrl('validate'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image }),
+    });
+    return await res.json();
+  } catch {
+    return { ok: false, error: 'No se pudo conectar al servidor de validacion' };
   }
 }
 

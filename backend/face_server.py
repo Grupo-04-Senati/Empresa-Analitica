@@ -1,11 +1,11 @@
 """
 Backend de reconocimiento facial + borrado de cuenta.
-Corre en puerto 8001.
 
 Flujo:
-  POST /face/register  - Recibe 3 embeddings (frontal, izquierda, derecha) + usuario_id
-                         Guarda cada embedding por separado en su columna
-  POST /face/login     - Recibe 3 embeddings -> compara contra TODOS los embeddings de cada usuario -> retorna usuario_id
+  POST /face/register  - Recibe 3 imagenes base64 + usuario_id + embeddings
+                         Valida cara con opencv en servidor
+                         Guarda embeddings en rostros
+  POST /face/login     - Recibe 3 embeddings -> compara contra TODOS -> retorna usuario_id
   DELETE /delete-account - Verifica contrasena -> borra de rostros, usuarios, auth.users
 """
 
@@ -14,6 +14,7 @@ import base64
 import traceback
 import requests
 
+import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,14 +38,63 @@ SECRET = os.getenv("SUPABASE_SECRET_KEY") or os.getenv("SUPABASE_ANON_KEY")
 SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 sb = create_client(URL, SECRET)
 
-UMBRAL = 0.35
+UMBRAL = 0.40
 UMBRAL_GAP = 0.08
 MIN_MATCHES = 2
 
+_face_cascade = None
+
+
+def get_face_cascade():
+    global _face_cascade
+    if _face_cascade is None:
+        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        _face_cascade = cv2.CascadeClassifier(cascade_path)
+    return _face_cascade
+
+
+def imagen_base64_a_frame(imagen_b64: str):
+    if "," in imagen_b64:
+        imagen_b64 = imagen_b64.split(",")[1]
+    datos = base64.b64decode(imagen_b64)
+    arr = np.frombuffer(datos, dtype=np.uint8)
+    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    return frame
+
+
+def detectar_cara(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    cascade = get_face_cascade()
+    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80))
+    if len(faces) == 0:
+        return None
+    x, y, w, h = faces[0]
+    return {"x": int(x), "y": int(y), "w": int(w), "h": int(h), "count": int(len(faces))}
+
+
+def calcular_metricas(frame, face_rect):
+    x, y, w, h = face_rect["x"], face_rect["y"], face_rect["w"], face_rect["h"]
+    img_h, img_w = frame.shape[:2]
+    cara = frame[y:y+h, x:x+w]
+    gray_cara = cv2.cvtColor(cara, cv2.COLOR_BGR2GRAY)
+    brightness = float(np.mean(gray_cara))
+    blur = float(cv2.Laplacian(gray_cara, cv2.CV_64F).var())
+    cx = (x + w / 2) / img_w
+    cy = (y + h / 2) / img_h
+    centered = abs(cx - 0.5) < 0.15 and abs(cy - 0.5) < 0.15
+    face_ratio = w / img_w
+    return {
+        "brightness": round(brightness, 1),
+        "blur": round(blur, 1),
+        "centered": centered,
+        "face_ratio": round(face_ratio, 3),
+        "face_count": face_rect["count"],
+    }
+
 
 def distancia(a, b):
-    a = np.array(a)
-    b = np.array(b)
+    a = np.array(a, dtype=np.float64)
+    b = np.array(b, dtype=np.float64)
     norm_a = np.linalg.norm(a)
     norm_b = np.linalg.norm(b)
     if norm_a > 0:
@@ -67,7 +117,50 @@ def check_registered():
     return {"count": len(rostros)}
 
 
-# ── FACE REGISTER (3 angulos separados) ───────────────────────
+# ── FACE VALIDATE (valida imagen en servidor) ───────────────────
+
+class FaceValidateReq(BaseModel):
+    image: str
+
+
+@app.post("/face/validate")
+def face_validate(req: FaceValidateReq):
+    try:
+        frame = imagen_base64_a_frame(req.image)
+        if frame is None:
+            return {"ok": False, "error": "No se pudo leer la imagen"}
+
+        face = detectar_cara(frame)
+        if face is None:
+            return {"ok": False, "error": "No se detecto ningun rostro en la imagen"}
+
+        if face["count"] > 1:
+            return {"ok": False, "error": "Se detectaron multiples personas. Solo debe haber una."}
+
+        metricas = calcular_metricas(frame, face)
+
+        if metricas["brightness"] < 50:
+            return {"ok": False, "error": "Demasiado oscuro. Busca mejor iluminacion."}
+        if metricas["brightness"] > 220:
+            return {"ok": False, "error": "Demasiado brillante. Reduce la luz."}
+        if metricas["blur"] < 50:
+            return {"ok": False, "error": "Imagen borrosa. Manten la camara quieta."}
+        if not metricas["centered"]:
+            return {"ok": False, "error": "Centra tu rostro en la pantalla."}
+        if metricas["face_ratio"] < 0.15:
+            return {"ok": False, "error": "Acercate mas a la camara."}
+        if metricas["face_ratio"] > 0.6:
+            return {"ok": False, "error": "Aléjate un poco de la camara."}
+
+        return {"ok": True, "metricas": metricas}
+
+    except Exception as e:
+        print(f"[face] ERROR validate: {e}")
+        traceback.print_exc()
+        return {"ok": False, "error": "Error procesando imagen"}
+
+
+# ── FACE REGISTER ──────────────────────────────────────────────
 
 class FaceRegisterReq(BaseModel):
     usuario_id: int
@@ -88,6 +181,10 @@ def face_register(req: FaceRegisterReq):
 
         if valid_count < 2:
             raise HTTPException(status_code=422, detail="No se detecto rostro en al menos 2 de las 3 fotos. Intenta con mejor iluminacion.")
+
+        usuario = sb.table("usuarios").select("id").eq("id", req.usuario_id).execute()
+        if not usuario.data:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado. Registrate primero.")
 
         existing = sb.table("rostros").select("id").eq("usuario_id", req.usuario_id).execute()
 
@@ -116,7 +213,7 @@ def face_register(req: FaceRegisterReq):
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 
-# ── FACE LOGIN (compara contra cada embedding individual) ─────
+# ── FACE LOGIN ─────────────────────────────────────────────────
 
 class FaceLoginReq(BaseModel):
     embeddings: list
@@ -144,7 +241,7 @@ def face_login(req: FaceLoginReq):
                     stored_emb = r.get(angle_key)
                     if stored_emb is None:
                         continue
-                    stored_arr = np.array(stored_emb)
+                    stored_arr = np.array(stored_emb, dtype=np.float64)
                     norm = np.linalg.norm(stored_arr)
                     if norm > 0:
                         stored_arr = stored_arr / norm
@@ -270,7 +367,7 @@ def delete_account(req: DeleteReq):
                 print(f"[delete] No auth user found for {req.email}")
         else:
             errors.append(f"auth list: {resp.status_code} {resp.text}")
-            print(f"[delete] Error listando auth users: {resp.status_code} {resp.text}")
+            print(f"[delete] Error listing auth users: {resp.status_code} {resp.text}")
     except Exception as e:
         errors.append(f"auth: {str(e)}")
         print(f"[delete] Error borrando auth user: {e}")
@@ -283,4 +380,4 @@ def delete_account(req: DeleteReq):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=5000)
