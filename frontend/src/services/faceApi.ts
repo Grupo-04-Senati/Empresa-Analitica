@@ -88,48 +88,109 @@ export async function faceApiRegister(
       geometryRatios = sig.ratios;
       geometryAngles = sig.angles;
       geometryVectors = sig.vectors;
-      console.log('[faceApi] geometry calculated:', {
-        ratios: geometryRatios.length,
-        angles: geometryAngles.length,
-        vectors: geometryVectors.length,
-        sampleRatios: geometryRatios.slice(0, 3).map(r => r.toFixed(4)),
-        sampleAngles: geometryAngles.slice(0, 3).map(a => a.toFixed(1)),
-      });
     }
 
-    console.log('[faceApi] register embeddings:', {
-      frontal: embeddings.frontal ? `${embeddings.frontal.length} dims` : 'NULL',
-      izquierda: embeddings.izquierda ? `${embeddings.izquierda.length} dims` : 'NULL',
-      derecha: embeddings.derecha ? `${embeddings.derecha.length} dims` : 'NULL',
-      faceShape,
-    });
-
-    const body = {
-      usuario_id: usuarioId,
-      embeddings,
-      face_shape: faceShape,
-      proporciones: {
-        ...(proportions || {}),
-        ratios: geometryRatios,
-        angles: geometryAngles,
-        vectors: geometryVectors,
-      },
-      landmarks_68: landmarks,
+    const toFlatArray = (arr: any): number[] | null => {
+      if (!arr) return null;
+      if (Array.isArray(arr)) return arr.map(Number);
+      if (arr instanceof Float32Array || arr instanceof Float64Array) return Array.from(arr).map(Number);
+      return null;
     };
-    console.log('[faceApi] register body:', JSON.stringify({ usuario_id: usuarioId, embeddingsKeys: Object.keys(embeddings), ratiosCount: geometryRatios.length, anglesCount: geometryAngles.length }));
 
-    const res = await fetch(apiUrl('register'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const frontalArr = toFlatArray(embeddings.frontal);
+    const izqArr = toFlatArray(embeddings.izquierda);
+    const derArr = toFlatArray(embeddings.derecha);
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Error del servidor' }));
-      return { ok: false, error: err.error || 'Error registrando rostro' };
+    if (!frontalArr || frontalArr.length !== 128) return { ok: false, error: 'Embedding frontal invalido' };
+    if (!izqArr || izqArr.length !== 128) return { ok: false, error: 'Embedding izquierda invalido' };
+    if (!derArr || derArr.length !== 128) return { ok: false, error: 'Embedding derecha invalido' };
+
+    const proporcionesData = {
+      ratios: geometryRatios.map(Number),
+      angles: geometryAngles.map(Number),
+      vectors: geometryVectors.map(Number),
+    };
+
+    const landmarksData = landmarks ? landmarks.map((p: any) => ({ x: Number(p.x), y: Number(p.y) })) : [];
+
+    const serverBody = {
+      usuario_id: usuarioId,
+      embeddings: { frontal: frontalArr, izquierda: izqArr, derecha: derArr },
+      face_shape: faceShape || '',
+      proporciones: proporcionesData,
+      landmarks_68: landmarksData,
+    };
+
+    console.log('[faceApi] Sending to face server:', { usuario_id: usuarioId, frontalDims: frontalArr.length, ratios: geometryRatios.length });
+
+    let serverOk = false;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(apiUrl('register'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serverBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          serverOk = true;
+          console.log('[faceApi] Face server register OK');
+          return { ok: true, faceShape: faceShape || undefined };
+        }
+      }
+      console.warn('[faceApi] Face server returned error, trying fallback');
+    } catch (e: any) {
+      console.warn('[faceApi] Face server unreachable:', e?.message || e, '- trying direct Supabase fallback');
     }
 
-    return { ok: true };
+    if (!serverOk) {
+      console.log('[faceApi] Fallback: saving directly to Supabase...');
+      const { supabase } = await import('./supabase');
+
+      const existing = await supabase.from('rostros').select('id').eq('usuario_id', usuarioId).maybeSingle();
+
+      const saveData = {
+        usuario_id: usuarioId,
+        embedding_frontal: frontalArr,
+        embedding_izquierda: izqArr,
+        embedding_derecha: derArr,
+        forma_rostro: faceShape || '',
+        proporciones: proporcionesData,
+        landmarks_68: landmarksData,
+        metadata: {
+          engine: 'face-api.js+fallback',
+          embedding_dims: 128,
+          valid_angles: 3,
+          registered_via: 'direct_supabase',
+          timestamp: new Date().toISOString(),
+        },
+      };
+
+      if (existing.data) {
+        const { error } = await supabase.from('rostros').update(saveData).eq('usuario_id', usuarioId);
+        if (error) {
+          console.error('[faceApi] Fallback update error:', error);
+          return { ok: false, error: 'Error guardando rostro: ' + error.message };
+        }
+      } else {
+        const { error } = await supabase.from('rostros').insert(saveData);
+        if (error) {
+          console.error('[faceApi] Fallback insert error:', error);
+          return { ok: false, error: 'Error guardando rostro: ' + error.message };
+        }
+      }
+
+      console.log('[faceApi] Fallback: rostro guardado directamente en Supabase');
+      return { ok: true, faceShape: faceShape || undefined };
+    }
+
+    const errText = await (async () => { try { const r = await fetch(apiUrl('register'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); return await r.json(); } catch { return { error: 'Error del servidor' }; } })();
+    return { ok: false, error: errText.error || 'Error registrando rostro' };
   } catch (e: any) {
     return { ok: false, error: e?.message || 'No se pudo conectar al servidor' };
   }
