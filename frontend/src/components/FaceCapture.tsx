@@ -15,8 +15,8 @@ interface FaceCaptureProps {
 
 const ANGLES = [
   { key: 'frontal', label: 'Frontal', instruction: 'Mira de frente a la camara' },
-  { key: 'izquierda', label: 'Izquierda', instruction: 'Gira la cabeza lentamente' },
-  { key: 'derecha', label: 'Derecha', instruction: 'Gira la cabeza al otro lado' },
+  { key: 'izquierda', label: 'Derecha', instruction: 'Gira la cabeza a la derecha' },
+  { key: 'derecha', label: 'Izquierda', instruction: 'Gira la cabeza a la izquierda' },
 ];
 
 type Phase = 'loading' | 'scanning' | 'countdown' | 'processing' | 'done' | 'error';
@@ -624,7 +624,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                 <div className="absolute bottom-3 left-0 right-0 flex justify-center z-10">
                   <div className="bg-black/60 rounded-xl px-5 py-3 text-center max-w-xs">
                     <p className="text-white text-base font-bold">{statusMsg}</p>
-                    <p className="text-white/70 text-xs mt-1">{mode === 'login' ? (scanPhase === 'scanning' ? 'Mantente quieto mientras escaneamos' : scanPhase === 'analyzing' ? 'Analizando rasgos faciales' : 'Posiciona tu rostro frente a la camara') : (phase === 'countdown' ? 'Mantente quieto...' : (currentAngle === 0 ? 'Mira de frente' : currentAngle === 1 ? 'Gira a la izquierda' : 'Gira a la derecha'))}</p>
+                    <p className="text-white/70 text-xs mt-1">{mode === 'login' ? (scanPhase === 'scanning' ? 'Mantente quieto mientras escaneamos' : scanPhase === 'analyzing' ? 'Analizando rasgos faciales' : 'Posiciona tu rostro frente a la camara') : (phase === 'countdown' ? 'Mantente quieto...' : (currentAngle === 0 ? 'Mira de frente' : currentAngle === 1 ? 'Gira a la derecha' : 'Gira a la izquierda'))}</p>
                   </div>
                 </div>
               </div>
