@@ -127,9 +127,9 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
     const noseCenter = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
 
-    const faceScreenX = noseCenter.x * scaleX;
-    const faceScreenY = noseCenter.y * scaleY;
-    const TARGET_SIZE = 280;
+    const faceScreenX = canvasW / 2;
+    const faceScreenY = canvasH / 2;
+    const TARGET_SIZE = 400;
     const scale = eyeDist > 0 ? TARGET_SIZE / eyeDist : 1;
 
     const map = (p: { x: number; y: number }) => ({
@@ -160,8 +160,10 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
     const allMeshLines = [jawInterp, leftCheek, rightCheek, forehead, chinLine, leftJawline, rightJawline, leftEyeContour, rightEyeContour, mouthOuter, mouthInner, noseBridge, noseBottom];
 
-    ctx.strokeStyle = 'rgba(0, 255, 200, 0.15)';
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = 'rgba(0, 255, 200, 0.35)';
+    ctx.lineWidth = 1.2;
+    ctx.shadowColor = 'rgba(0, 255, 200, 0.3)';
+    ctx.shadowBlur = 4;
     for (const line of allMeshLines) {
       if (line.length < 2) continue;
       ctx.beginPath();
@@ -169,9 +171,10 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       for (let i = 1; i < line.length; i++) ctx.lineTo(line[i].x, line[i].y);
       ctx.stroke();
     }
+    ctx.shadowBlur = 0;
 
-    ctx.strokeStyle = 'rgba(0, 255, 200, 0.08)';
-    ctx.lineWidth = 0.3;
+    ctx.strokeStyle = 'rgba(0, 255, 200, 0.18)';
+    ctx.lineWidth = 0.6;
     const hLines = 12;
     for (let i = 1; i < hLines; i++) {
       const t = i / hLines;
@@ -198,12 +201,12 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       }
     }
 
-    const glowIntensity = phase === 'countdown' ? 0.8 : 0.4;
+    const glowIntensity = phase === 'countdown' ? 1.2 : 0.7;
     for (let i = 0; i < mapped.length; i++) {
       const p = mapped[i];
       const d = depths[i];
-      const baseSize = 1.5 + d * 2;
-      const alpha = 0.3 + d * 0.5;
+      const baseSize = 2.5 + d * 3;
+      const alpha = 0.5 + d * 0.5;
 
       let color: string;
       if (i >= 36 && i <= 47) color = `rgba(255, 80, 80, ${alpha})`;
@@ -217,16 +220,18 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       ctx.fillStyle = color;
       ctx.fill();
 
-      if (d > 0.7) {
+      if (d > 0.5) {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, baseSize + 3, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(0, 255, 200, ${glowIntensity * 0.15 * d})`;
+        ctx.arc(p.x, p.y, baseSize + 5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 255, 200, ${glowIntensity * 0.25 * d})`;
         ctx.fill();
       }
     }
 
-    ctx.strokeStyle = 'rgba(0, 255, 200, 0.25)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0, 255, 200, 0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = 'rgba(0, 255, 200, 0.4)';
+    ctx.shadowBlur = 6;
     const crosshair = [leftEyeContour, rightEyeContour, mouthOuter, noseBridge];
     for (const contour of crosshair) {
       if (contour.length < 2) continue;
@@ -235,6 +240,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       for (let i = 1; i < contour.length; i++) ctx.lineTo(contour[i].x, contour[i].y);
       ctx.stroke();
     }
+    ctx.shadowBlur = 0;
 
     const le = map({ x: pts.slice(36, 42).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(36, 42).reduce((s, p) => s + p.y, 0) / 6 });
     const re = map({ x: pts.slice(42, 48).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(42, 48).reduce((s, p) => s + p.y, 0) / 6 });
@@ -242,9 +248,9 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     const ch = map(pts[8]);
     const mc = map({ x: pts.slice(48, 68).reduce((s, p) => s + p.x, 0) / 20, y: pts.slice(48, 68).reduce((s, p) => s + p.y, 0) / 20 });
 
-    ctx.strokeStyle = 'rgba(255, 255, 0, 0.15)';
-    ctx.lineWidth = 0.5;
-    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(255, 255, 0, 0.3)';
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([6, 4]);
     ctx.beginPath(); ctx.moveTo(le.x, le.y); ctx.lineTo(re.x, re.y); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(nt.x, nt.y); ctx.lineTo(mc.x, mc.y); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(le.x, le.y); ctx.lineTo(ch.x, ch.y); ctx.stroke();
