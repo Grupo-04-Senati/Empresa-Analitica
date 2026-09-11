@@ -33,7 +33,7 @@ app.add_middleware(
 )
 
 URL = os.getenv("SUPABASE_URL")
-SECRET = os.getenv("SUPABASE_SECRET_KEY")
+SECRET = os.getenv("SUPABASE_ANON_KEY")
 SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 sb = create_client(URL, SECRET)
 
