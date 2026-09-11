@@ -83,12 +83,37 @@ def calcular_metricas(frame, face_rect):
     cy = (y + h / 2) / img_h
     centered = abs(cx - 0.5) < 0.15 and abs(cy - 0.5) < 0.15
     face_ratio = w / img_w
+
+    eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
+    gray_full = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    eyes = eye_cascade.detectMultiScale(gray_cara, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20))
+    eye_count = len(eyes)
+
+    prob_face = min(1.0, face_ratio * 3) if face_ratio > 0.1 else 0
+    prob_centered = max(0, 1.0 - abs(cx - 0.5) * 4) * max(0, 1.0 - abs(cy - 0.5) * 4)
+    prob_quality = 0
+    if 50 <= brightness <= 210:
+        prob_quality += 0.3
+    if blur >= 50:
+        prob_quality += 0.3
+    if eye_count >= 2:
+        prob_quality += 0.2
+    if face_ratio >= 0.15:
+        prob_quality += 0.2
+
+    probability = prob_face * 0.4 + prob_centered * 0.3 + prob_quality * 0.3
+
     return {
         "brightness": round(brightness, 1),
         "blur": round(blur, 1),
         "centered": centered,
         "face_ratio": round(face_ratio, 3),
         "face_count": face_rect["count"],
+        "eye_count": eye_count,
+        "probability": round(probability, 3),
+        "prob_face": round(prob_face, 3),
+        "prob_centered": round(prob_centered, 3),
+        "prob_quality": round(prob_quality, 3),
     }
 
 
@@ -121,6 +146,7 @@ def check_registered():
 
 class FaceValidateReq(BaseModel):
     image: str
+    expected_angle: str | None = None
 
 
 @app.post("/face/validate")
@@ -150,7 +176,7 @@ def face_validate(req: FaceValidateReq):
         if metricas["face_ratio"] < 0.15:
             return {"ok": False, "error": "Acercate mas a la camara."}
         if metricas["face_ratio"] > 0.6:
-            return {"ok": False, "error": "Aléjate un poco de la camara."}
+            return {"ok": False, "error": "Alejate un poco de la camara."}
 
         return {"ok": True, "metricas": metricas}
 
@@ -158,6 +184,69 @@ def face_validate(req: FaceValidateReq):
         print(f"[face] ERROR validate: {e}")
         traceback.print_exc()
         return {"ok": False, "error": "Error procesando imagen"}
+
+
+# ── FACE ANGLE DETECTION (OpenCV) ─────────────────────────────
+
+class FaceAngleReq(BaseModel):
+    image: str
+
+
+@app.post("/face/detect-angle")
+def face_detect_angle(req: FaceAngleReq):
+    try:
+        frame = imagen_base64_a_frame(req.image)
+        if frame is None:
+            return {"ok": False, "error": "No se pudo leer la imagen"}
+
+        face = detectar_cara(frame)
+        if face is None:
+            return {"ok": False, "error": "No se detecto ningun rostro"}
+
+        x, y, w, h = face["x"], face["y"], face["w"], face["h"]
+        img_h, img_w = frame.shape[:2]
+
+        face_center_x = (x + w / 2) / img_w
+        nose_offset = (face_center_x - 0.5) * 2
+
+        eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
+        cara = frame[y:y+h, x:x+w]
+        gray_cara = cv2.cvtColor(cara, cv2.COLOR_BGR2GRAY)
+        eyes = eye_cascade.detectMultiScale(gray_cara, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20))
+
+        eye_angle = 0
+        if len(eyes) >= 2:
+            ex1, ey1, ew1, eh1 = eyes[0]
+            ex2, ey2, ew2, eh2 = eyes[1]
+            eye_center_x = ((ex1 + ew1/2) + (ex2 + ew2/2)) / 2
+            eye_offset = (eye_center_x - w/2) / w
+            eye_angle = -eye_offset
+
+        combined_offset = nose_offset * 0.6 + eye_angle * 0.4
+
+        if abs(combined_offset) < 0.15:
+            angle = "frontal"
+        elif combined_offset > 0.15:
+            angle = "izquierda"
+        else:
+            angle = "derecha"
+
+        probability = max(0, 1.0 - abs(combined_offset) * 2)
+
+        return {
+            "ok": True,
+            "angle": angle,
+            "nose_offset": round(float(nose_offset), 3),
+            "eye_angle": round(float(eye_angle), 3),
+            "combined_offset": round(float(combined_offset), 3),
+            "probability": round(float(probability), 3),
+            "face_rect": {"x": int(x), "y": int(y), "w": int(w), "h": int(h)},
+        }
+
+    except Exception as e:
+        print(f"[face] ERROR detect-angle: {e}")
+        traceback.print_exc()
+        return {"ok": False, "error": "Error detectando angulo"}
 
 
 # ── FACE REGISTER ──────────────────────────────────────────────

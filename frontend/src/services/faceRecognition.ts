@@ -429,10 +429,15 @@ export interface FaceQuality {
   blur: number;
   size: number;
   score: number;
+  probability: number;
+  confidence: number;
   message: string;
   detected: boolean;
   centered: boolean;
   angleOk: boolean;
+  noseOffset: number;
+  faceRatio: number;
+  eyeDistance: number;
 }
 
 export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasElement, angle?: string): Promise<FaceQuality> {
@@ -468,6 +473,10 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
   let detected = false;
   let centered = false;
   let angleOk = false;
+  let noseOffsetVal = 0;
+  let faceRatioVal = 0;
+  let eyeDistVal = 0;
+  let detectionScore = 0;
 
   try {
     const det = await (faceapi as any)
@@ -475,21 +484,42 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
       .withFaceLandmarks();
     if (det) {
       detected = true;
+      detectionScore = det.detection.score;
       const pts = det.landmarks.positions;
       const nose = pts[30];
       const leftEye = pts[36];
       const rightEye = pts[45];
+      const leftMouth = pts[48];
+      const rightMouth = pts[54];
       const centerX = (leftEye.x + rightEye.x) / 2;
-      const eyeDist = Math.abs(rightEye.x - leftEye.x);
-      const rawNoseOffset = (nose.x - centerX) / eyeDist;
-      const noseOffset = -rawNoseOffset;
-      centered = Math.abs(noseOffset) < 0.25;
-      if (angle === 'frontal') angleOk = Math.abs(noseOffset) < 0.2;
-      else if (angle === 'izquierda') angleOk = noseOffset > 0.2;
-      else if (angle === 'derecha') angleOk = noseOffset < -0.2;
+      eyeDistVal = Math.abs(rightEye.x - leftEye.x);
+      const rawNoseOffset = (nose.x - centerX) / eyeDistVal;
+      noseOffsetVal = -rawNoseOffset;
+      centered = Math.abs(noseOffsetVal) < 0.25;
+
+      const noseToEye = Math.sqrt((nose.x - (leftEye.x + rightEye.x) / 2) ** 2 + (nose.y - (leftEye.y + rightEye.y) / 2) ** 2);
+      faceRatioVal = eyeDistVal > 0 ? noseToEye / eyeDistVal : 0;
+
+      const mouthWidth = Math.sqrt((rightMouth.x - leftMouth.x) ** 2 + (rightMouth.y - leftMouth.y) ** 2);
+
+      if (angle === 'frontal') angleOk = Math.abs(noseOffsetVal) < 0.2;
+      else if (angle === 'izquierda') angleOk = noseOffsetVal > 0.2;
+      else if (angle === 'derecha') angleOk = noseOffsetVal < -0.2;
       else angleOk = true;
     }
   } catch {}
+
+  let probFace = detected ? detectionScore : 0;
+  let probAngle = angleOk ? 0.95 : Math.max(0, 0.5 - Math.abs(noseOffsetVal) * 0.5);
+  let probCentered = centered ? 0.9 : Math.max(0, 0.6 - Math.abs(noseOffsetVal) * 0.4);
+  let probQuality = 0;
+  if (brightness >= 50 && brightness <= 210) probQuality += 0.3;
+  if (blur >= 8) probQuality += 0.3;
+  if (eyeDistVal > 15) probQuality += 0.2;
+  if (faceRatioVal > 0.1 && faceRatioVal < 2.0) probQuality += 0.2;
+
+  const probability = (probFace * 0.4 + probAngle * 0.3 + probCentered * 0.2 + probQuality * 0.1);
+  const confidence = detected ? Math.min(1, detectionScore * (1 - Math.abs(noseOffsetVal) * 0.3)) : 0;
 
   let score = 0;
   let message = 'Detectando...';
@@ -503,7 +533,7 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
   else if (!angleOk) { message = 'Ajusta el angulo'; }
   else { message = 'Buena calidad'; }
 
-  return { brightness, blur, size: 1, score, message, detected, centered, angleOk };
+  return { brightness, blur, size: 1, score, probability, confidence, message, detected, centered, angleOk, noseOffset: noseOffsetVal, faceRatio: faceRatioVal, eyeDistance: eyeDistVal };
 }
 
 export async function checkAngle(input: HTMLVideoElement | HTMLCanvasElement, angle: string): Promise<{ ok: boolean }> {
@@ -699,11 +729,21 @@ export async function registerFace(
 
     await supabase.from('rostros').delete().eq('usuario_id', userId);
 
+    const metadata: Record<string, any> = {};
+    if (proportions) metadata.proporciones = proportions;
+    if (landmarks) metadata.landmarks_68 = landmarks;
+    if (faceShape) metadata.forma_rostro = faceShape;
+    metadata.registration_date = new Date().toISOString();
+    metadata.valid_angles = validCount;
+    metadata.embedding_dims = embeddings.frontal?.length || 128;
+
     const { error } = await supabase.from('rostros').insert({
       usuario_id: userId,
       embedding_frontal: embeddings.frontal,
       embedding_izquierda: embeddings.izquierda,
       embedding_derecha: embeddings.derecha,
+      forma_rostro: faceShape || '',
+      metadata,
     });
 
     if (error) {

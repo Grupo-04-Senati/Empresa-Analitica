@@ -379,6 +379,12 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                       <div className={`w-2 h-2 rounded-full ${quality?.angleOk ? 'bg-green-400' : 'bg-blue-400'}`} />
                       <span className="text-white text-xs">{quality?.angleOk ? 'Angulo OK' : 'Ajusta angulo'}</span>
                     </div>
+                    {quality?.detected && (
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${quality.probability > 0.7 ? 'bg-green-400' : quality.probability > 0.4 ? 'bg-yellow-400' : 'bg-red-400'}`} />
+                        <span className="text-white text-xs">Prob: {(quality.probability * 100).toFixed(0)}%</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="bg-black/60 rounded-lg px-2 py-1">

@@ -8,6 +8,7 @@ function apiUrl(action: string): string {
   if (action === 'register') return `${FACE_API_BASE}/face/register`;
   if (action === 'login') return `${FACE_API_BASE}/face/login`;
   if (action === 'validate') return `${FACE_API_BASE}/face/validate`;
+  if (action === 'detect-angle') return `${FACE_API_BASE}/face/detect-angle`;
   return `${FACE_API_BASE}/${action}`;
 }
 
@@ -40,6 +41,19 @@ export async function faceApiValidate(image: string): Promise<{ ok: boolean; err
     return await res.json();
   } catch {
     return { ok: false, error: 'No se pudo conectar al servidor de validacion' };
+  }
+}
+
+export async function faceApiDetectAngle(image: string): Promise<{ ok: boolean; angle?: string; probability?: number; nose_offset?: number; error?: string }> {
+  try {
+    const res = await fetch(apiUrl('detect-angle'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image }),
+    });
+    return await res.json();
+  } catch {
+    return { ok: false, error: 'No se pudo conectar al servidor' };
   }
 }
 
