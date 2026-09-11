@@ -30,10 +30,15 @@ interface FaceGeometry {
   faceHeight: number;
   eyeAngle: number;
   noseOffsetNorm: number;
-  pitchAngle: number;
-  yawAngle: number;
   probability: number;
   distance: string;
+}
+
+interface FrozenDetection {
+  landmarks: faceapi.FaceLandmarks68;
+  score: number;
+  videoW: number;
+  videoH: number;
 }
 
 export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCapture, onLoginMatch, onClose }) => {
@@ -61,6 +66,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   const phaseRef = useRef<Phase>('loading');
   const startCaptureRef = useRef<() => void>(() => {});
   const doLoginRef = useRef<(photos: Record<string, string>) => void>(() => {});
+  const frozenRef = useRef<FrozenDetection | null>(null);
 
   photosRef.current = capturedPhotos;
   angleRef.current = currentAngle;
@@ -87,14 +93,30 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     ctx.translate(-canvasW, 0);
 
     const pts = landmarks.positions;
-    const getPoint = (idx: number) => ({ x: pts[idx].x * scaleX, y: pts[idx].y * scaleY });
+
+    const leftEye = pts[36];
+    const rightEye = pts[45];
+    const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
+    const refSize = eyeDist || 40;
+
+    const noseCenter = {
+      x: (leftEye.x + rightEye.x) / 2,
+      y: (leftEye.y + rightEye.y) / 2,
+    };
+
+    const normalizePoint = (p: { x: number; y: number }) => ({
+      x: ((p.x - noseCenter.x) / refSize) * eyeDist * scaleX + canvasW / 2,
+      y: ((p.y - noseCenter.y) / refSize) * eyeDist * scaleY + canvasH / 2,
+    });
+
+    const getPoint = (idx: number) => normalizePoint(pts[idx]);
 
     const drawPoint = (p: { x: number; y: number }, color: string, size: number = 3) => {
       ctx.beginPath();
       ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
       ctx.lineWidth = 1;
       ctx.stroke();
     };
@@ -142,16 +164,16 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       drawPoint(p, color, size);
     }
 
-    const leftEyeCenter = { x: pts.slice(36, 42).reduce((s, p) => s + p.x, 0) / 6 * scaleX, y: pts.slice(36, 42).reduce((s, p) => s + p.y, 0) / 6 * scaleY };
-    const rightEyeCenter = { x: pts.slice(42, 48).reduce((s, p) => s + p.x, 0) / 6 * scaleX, y: pts.slice(42, 48).reduce((s, p) => s + p.y, 0) / 6 * scaleY };
-    const noseTip = getPoint(30);
-    const mouthCenter = { x: pts.slice(48, 68).reduce((s, p) => s + p.x, 0) / 20 * scaleX, y: pts.slice(48, 68).reduce((s, p) => s + p.y, 0) / 20 * scaleY };
-    const chin = getPoint(8);
+    const le = normalizePoint({ x: pts.slice(36, 42).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(36, 42).reduce((s, p) => s + p.y, 0) / 6 });
+    const re = normalizePoint({ x: pts.slice(42, 48).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(42, 48).reduce((s, p) => s + p.y, 0) / 6 });
+    const nt = getPoint(30);
+    const mc = normalizePoint({ x: pts.slice(48, 68).reduce((s, p) => s + p.x, 0) / 20, y: pts.slice(48, 68).reduce((s, p) => s + p.y, 0) / 20 });
+    const ch = getPoint(8);
 
-    drawLine(leftEyeCenter, rightEyeCenter, 'rgba(255,255,0,0.3)');
-    drawLine(noseTip, mouthCenter, 'rgba(0,255,0,0.3)');
-    drawLine(leftEyeCenter, chin, 'rgba(0,200,255,0.2)');
-    drawLine(rightEyeCenter, chin, 'rgba(0,200,255,0.2)');
+    drawLine(le, re, 'rgba(255,255,0,0.3)');
+    drawLine(nt, mc, 'rgba(0,255,0,0.3)');
+    drawLine(le, ch, 'rgba(0,200,255,0.2)');
+    drawLine(re, ch, 'rgba(0,200,255,0.2)');
 
     ctx.restore();
   }, []);
@@ -173,32 +195,26 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     const mouthWidth = Math.sqrt((rightMouth.x - leftMouth.x) ** 2 + (rightMouth.y - leftMouth.y) ** 2);
     const jawWidth = Math.sqrt((rightJaw.x - leftJaw.x) ** 2 + (rightJaw.y - leftJaw.y) ** 2);
     const faceHeight = Math.sqrt((chin.x - noseBridge.x) ** 2 + (chin.y - noseBridge.y) ** 2);
-
     const eyeAngle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x) * (180 / Math.PI);
     const centerX = (leftEye.x + rightEye.x) / 2;
     const noseOffsetNorm = (noseTip.x - centerX) / (interEyeDist || 1);
-    const eyeToNoseDist = Math.sqrt((noseTip.x - centerX) ** 2 + (noseTip.y - (leftEye.y + rightEye.y) / 2) ** 2);
-    const pitchAngle = (eyeToNoseDist / (interEyeDist || 1)) * 30;
-    const yawAngle = noseOffsetNorm * 45;
 
     const faceArea = jawWidth * faceHeight;
     const imageArea = videoW * videoH;
     const faceRatio = faceArea / imageArea;
-
     let distance = 'optimo';
     if (faceRatio < 0.03) distance = 'muy_lejos';
     else if (faceRatio < 0.06) distance = 'lejos';
     else if (faceRatio > 0.15) distance = 'muy_cerca';
     else if (faceRatio > 0.10) distance = 'cerca';
 
-    const probability = ((1 - Math.abs(noseOffsetNorm)) * 0.3 + Math.min(1, faceRatio / 0.08) * 0.3 + (1 - Math.abs(yawAngle) / 45) * 0.4);
+    const probability = ((1 - Math.abs(noseOffsetNorm)) * 0.3 + Math.min(1, faceRatio / 0.08) * 0.3 + (1 - Math.abs(noseOffsetNorm * 45) / 45) * 0.4);
 
     return {
       interEyeDist: Math.round(interEyeDist), noseLength: Math.round(noseLength),
       mouthWidth: Math.round(mouthWidth), jawWidth: Math.round(jawWidth),
       faceWidth: Math.round(jawWidth), faceHeight: Math.round(faceHeight),
       eyeAngle: Math.round(eyeAngle * 10) / 10, noseOffsetNorm: Math.round(noseOffsetNorm * 1000) / 1000,
-      pitchAngle: Math.round(pitchAngle * 10) / 10, yawAngle: Math.round(yawAngle * 10) / 10,
       probability: Math.round(probability * 1000) / 1000, distance,
     };
   }, []);
@@ -236,6 +252,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
     goodFramesRef.current = 0;
     setReadyToCapture(false);
+    frozenRef.current = null;
 
     let alive = true;
     intervalRef.current = setInterval(async () => {
@@ -253,6 +270,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           setFaceGeometry(null);
           goodFramesRef.current = 0;
           setReadyToCapture(false);
+          frozenRef.current = null;
           const overlay = overlayRef.current;
           if (overlay) { const ctx = overlay.getContext('2d'); if (ctx) ctx.clearRect(0, 0, overlay.width, overlay.height); }
           return;
@@ -269,12 +287,12 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           drawLandmarks(detections.landmarks, videoW, videoH, overlay.width, overlay.height);
         }
 
+        frozenRef.current = { landmarks: detections.landmarks, score: detections.detection.score, videoW, videoH };
+
         const pts = detections.landmarks.positions;
         const leftEye = pts[36];
         const rightEye = pts[45];
         const nose = pts[30];
-        const leftMouth = pts[48];
-        const rightMouth = pts[54];
         const centerX = (leftEye.x + rightEye.x) / 2;
         const eyeDist = Math.abs(rightEye.x - leftEye.x);
         const noseOffset = eyeDist > 0 ? -(nose.x - centerX) / eyeDist : 0;
@@ -320,7 +338,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         else if (!isAngleOk) message = angle === 'frontal' ? 'Mira de frente' : 'Gira un poco mas';
         else if (faceRatio <= 0.08) message = 'Acercate a la camara';
         else if (faceRatio >= 2.5) message = 'Alejate un poco';
-        else message = 'Buena calidad - Listo';
+        else message = 'Listo para capturar';
 
         setQuality({ detected: detScore > 0.15, centered: isCentered, angleOk: isAngleOk, score, probability: score, confidence: detScore, message, brightness, blur: 50, size: 1, noseOffset, faceRatio, eyeDistance: eyeDist });
 
@@ -349,7 +367,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                 setStatusMsg('Capturando...');
                 alive = false;
                 if (intervalRef.current) clearInterval(intervalRef.current);
-                setTimeout(() => startCaptureRef.current(), 300);
+                setTimeout(() => startCaptureRef.current(), 200);
                 return;
               }
             }
@@ -364,6 +382,19 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
     return () => { alive = false; if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [phase, drawLandmarks, calculateGeometry, mode]);
+
+  useEffect(() => {
+    if (phase !== 'countdown') return;
+    const frozen = frozenRef.current;
+    if (!frozen) return;
+
+    const overlay = overlayRef.current;
+    if (overlay) {
+      overlay.width = overlay.clientWidth;
+      overlay.height = overlay.clientHeight;
+      drawLandmarks(frozen.landmarks, frozen.videoW, frozen.videoH, overlay.width, overlay.height);
+    }
+  }, [phase, countdown, drawLandmarks]);
 
   const startCapture = useCallback(() => {
     setPhase('countdown');
@@ -399,6 +430,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
             setCurrentAngle(angleIdx + 1);
             goodFramesRef.current = 0;
             setReadyToCapture(false);
+            frozenRef.current = null;
             setPhase('scanning');
             setStatusMsg(`Posicion: ${ANGLES[angleIdx + 1].instruction}`);
           } else if (mode === 'login') {
@@ -412,7 +444,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
             stopAll();
             if (onCapture) onCapture(newPhotos);
           }
-        }, 1000);
+        }, 800);
         return;
       }
 
@@ -480,7 +512,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           <div className="flex items-center gap-2">
             <Shield size={18} className="text-blue-600" />
             <h3 className="font-semibold text-slate-800">
-              {mode === 'register' ? 'Registro Facial - Paso a Paso' : 'Verificacion de Identidad'}
+              {mode === 'register' ? 'Registro Facial' : 'Verificacion de Identidad'}
             </h3>
           </div>
           <button onClick={handleClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-500" /></button>
@@ -577,14 +609,16 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                   <div className="bg-black/60 rounded-xl px-5 py-3 text-center max-w-xs">
                     <p className="text-white text-base font-bold">{statusMsg}</p>
                     <p className="text-white/70 text-xs mt-1">
-                      {mode === 'register' ? (
-                        currentAngle === 0 ? 'Posiciona tu cara de frente, centrada en la pantalla' :
-                        currentAngle === 1 ? 'Gira la cabeza lentamente a la izquierda' :
-                        'Gira la cabeza lentamente a la derecha'
-                      ) : (
-                        currentAngle === 0 ? 'Posiciona tu cara dentro del ovalo, mirando de frente' :
-                        currentAngle === 1 ? 'Gira la cabeza lentamente a un lado' :
-                        'Gira la cabeza lentamente al otro lado'
+                      {phase === 'countdown' ? 'Mantente quieto - Capturando...' : (
+                        mode === 'register' ? (
+                          currentAngle === 0 ? 'Mira de frente, centrado' :
+                          currentAngle === 1 ? 'Gira la cabeza a la izquierda' :
+                          'Gira la cabeza a la derecha'
+                        ) : (
+                          currentAngle === 0 ? 'Mira de frente a la camara' :
+                          currentAngle === 1 ? 'Gira la cabeza a un lado' :
+                          'Gira la cabeza al otro lado'
+                        )
                       )}
                     </p>
                   </div>
