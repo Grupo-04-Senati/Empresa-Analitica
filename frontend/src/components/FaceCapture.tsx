@@ -82,16 +82,20 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   const [faceGeometry, setFaceGeometry] = useState<FaceGeometry | null>(null);
   const [faceSig, setFaceSig] = useState<FaceSignature | null>(null);
   const [readyToCapture, setReadyToCapture] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanPhase, setScanPhase] = useState('init');
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const goodFramesRef = useRef(0);
+  const scanFramesRef = useRef(0);
   const photosRef = useRef<Record<string, string>>({});
   const angleRef = useRef(0);
   const phaseRef = useRef<Phase>('loading');
   const startCaptureRef = useRef<() => void>(() => {});
   const doLoginRef = useRef<(photos: Record<string, string>) => void>(() => {});
   const frozenRef = useRef<FrozenDetection | null>(null);
+  const scanStartTimeRef = useRef(0);
 
   photosRef.current = capturedPhotos;
   angleRef.current = currentAngle;
@@ -310,8 +314,10 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     if (!video || !streamRef.current) return;
 
     goodFramesRef.current = 0;
+    scanFramesRef.current = 0;
     setReadyToCapture(false);
     frozenRef.current = null;
+    scanStartTimeRef.current = Date.now();
 
     let alive = true;
     intervalRef.current = setInterval(async () => {
@@ -324,11 +330,14 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
         if (!detections) {
           setMultiFace(false);
-          setStatusMsg('Coloque su rostro frente a la camara');
+          setStatusMsg(mode === 'login' ? 'Buscando tu rostro...' : 'Coloque su rostro frente a la camara');
           setQuality(null);
           setFaceGeometry(null);
           goodFramesRef.current = 0;
+          scanFramesRef.current = 0;
           setReadyToCapture(false);
+          setScanProgress(0);
+          setScanPhase('init');
           frozenRef.current = null;
           const overlay = overlayRef.current;
           if (overlay) { const ctx = overlay.getContext('2d'); if (ctx) ctx.clearRect(0, 0, overlay.width, overlay.height); }
@@ -386,40 +395,87 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         if (faceRatio > 0.08 && faceRatio < 2.5) score += 0.1;
         if (isGoodBrightness) score += 0.1;
 
-        let message = 'Detectando...';
-        if (detScore <= 0.15) message = 'Buscando rostro...';
-        else if (!isGoodBrightness) message = brightness < 35 ? 'Muy oscuro' : 'Muy brillante';
-        else if (!isCentered) message = 'Centra tu cara';
-        else if (!isAngleOk) message = angle === 'frontal' ? 'Mira de frente' : 'Gira un poco mas';
-        else if (faceRatio <= 0.08) message = 'Acercate a la camara';
-        else if (faceRatio >= 2.5) message = 'Alejate un poco';
-        else message = 'Listo para capturar';
+        const isGood = detScore > 0.15 && isAngleOk && isCentered && faceRatio > 0.08 && faceRatio < 2.5 && isGoodBrightness && score >= 0.6;
 
-        setQuality({ detected: detScore > 0.15, centered: isCentered, angleOk: isAngleOk, score, probability: score, confidence: detScore, message, brightness, blur: 50, size: 1, noseOffset, faceRatio, eyeDistance: eyeDist });
+        if (mode === 'login') {
+          const elapsed = Date.now() - scanStartTimeRef.current;
+          const SCAN_MIN_MS = 3000;
+          const SCAN_TARGET_MS = 4500;
+
+          if (isGood) {
+            scanFramesRef.current++;
+            const progress = Math.min(1, elapsed / SCAN_TARGET_MS);
+            setScanProgress(progress);
+
+            if (elapsed < SCAN_MIN_MS) {
+              const secsLeft = Math.ceil((SCAN_MIN_MS - elapsed) / 1000);
+              setScanPhase('scanning');
+              setStatusMsg(`Escaneando rostro... ${secsLeft}s`);
+              setQuality({ detected: true, centered: true, angleOk: true, score, probability: score, confidence: detScore, message: 'Escaneando', brightness, blur: 50, size: 1, noseOffset, faceRatio, eyeDistance: eyeDist });
+            } else if (elapsed >= SCAN_MIN_MS && elapsed < SCAN_TARGET_MS) {
+              const secsLeft = Math.ceil((SCAN_TARGET_MS - elapsed) / 1000);
+              setScanPhase('analyzing');
+              setStatusMsg(`Analizando geometria... ${secsLeft}s`);
+              setQuality({ detected: true, centered: true, angleOk: true, score, probability: score, confidence: detScore, message: 'Analizando', brightness, blur: 50, size: 1, noseOffset, faceRatio, eyeDistance: eyeDist });
+            } else {
+              setScanPhase('ready');
+              setStatusMsg('Identidad verificada - Procesando...');
+              setQuality({ detected: true, centered: true, angleOk: true, score, probability: score, confidence: detScore, message: 'Capturando', brightness, blur: 50, size: 1, noseOffset, faceRatio, eyeDistance: eyeDist });
+
+              goodFramesRef.current++;
+              if (goodFramesRef.current >= 3) {
+                goodFramesRef.current = 0;
+                alive = false;
+                if (intervalRef.current) clearInterval(intervalRef.current);
+                setTimeout(() => startCaptureRef.current(), 300);
+                return;
+              }
+            }
+          } else {
+            scanFramesRef.current = Math.max(0, scanFramesRef.current - 1);
+            if (elapsed < 1500) {
+              setScanPhase('finding');
+              setStatusMsg('Buscando tu rostro...');
+            } else {
+              setScanPhase('adjust');
+              setStatusMsg('Ajusta tu posicion...');
+            }
+            setScanProgress(Math.max(0, elapsed / SCAN_TARGET_MS * 0.5));
+            setQuality({ detected: detScore > 0.15, centered: isCentered, angleOk: isAngleOk, score, probability: score, confidence: detScore, message: 'Ajustar', brightness, blur: 50, size: 1, noseOffset, faceRatio, eyeDistance: eyeDist });
+          }
+        } else {
+          let message = 'Detectando...';
+          if (detScore <= 0.15) message = 'Buscando rostro...';
+          else if (!isGoodBrightness) message = brightness < 35 ? 'Muy oscuro' : 'Muy brillante';
+          else if (!isCentered) message = 'Centra tu cara';
+          else if (!isAngleOk) message = angle === 'frontal' ? 'Mira de frente' : 'Gira un poco mas';
+          else if (faceRatio <= 0.08) message = 'Acercate a la camara';
+          else if (faceRatio >= 2.5) message = 'Alejate un poco';
+          else message = 'Listo para capturar';
+
+          setQuality({ detected: detScore > 0.15, centered: isCentered, angleOk: isAngleOk, score, probability: score, confidence: detScore, message, brightness, blur: 50, size: 1, noseOffset, faceRatio, eyeDistance: eyeDist });
+
+          if (phaseRef.current === 'scanning') {
+            if (isGood) {
+              goodFramesRef.current++;
+              setStatusMsg(message);
+              if (goodFramesRef.current >= 2) {
+                goodFramesRef.current = 0;
+                setReadyToCapture(true);
+                setStatusMsg('Rostro listo - Presiona el boton');
+              }
+            } else {
+              goodFramesRef.current = Math.max(0, goodFramesRef.current - 1);
+              setReadyToCapture(false);
+              setStatusMsg(message);
+            }
+          }
+        }
+
         const geom = calculateGeometry(detections.landmarks, videoW, videoH);
         setFaceGeometry(geom);
         const pts2d: Point2D[] = pts.map((p: any) => ({ x: p.x, y: p.y }));
         setFaceSig(generateFaceSignature(pts2d));
-
-        if (phaseRef.current === 'scanning') {
-          const isGood = detScore > 0.15 && isAngleOk && isCentered && faceRatio > 0.08 && faceRatio < 2.5 && isGoodBrightness && score >= 0.6;
-          if (isGood) {
-            goodFramesRef.current++;
-            setStatusMsg(message);
-            if (mode === 'register') {
-              if (goodFramesRef.current >= 2) { goodFramesRef.current = 0; setReadyToCapture(true); setStatusMsg('Rostro listo - Presiona el boton'); }
-            } else {
-              if (goodFramesRef.current >= 2) {
-                goodFramesRef.current = 0; setStatusMsg('Capturando...');
-                alive = false; if (intervalRef.current) clearInterval(intervalRef.current);
-                setTimeout(() => startCaptureRef.current(), 200); return;
-              }
-            }
-          } else {
-            goodFramesRef.current = Math.max(0, goodFramesRef.current - 1);
-            setReadyToCapture(false); setStatusMsg(message);
-          }
-        }
       } catch {}
     }, 250);
 
@@ -521,6 +577,21 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                 {phase === 'countdown' && countdown > 0 && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10"><span className="text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span></div>
                 )}
+                {mode === 'login' && (phase === 'scanning' || phase === 'countdown') && (
+                  <div className="absolute inset-0 pointer-events-none z-6">
+                    <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="scanGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="rgba(0,255,200,0)" />
+                          <stop offset="50%" stopColor="rgba(0,255,200,0.3)" />
+                          <stop offset="100%" stopColor="rgba(0,255,200,0)" />
+                        </linearGradient>
+                      </defs>
+                      <rect x="0" y={scanProgress * 100} width="100" height="8" fill="url(#scanGrad)" className="transition-all duration-300" />
+                      <line x1="0" y1={scanProgress * 100} x2="100" y2={scanProgress * 100} stroke="rgba(0,255,200,0.6)" strokeWidth="0.3" />
+                    </svg>
+                  </div>
+                )}
                 <div className="absolute top-3 left-3 right-3 flex justify-between items-start z-10">
                   <div className="bg-black/60 rounded-lg px-3 py-2 space-y-1">
                     <div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${quality?.detected ? 'bg-green-400' : 'bg-red-400'}`} /><span className="text-white text-xs">{quality?.detected ? 'Rostro detectado' : 'Buscando rostro...'}</span></div>
@@ -528,7 +599,13 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                     <div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${quality?.angleOk ? 'bg-green-400' : 'bg-blue-400'}`} /><span className="text-white text-xs">{quality?.angleOk ? 'Angulo OK' : 'Ajusta angulo'}</span></div>
                     {quality?.detected && (<div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${quality.probability > 0.7 ? 'bg-green-400' : quality.probability > 0.4 ? 'bg-yellow-400' : 'bg-red-400'}`} /><span className="text-white text-xs">Prob: {(quality.probability * 100).toFixed(0)}%</span></div>)}
                   </div>
-                  <div className="bg-black/60 rounded-lg px-2 py-1"><span className="text-white text-xs font-bold">{currentAngle + 1}/3</span></div>
+                  {mode === 'register' && <div className="bg-black/60 rounded-lg px-2 py-1"><span className="text-white text-xs font-bold">{currentAngle + 1}/3</span></div>}
+                  {mode === 'login' && (
+                    <div className="bg-black/60 rounded-lg px-3 py-2 text-right">
+                      <div className="text-xs text-cyan-300 font-bold uppercase tracking-wider">{scanPhase === 'init' ? 'Inicializando' : scanPhase === 'finding' ? 'Buscando' : scanPhase === 'scanning' ? 'Escaneando' : scanPhase === 'analyzing' ? 'Analizando' : scanPhase === 'ready' ? 'Listo' : scanPhase === 'adjust' ? 'Ajustar' : 'Detectando'}</div>
+                      <div className="text-white text-lg font-bold mt-0.5">{Math.round(scanProgress * 100)}%</div>
+                    </div>
+                  )}
                 </div>
                 {mode === 'register' && (
                   <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10">
@@ -539,20 +616,35 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                 <div className="absolute bottom-3 left-0 right-0 flex justify-center z-10">
                   <div className="bg-black/60 rounded-xl px-5 py-3 text-center max-w-xs">
                     <p className="text-white text-base font-bold">{statusMsg}</p>
-                    <p className="text-white/70 text-xs mt-1">{phase === 'countdown' ? 'Mantente quieto...' : (mode === 'register' ? (currentAngle === 0 ? 'Mira de frente' : currentAngle === 1 ? 'Gira a la izquierda' : 'Gira a la derecha') : (currentAngle === 0 ? 'Mira de frente' : currentAngle === 1 ? 'Gira a un lado' : 'Gira al otro lado'))}</p>
+                    <p className="text-white/70 text-xs mt-1">{mode === 'login' ? (scanPhase === 'scanning' ? 'Mantente quieto mientras escaneamos' : scanPhase === 'analyzing' ? 'Analizando rasgos faciales' : 'Posiciona tu rostro frente a la camara') : (phase === 'countdown' ? 'Mantente quieto...' : (currentAngle === 0 ? 'Mira de frente' : currentAngle === 1 ? 'Gira a la izquierda' : 'Gira a la derecha'))}</p>
                   </div>
                 </div>
               </div>
               {faceGeometry && (<div className="mt-2 grid grid-cols-4 gap-1 text-[10px] text-slate-500"><div className="bg-slate-50 rounded px-2 py-1 text-center"><div className="font-bold text-slate-700">Ojos</div><div>{faceGeometry.interEyeDist}px</div></div><div className="bg-slate-50 rounded px-2 py-1 text-center"><div className="font-bold text-slate-700">Nariz</div><div>{faceGeometry.noseLength}px</div></div><div className="bg-slate-50 rounded px-2 py-1 text-center"><div className="font-bold text-slate-700">Boca</div><div>{faceGeometry.mouthWidth}px</div></div><div className="bg-slate-50 rounded px-2 py-1 text-center"><div className="font-bold text-slate-700">Dist</div><div>{faceGeometry.distance}</div></div></div>)}
               {faceSig && (<div className="mt-1 grid grid-cols-5 gap-1 text-[9px] text-slate-400">{faceSig.ratios.slice(0, 5).map((r, i) => (<div key={`r${i}`} className="bg-blue-50 rounded px-1 py-0.5 text-center"><div className="font-bold text-blue-600">R{i+1}</div><div>{r.toFixed(3)}</div></div>))}{faceSig.angles.slice(0, 5).map((a, i) => (<div key={`a${i}`} className="bg-green-50 rounded px-1 py-0.5 text-center"><div className="font-bold text-green-600">A{i+1}</div><div>{a.toFixed(1)}°</div></div>))}</div>)}
               <div className="mt-3 flex items-center justify-center gap-2">
-                <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden"><div className={`h-full rounded-full transition-all duration-300 ${phase === 'countdown' ? 'bg-green-500' : (quality?.score || 0) >= 0.6 ? 'bg-blue-500' : 'bg-yellow-500'}`} style={{ width: phase === 'countdown' ? '100%' : `${Math.min(80, (quality?.score || 0) * 100)}%` }} /></div>
-                <span className="text-xs text-slate-500 font-mono w-16 text-right">{phase === 'countdown' ? 'Capturando' : `${Math.round((quality?.score || 0) * 100)}%`}</span>
+                <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
+                  {mode === 'login' ? (
+                    <div className="h-full rounded-full transition-all duration-300" style={{ width: `${scanProgress * 100}%`, background: scanProgress < 0.3 ? 'linear-gradient(90deg, #3b82f6, #06b6d4)' : scanProgress < 0.7 ? 'linear-gradient(90deg, #06b6d4, #10b981)' : 'linear-gradient(90deg, #10b981, #22c55e)' }} />
+                  ) : (
+                    <div className={`h-full rounded-full transition-all duration-300 ${phase === 'countdown' ? 'bg-green-500' : (quality?.score || 0) >= 0.6 ? 'bg-blue-500' : 'bg-yellow-500'}`} style={{ width: phase === 'countdown' ? '100%' : `${Math.min(80, (quality?.score || 0) * 100)}%` }} />
+                  )}
+                </div>
+                <span className="text-xs text-slate-500 font-mono w-16 text-right">{mode === 'login' ? `${Math.round(scanProgress * 100)}%` : (phase === 'countdown' ? 'Capturando' : `${Math.round((quality?.score || 0) * 100)}%`)}</span>
               </div>
+              {mode === 'login' && scanProgress > 0 && (
+                <div className="mt-2 flex items-center justify-center gap-3 text-[10px]">
+                  <div className={`flex items-center gap-1 ${scanProgress >= 0.3 ? 'text-emerald-500' : 'text-slate-400'}`}><div className={`w-1.5 h-1.5 rounded-full ${scanProgress >= 0.3 ? 'bg-emerald-500' : 'bg-slate-300'}`} /><span>Deteccion</span></div>
+                  <div className={`w-6 h-px ${scanProgress >= 0.3 ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                  <div className={`flex items-center gap-1 ${scanProgress >= 0.6 ? 'text-emerald-500' : 'text-slate-400'}`}><div className={`w-1.5 h-1.5 rounded-full ${scanProgress >= 0.6 ? 'bg-emerald-500' : 'bg-slate-300'}`} /><span>Escaneo</span></div>
+                  <div className={`w-6 h-px ${scanProgress >= 0.6 ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                  <div className={`flex items-center gap-1 ${scanProgress >= 1 ? 'text-emerald-500' : 'text-slate-400'}`}><div className={`w-1.5 h-1.5 rounded-full ${scanProgress >= 1 ? 'bg-emerald-500' : 'bg-slate-300'}`} /><span>Verificado</span></div>
+                </div>
+              )}
               <div className="flex items-center justify-center gap-4 mt-2 text-xs text-slate-400">
                 <div className="flex items-center gap-1"><Eye size={12} /><span>200+ puntos</span></div>
                 <div className="flex items-center gap-1"><Scan size={12} /><span>Wireframe 3D</span></div>
-                {faceSig && <span className="text-[9px] text-cyan-400">Mascara activa</span>}
+                {faceSig && <span className="text-[9px] text-cyan-400">{mode === 'login' ? 'Escaneo activo' : 'Mascara activa'}</span>}
               </div>
               {mode === 'register' && (
                 <div className="mt-3">
