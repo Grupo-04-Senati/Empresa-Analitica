@@ -153,10 +153,69 @@ def root():
     return {"service": "empresa-analitica-face", "engine": "face_recognition", "status": "running"}
 
 
+@app.get("/face/debug-supabase")
+def debug_supabase():
+    """Debug Supabase connection and credentials"""
+    try:
+        # Test basic connection
+        test_url = URL[:30] + "..." if URL and len(URL) > 30 else URL
+        has_secret = bool(SECRET)
+        has_service_role = bool(SERVICE_ROLE_KEY)
+        
+        # Test querying usuarios table
+        usuarios_result = sb.table("usuarios").select("id, email").limit(3).execute()
+        usuarios_count = len(usuarios_result.data) if usuarios_result.data else 0
+        usuarios_sample = usuarios_result.data[:3] if usuarios_result.data else []
+        
+        # Test querying rostros table
+        rostros_result = sb.table("rostros").select("id, usuario_id").limit(3).execute()
+        rostros_count = len(rostros_result.data) if rostros_result.data else 0
+        
+        # Check specific usuario_id=9
+        user9_result = sb.table("usuarios").select("id, email, nombre").eq("id", 9).execute()
+        user9_found = bool(user9_result.data and len(user9_result.data) > 0)
+        user9_data = user9_result.data[0] if user9_result.data else None
+        
+        return {
+            "status": "ok",
+            "url_preview": test_url,
+            "has_secret_key": has_secret,
+            "has_service_role_key": has_service_role,
+            "usuarios_count": usuarios_count,
+            "usuarios_sample": usuarios_sample,
+            "rostros_count": rostros_count,
+            "user9_exists": user9_found,
+            "user9_data": user9_data,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "url_preview": URL[:30] + "..." if URL and len(URL) > 30 else URL,
+            "has_secret_key": bool(SECRET),
+            "has_service_role_key": bool(SERVICE_ROLE_KEY),
+        }
+
+
 @app.get("/face/check-registered")
 def check_registered():
     rostros = sb.table("rostros").select("id").execute().data
     return {"count": len(rostros)}
+
+
+@app.get("/face/test-user/{usuario_id}")
+def test_user(usuario_id: int):
+    """Test if a specific user exists in the database"""
+    try:
+        result = sb.table("usuarios").select("id, email, nombre").eq("id", usuario_id).execute()
+        if result.data:
+            return {"found": True, "user": result.data[0]}
+        else:
+            # Try to list all users
+            all_users = sb.table("usuarios").select("id, email").limit(5).execute()
+            return {"found": False, "all_users": all_users.data}
+    except Exception as e:
+        return {"found": False, "error": str(e)}
 
 
 # ── FACE VALIDATE ──────────────────────────────────────────────
@@ -298,8 +357,17 @@ def face_register(req: FaceRegisterReq):
         if valid_count < 2:
             raise HTTPException(status_code=422, detail="No se detecto rostro en al menos 2 de las 3 fotos. Intenta con mejor iluminacion.")
 
-        usuario = sb.table("usuarios").select("id").eq("id", req.usuario_id).execute()
+        print(f"[face] Buscando usuario_id={req.usuario_id} en tabla usuarios...")
+        usuario = sb.table("usuarios").select("id, email, nombre").eq("id", req.usuario_id).execute()
+        print(f"[face] Resultado busqueda usuario: {usuario.data}")
+        
         if not usuario.data:
+            # Try to list some users to debug
+            try:
+                all_users = sb.table("usuarios").select("id, email").limit(10).execute()
+                print(f"[face] Usuarios en tabla (debug): {all_users.data}")
+            except Exception as e2:
+                print(f"[face] Error listing users for debug: {e2}")
             raise HTTPException(status_code=404, detail="Usuario no encontrado. Registrate primero.")
 
         existing = sb.table("rostros").select("id").eq("usuario_id", req.usuario_id).execute()
@@ -331,12 +399,31 @@ def face_register(req: FaceRegisterReq):
         print(f"[face] landmarks_68 count: {len(update_data['landmarks_68'])}")
 
         if existing.data:
-            result = sb.table("rostros").update(update_data).eq("usuario_id", req.usuario_id).execute()
-            print(f"[face] Update OK: {result.data}")
+            try:
+                result = sb.table("rostros").update(update_data).eq("usuario_id", req.usuario_id).execute()
+                print(f"[face] Update OK: {result.data}")
+            except Exception as e:
+                print(f"[face] Error en update: {e}")
+                # If update fails, try to add updated_at column suggestion
+                if "updated_at" in str(e):
+                    raise HTTPException(
+                        status_code=500, 
+                        detail="Error: La columna 'updated_at' no existe. Ejecuta en Supabase SQL: ALTER TABLE rostros ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();"
+                    )
+                raise HTTPException(status_code=500, detail=f"Error actualizando rostro: {str(e)}")
         else:
             update_data["usuario_id"] = req.usuario_id
-            result = sb.table("rostros").insert(update_data).execute()
-            print(f"[face] Insert OK: {result.data}")
+            try:
+                result = sb.table("rostros").insert(update_data).execute()
+                print(f"[face] Insert OK: {result.data}")
+            except Exception as e:
+                print(f"[face] Error en insert: {e}")
+                if "updated_at" in str(e):
+                    raise HTTPException(
+                        status_code=500, 
+                        detail="Error: La columna 'updated_at' no existe. Ejecuta en Supabase SQL: ALTER TABLE rostros ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();"
+                    )
+                raise HTTPException(status_code=500, detail=f"Error guardando rostro: {str(e)}")
 
         return {"ok": True, "usuario_id": req.usuario_id, "valid_angles": valid_count}
 
