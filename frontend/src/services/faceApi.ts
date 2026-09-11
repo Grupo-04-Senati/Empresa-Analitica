@@ -154,11 +154,13 @@ export async function faceApiRegister(
 
       const existing = await supabase.from('rostros').select('id').eq('usuario_id', usuarioId).maybeSingle();
 
-      const saveData = {
+      const pgVectorStr = (arr: number[]): string => '[' + arr.map(v => v.toFixed(6)).join(',') + ']';
+
+      const saveData: Record<string, any> = {
         usuario_id: usuarioId,
-        embedding_frontal: frontalArr,
-        embedding_izquierda: izqArr,
-        embedding_derecha: derArr,
+        embedding_frontal: pgVectorStr(frontalArr),
+        embedding_izquierda: pgVectorStr(izqArr),
+        embedding_derecha: pgVectorStr(derArr),
         forma_rostro: faceShape || '',
         proporciones: proporcionesData,
         landmarks_68: landmarksData,
@@ -170,6 +172,10 @@ export async function faceApiRegister(
           timestamp: new Date().toISOString(),
         },
       };
+
+      console.log('[faceApi] Fallback saveData keys:', Object.keys(saveData));
+      console.log('[faceApi] embedding_frontal length:', frontalArr.length, 'sample:', frontalArr.slice(0, 5));
+      console.log('[faceApi] pgVector format:', saveData.embedding_frontal.substring(0, 50));
 
       if (existing.data) {
         const { error } = await supabase.from('rostros').update(saveData).eq('usuario_id', usuarioId);
@@ -290,65 +296,154 @@ export async function faceApiLogin(
       },
       landmarks_68: landmarks,
     };
-    console.log('[faceApi] login body dimensions:', {
-      embeddings: embList.length,
-      ratios: geometryRatios.length,
-      angles: geometryAngles.length,
-      vectors: geometryVectors.length,
-      landmarks: landmarks ? landmarks.length : 0,
-    });
 
-    const res = await fetch(apiUrl('login'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(loginBody),
-    });
+    let serverOk = false;
+    let serverResult: any = null;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(apiUrl('login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Error del servidor' }));
-      const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('vercel.app');
-      const debugMsg = isDev && err._debug
-        ? ` (dist: ${err._debug.avgDist?.toFixed(3)}, umbral: ${err._debug.umbral})`
-        : '';
-      console.error(`[audit] LOGIN REJECTED by server:`, err.error, err._debug);
-      return { ok: false, error: (err.error || 'Rostro no reconocido') + debugMsg, debug: err._debug };
-    }
-
-    const data = await res.json();
-
-    if (!data.ok) {
-      console.error(`[audit] LOGIN REJECTED: server returned ok=false`);
-      return { ok: false, error: data.error || 'Rostro no reconocido', debug: data._debug };
-    }
-
-    if (data.usuario_id === undefined || data.usuario_id === null || isNaN(Number(data.usuario_id))) {
-      console.error(`[audit] LOGIN REJECTED: server returned invalid usuario_id:`, data.usuario_id);
-      return { ok: false, error: 'Error en respuesta del servidor' };
-    }
-
-    if (data.distancia !== undefined && data.distancia !== null) {
-      const dist = Number(data.distancia);
-      if (isNaN(dist) || dist < 0 || dist > 1) {
-        console.error(`[audit] LOGIN REJECTED: server returned invalid distancia:`, data.distancia);
-        return { ok: false, error: 'Error en calculo de distancias' };
+      if (res.ok) {
+        serverResult = await res.json();
+        if (serverResult.ok) {
+          serverOk = true;
+          console.log('[faceApi] Face server login OK');
+          return {
+            ok: true,
+            usuario_id: serverResult.usuario_id,
+            nombre: serverResult.nombre,
+            email: serverResult.email,
+            debug: serverResult._debug,
+          };
+        }
       }
+      console.warn('[faceApi] Face server login failed, trying fallback');
+    } catch (e: any) {
+      console.warn('[faceApi] Face server unreachable for login:', e?.message || e, '- trying direct Supabase fallback');
     }
 
-    const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('vercel.app');
-    if (isDev && data._debug) {
-      console.log(`[faceApi] DEBUG: embeddings=${data._debug.embeddingsReceived}, threshold=${data._debug.threshold}, avgSimilarity=${data._debug.avgSimilarity?.toFixed(4)}, avgDistance=${data._debug.avgDistance?.toFixed(4)}, matches=${data._debug.matchCount}`);
+    if (!serverOk) {
+      console.log('[faceApi] Login fallback: comparing embeddings client-side...');
+      const { supabase } = await import('./supabase');
+
+      const { data: rostros, error } = await supabase
+        .from('rostros')
+        .select('usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha, proporciones, landmarks_68');
+
+      if (error) {
+        console.error('[faceApi] Fallback query error:', error);
+        return { ok: false, error: 'Error consultando rostros: ' + error.message };
+      }
+
+      if (!rostros || rostros.length === 0) {
+        return { ok: false, error: 'No hay usuarios con rostro registrado. Primero debes registrarte desde "Crear Cuenta".' };
+      }
+
+      function cosineDistance(a: number[], b: number[]): number {
+        if (a.length !== b.length) return 1;
+        let dot = 0, normA = 0, normB = 0;
+        for (let i = 0; i < a.length; i++) {
+          dot += a[i] * b[i];
+          normA += a[i] * a[i];
+          normB += b[i] * b[i];
+        }
+        return 1 - (dot / (Math.sqrt(normA) * Math.sqrt(normB)));
+      }
+
+      function parseVector(v: any): number[] | null {
+        if (!v) return null;
+        if (Array.isArray(v)) return v.map(Number);
+        if (typeof v === 'string') {
+          try {
+            const parsed = JSON.parse(v.replace('[', '[').replace(']', ']'));
+            return Array.isArray(parsed) ? parsed.map(Number) : null;
+          } catch { return null; }
+        }
+        return null;
+      }
+
+      const UMBRAL = 0.45;
+      const MIN_MATCHES = 2;
+      const userScores: { userId: number; bestDist: number; matchCount: number }[] = [];
+
+      for (const r of rostros) {
+        const uid = r.usuario_id;
+        const storedEmbeds: number[][] = [];
+        const fe = parseVector(r.embedding_frontal);
+        const fi = parseVector(r.embedding_izquierda);
+        const fd = parseVector(r.embedding_derecha);
+        if (fe && fe.length === 128) storedEmbeds.push(fe);
+        if (fi && fi.length === 128) storedEmbeds.push(fi);
+        if (fd && fd.length === 128) storedEmbeds.push(fd);
+
+        if (storedEmbeds.length < 2) continue;
+
+        let matchCount = 0;
+        let totalDist = 0;
+
+        for (const loginEmb of embList) {
+          let bestDist = Infinity;
+          for (const stored of storedEmbeds) {
+            const dist = cosineDistance(loginEmb, stored);
+            if (dist < bestDist) bestDist = dist;
+          }
+          if (bestDist <= UMBRAL) {
+            matchCount++;
+            totalDist += bestDist;
+          }
+        }
+
+        console.log(`[faceApi] Fallback login vs user ${uid}: matchCount=${matchCount}, avgDist=${(matchCount > 0 ? totalDist / matchCount : 999).toFixed(4)}`);
+
+        if (matchCount >= MIN_MATCHES) {
+          userScores.push({ userId: uid, bestDist: totalDist / matchCount, matchCount });
+        }
+      }
+
+      if (userScores.length === 0) {
+        return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
+      }
+
+      userScores.sort((a, b) => a.bestDist - b.bestDist);
+
+      if (userScores.length > 1 && (userScores[1].bestDist - userScores[0].bestDist) < 0.05) {
+        return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
+      }
+
+      const winner = userScores[0];
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('id, nombre, email')
+        .eq('id', winner.userId)
+        .maybeSingle();
+
+      if (!usuario) {
+        return { ok: false, error: 'Usuario no encontrado' };
+      }
+
+      console.log(`[faceApi] Fallback LOGIN OK: user ${winner.userId} dist=${winner.bestDist.toFixed(4)}`);
+      return {
+        ok: true,
+        usuario_id: usuario.id,
+        nombre: usuario.nombre,
+        email: usuario.email,
+      };
     }
 
-    console.log(`[audit] LOGIN OK: user ${data.usuario_id}, nombre=${data.nombre}`);
-    return {
-      ok: data.ok,
-      usuario_id: data.usuario_id,
-      nombre: data.nombre,
-      email: data.email,
-      debug: data._debug,
-    };
+    if (serverResult && !serverResult.ok) {
+      return { ok: false, error: serverResult.error || 'Rostro no reconocido', debug: serverResult._debug };
+    }
+
+    return { ok: false, error: 'Error del servidor' };
   } catch (e: any) {
-    console.error(`[audit] LOGIN ERROR (exception):`, e.message);
+    console.error(`[faceApi] LOGIN ERROR:`, e.message);
     return { ok: false, error: e?.message || 'No se pudo conectar al servidor' };
   }
 }
