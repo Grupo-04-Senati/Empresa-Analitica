@@ -304,22 +304,23 @@ def face_register(req: FaceRegisterReq):
 
         existing = sb.table("rostros").select("id").eq("usuario_id", req.usuario_id).execute()
 
+        import json
+        face_info = {
+            "shape": req.face_shape or "",
+            "engine": "face_recognition+dlib",
+            "embedding_dims": 128,
+        }
+        if req.proporciones:
+            face_info["proporciones"] = req.proporciones
+        if req.landmarks_68:
+            face_info["landmarks_68"] = req.landmarks_68
+
         update_data = {
             "embedding_frontal": embeddings.get("frontal"),
             "embedding_izquierda": embeddings.get("izquierda"),
             "embedding_derecha": embeddings.get("derecha"),
-            "forma_rostro": req.face_shape or "",
+            "forma_rostro": json.dumps(face_info),
         }
-
-        metadata = {}
-        if req.proporciones:
-            metadata["proporciones"] = req.proporciones
-        if req.landmarks_68:
-            metadata["landmarks_68"] = req.landmarks_68
-        metadata["engine"] = "face_recognition+dlib"
-        metadata["embedding_dims"] = 128
-        if metadata:
-            update_data["metadata"] = metadata
 
         if existing.data:
             result = sb.table("rostros").update(update_data).eq("usuario_id", req.usuario_id).execute()
