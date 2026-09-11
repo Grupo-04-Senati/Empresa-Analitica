@@ -1,9 +1,10 @@
 """
 Backend de reconocimiento facial + borrado de cuenta.
+Usa face_recognition (dlib) para deteccion y codificacion facial.
 
 Flujo:
   POST /face/register  - Recibe 3 imagenes base64 + usuario_id + embeddings
-                         Valida cara con opencv en servidor
+                         Valida cara con face_recognition en servidor
                          Guarda embeddings en rostros
   POST /face/login     - Recibe 3 embeddings -> compara contra TODOS -> retorna usuario_id
   DELETE /delete-account - Verifica contrasena -> borra de rostros, usuarios, auth.users
@@ -16,6 +17,7 @@ import requests
 
 import cv2
 import numpy as np
+import face_recognition
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -42,16 +44,6 @@ UMBRAL = 0.40
 UMBRAL_GAP = 0.08
 MIN_MATCHES = 2
 
-_face_cascade = None
-
-
-def get_face_cascade():
-    global _face_cascade
-    if _face_cascade is None:
-        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        _face_cascade = cv2.CascadeClassifier(cascade_path)
-    return _face_cascade
-
 
 def imagen_base64_a_frame(imagen_b64: str):
     if "," in imagen_b64:
@@ -63,13 +55,18 @@ def imagen_base64_a_frame(imagen_b64: str):
 
 
 def detectar_cara(frame):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    cascade = get_face_cascade()
-    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80))
-    if len(faces) == 0:
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    locs = face_recognition.face_locations(rgb, model="hog")
+    if len(locs) == 0:
         return None
-    x, y, w, h = faces[0]
-    return {"x": int(x), "y": int(y), "w": int(w), "h": int(h), "count": int(len(faces))}
+    top, right, bottom, left = locs[0]
+    return {
+        "x": int(left), "y": int(top),
+        "w": int(right - left), "h": int(bottom - top),
+        "count": len(locs),
+        "top": int(top), "right": int(right),
+        "bottom": int(bottom), "left": int(left),
+    }
 
 
 def calcular_metricas(frame, face_rect):
@@ -84,10 +81,17 @@ def calcular_metricas(frame, face_rect):
     centered = abs(cx - 0.5) < 0.15 and abs(cy - 0.5) < 0.15
     face_ratio = w / img_w
 
-    eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
-    gray_full = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    eyes = eye_cascade.detectMultiScale(gray_cara, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20))
-    eye_count = len(eyes)
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    face_locs = face_recognition.face_locations(rgb, model="hog")
+    encs = face_recognition.face_encodings(rgb, face_locs)
+    eye_count = 0
+    if len(encs) > 0:
+        face_landmarks_list = face_recognition.face_landmarks(rgb, face_locs)
+        if face_landmarks_list:
+            lm = face_landmarks_list[0]
+            left_eye = lm.get("left_eye", [])
+            right_eye = lm.get("right_eye", [])
+            eye_count = (1 if len(left_eye) > 0 else 0) + (1 if len(right_eye) > 0 else 0)
 
     prob_face = min(1.0, face_ratio * 3) if face_ratio > 0.1 else 0
     prob_centered = max(0, 1.0 - abs(cx - 0.5) * 4) * max(0, 1.0 - abs(cy - 0.5) * 4)
@@ -117,6 +121,15 @@ def calcular_metricas(frame, face_rect):
     }
 
 
+def calcular_embedding(frame, face_rect):
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    top, right, bottom, left = face_rect["top"], face_rect["right"], face_rect["bottom"], face_rect["left"]
+    encs = face_recognition.face_encodings(rgb, [(top, right, bottom, left)])
+    if len(encs) == 0:
+        return None
+    return encs[0].tolist()
+
+
 def distancia(a, b):
     a = np.array(a, dtype=np.float64)
     b = np.array(b, dtype=np.float64)
@@ -126,14 +139,18 @@ def distancia(a, b):
         a = a / norm_a
     if norm_b > 0:
         b = b / norm_b
-    dot = np.dot(a, b)
-    dot = np.clip(dot, -1.0, 1.0)
+    dot = np.clip(np.dot(a, b), -1.0, 1.0)
     return float(1.0 - dot)
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "face+delete"}
+    return {"status": "ok", "service": "face+delete", "engine": "face_recognition+dlib"}
+
+
+@app.get("/")
+def root():
+    return {"service": "empresa-analitica-face", "engine": "face_recognition", "status": "running"}
 
 
 @app.get("/face/check-registered")
@@ -142,7 +159,7 @@ def check_registered():
     return {"count": len(rostros)}
 
 
-# ── FACE VALIDATE (valida imagen en servidor) ───────────────────
+# ── FACE VALIDATE ──────────────────────────────────────────────
 
 class FaceValidateReq(BaseModel):
     image: str
@@ -186,7 +203,7 @@ def face_validate(req: FaceValidateReq):
         return {"ok": False, "error": "Error procesando imagen"}
 
 
-# ── FACE ANGLE DETECTION (OpenCV) ─────────────────────────────
+# ── FACE ANGLE DETECTION ──────────────────────────────────────
 
 class FaceAngleReq(BaseModel):
     image: str
@@ -209,18 +226,22 @@ def face_detect_angle(req: FaceAngleReq):
         face_center_x = (x + w / 2) / img_w
         nose_offset = (face_center_x - 0.5) * 2
 
-        eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
-        cara = frame[y:y+h, x:x+w]
-        gray_cara = cv2.cvtColor(cara, cv2.COLOR_BGR2GRAY)
-        eyes = eye_cascade.detectMultiScale(gray_cara, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20))
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        face_locs = face_recognition.face_locations(rgb, model="hog")
+        encs = face_recognition.face_encodings(rgb, face_locs)
+        landmarks_list = face_recognition.face_landmarks(rgb, face_locs)
 
         eye_angle = 0
-        if len(eyes) >= 2:
-            ex1, ey1, ew1, eh1 = eyes[0]
-            ex2, ey2, ew2, eh2 = eyes[1]
-            eye_center_x = ((ex1 + ew1/2) + (ex2 + ew2/2)) / 2
-            eye_offset = (eye_center_x - w/2) / w
-            eye_angle = -eye_offset
+        if len(landmarks_list) > 0:
+            lm = landmarks_list[0]
+            left_eye = lm.get("left_eye", [])
+            right_eye = lm.get("right_eye", [])
+            if left_eye and right_eye:
+                le_x = np.mean([p[0] for p in left_eye])
+                re_x = np.mean([p[0] for p in right_eye])
+                eye_center_x = (le_x + re_x) / 2
+                eye_offset = (eye_center_x - w/2) / w
+                eye_angle = -eye_offset
 
         combined_offset = nose_offset * 0.6 + eye_angle * 0.4
 
@@ -233,6 +254,10 @@ def face_detect_angle(req: FaceAngleReq):
 
         probability = max(0, 1.0 - abs(combined_offset) * 2)
 
+        embedding = None
+        if len(encs) > 0:
+            embedding = encs[0].tolist()
+
         return {
             "ok": True,
             "angle": angle,
@@ -241,6 +266,8 @@ def face_detect_angle(req: FaceAngleReq):
             "combined_offset": round(float(combined_offset), 3),
             "probability": round(float(probability), 3),
             "face_rect": {"x": int(x), "y": int(y), "w": int(w), "h": int(h)},
+            "has_embedding": embedding is not None,
+            "embedding_dims": len(embedding) if embedding else 0,
         }
 
     except Exception as e:
@@ -289,6 +316,8 @@ def face_register(req: FaceRegisterReq):
             metadata["proporciones"] = req.proporciones
         if req.landmarks_68:
             metadata["landmarks_68"] = req.landmarks_68
+        metadata["engine"] = "face_recognition+dlib"
+        metadata["embedding_dims"] = 128
         if metadata:
             update_data["metadata"] = metadata
 
@@ -332,6 +361,11 @@ def face_login(req: FaceLoginReq):
         user_scores: dict[int, list[float]] = {}
 
         for login_emb in login_embeddings:
+            login_arr = np.array(login_emb, dtype=np.float64)
+            norm = np.linalg.norm(login_arr)
+            if norm > 0:
+                login_arr = login_arr / norm
+
             for r in rostros:
                 uid = r["usuario_id"]
                 for angle_key in ["embedding_frontal", "embedding_izquierda", "embedding_derecha"]:
@@ -339,10 +373,10 @@ def face_login(req: FaceLoginReq):
                     if stored_emb is None:
                         continue
                     stored_arr = np.array(stored_emb, dtype=np.float64)
-                    norm = np.linalg.norm(stored_arr)
-                    if norm > 0:
-                        stored_arr = stored_arr / norm
-                    dist = distancia(login_emb, stored_arr)
+                    norm_s = np.linalg.norm(stored_arr)
+                    if norm_s > 0:
+                        stored_arr = stored_arr / norm_s
+                    dist = distancia(login_arr.tolist(), stored_arr.tolist())
                     if uid not in user_scores:
                         user_scores[uid] = []
                     user_scores[uid].append(dist)

@@ -46,3 +46,7 @@ async def startup():
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+@app.get("/")
+async def root():
+    return {"service": "empresa-analitica", "version": "1.0.0", "status": "running"}
