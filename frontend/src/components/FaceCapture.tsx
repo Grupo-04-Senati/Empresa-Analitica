@@ -4,7 +4,6 @@ import {
   loadFaceModels, detectFace, analyzeFaceQuality, checkAngle,
 } from '../services/faceRecognition';
 import { faceApiRegister, faceApiLogin } from '../services/faceApi';
-import { LivenessDetector } from '../services/livenessDetection';
 
 interface FaceCaptureProps {
   mode: 'register' | 'login';
@@ -20,7 +19,7 @@ const ANGLES = [
   { key: 'derecha', label: 'Derecha', instruction: 'Gira a la DERECHA' },
 ];
 
-type Phase = 'loading' | 'liveness' | 'scanning' | 'countdown' | 'processing' | 'done' | 'error';
+type Phase = 'loading' | 'scanning' | 'countdown' | 'processing' | 'done' | 'error';
 
 export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCapture, onLoginMatch, onClose }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -43,19 +42,15 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   const phaseRef = useRef<Phase>('loading');
   const startCaptureRef = useRef<() => void>(() => {});
   const doLoginRef = useRef<(photos: Record<string, string>) => void>(() => {});
-  const livenessRef = useRef<LivenessDetector | null>(null);
-  const livenessPassedRef = useRef(false);
 
   photosRef.current = capturedPhotos;
   angleRef.current = currentAngle;
   phaseRef.current = phase;
 
   const stopAll = useCallback(() => {
-    if (livenessRef.current) { livenessRef.current.stop(); livenessRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     if (timerRef.current) { clearTimeout(timerRef.current); }
     if (intervalRef.current) { clearInterval(intervalRef.current); }
-    livenessPassedRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -66,8 +61,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } });
         if (!alive) { stream.getTracks().forEach(t => t.stop()); return; }
         streamRef.current = stream;
-        setPhase('liveness');
-        setStatusMsg(mode === 'login' ? 'Verificando que eres una persona real...' : 'Verifica tu identidad antes de capturar');
+        setPhase('scanning');
+        setStatusMsg(`Posicion: ${ANGLES[0].instruction}`);
       } catch (err: any) {
         if (!alive) return;
         setErrorMsg(err?.name === 'NotAllowedError' ? 'Permiso de camara denegado.' : 'No se pudo acceder a la camara.');
@@ -83,47 +78,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       videoRef.current.play().catch(() => {});
     }
   }, [phase]);
-
-  useEffect(() => {
-    if (phase !== 'liveness') return;
-    const video = videoRef.current;
-    if (!video || !streamRef.current) return;
-
-    video.srcObject = streamRef.current;
-    video.play().catch(() => {});
-
-    livenessPassedRef.current = false;
-    const detector = new LivenessDetector();
-    livenessRef.current = detector;
-
-    detector.start(
-      video,
-      (_stage, detail) => {
-        setStatusMsg(detail);
-      },
-      (result) => {
-        if (result.passed && !livenessPassedRef.current) {
-          livenessPassedRef.current = true;
-          const methodName = result.method === 'blink' ? 'parpadeo' : 'giro de cabeza';
-          setStatusMsg(`Identidad verificada (${methodName})`);
-
-          if (mode === 'register') {
-            setTimeout(() => {
-              setPhase('scanning');
-              setStatusMsg(`Posicion: ${ANGLES[angleRef.current].instruction}`);
-            }, 800);
-          } else {
-            setTimeout(() => {
-              setPhase('scanning');
-              setStatusMsg('Ahora posicione su rostro para captura');
-            }, 800);
-          }
-        }
-      }
-    );
-
-    return () => { detector.stop(); };
-  }, [phase, mode]);
 
   useEffect(() => {
     if (phase !== 'scanning') return;
@@ -219,9 +173,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           if (angleIdx < ANGLES.length - 1) {
             setCurrentAngle(angleIdx + 1);
             goodFramesRef.current = 0;
-            livenessPassedRef.current = false;
-            setPhase('liveness');
-            setStatusMsg(`Verifica tu identidad para: ${ANGLES[angleIdx + 1].instruction}`);
+            setPhase('scanning');
+            setStatusMsg(`Posicion: ${ANGLES[angleIdx + 1].instruction}`);
           } else if (mode === 'login') {
             doLoginRef.current(newPhotos);
           } else if (mode === 'register' && usuarioId) {
@@ -389,40 +342,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
               <Loader2 size={32} className="animate-spin text-blue-600" />
               <p className="text-sm text-slate-500">{statusMsg || (mode === 'register' ? 'Registrando tu rostro...' : 'Verificando identidad...')}</p>
             </div>
-          )}
-
-          {phase === 'liveness' && (
-            <>
-              <div className="relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3]">
-                <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
-                <div className="absolute inset-0 flex items-center justify-center z-10">
-                  <div className="bg-blue-600/90 rounded-2xl px-6 py-4 text-center max-w-xs">
-                    <Shield size={24} className="text-white mx-auto mb-2" />
-                    <p className="text-white text-base font-bold">{statusMsg}</p>
-                    <p className="text-white/70 text-xs mt-2">
-                      {mode === 'register'
-                        ? `Paso ${currentAngle + 1}/3: Gire la cabeza o parpadee`
-                        : 'Gire la cabeza o parpadee naturalmente'}
-                    </p>
-                  </div>
-                </div>
-                <div className="absolute top-3 left-3 bg-black/60 rounded-lg px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                    <span className="text-white text-xs">Verificando vida...</span>
-                  </div>
-                </div>
-                <div className="absolute top-3 right-3 bg-black/60 rounded-lg px-2 py-1">
-                  <span className="text-white text-xs font-bold">
-                    {mode === 'register' ? `${currentAngle + 1}/3` : 'Login'}
-                  </span>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center justify-center gap-2">
-                <Loader2 size={14} className="animate-spin text-blue-500" />
-                <span className="text-xs text-slate-500">Analizando movimiento temporal...</span>
-              </div>
-            </>
           )}
 
           {(phase === 'scanning' || phase === 'countdown') && (
