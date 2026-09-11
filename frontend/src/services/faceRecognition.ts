@@ -495,16 +495,16 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
       eyeDistVal = Math.abs(rightEye.x - leftEye.x);
       const rawNoseOffset = (nose.x - centerX) / eyeDistVal;
       noseOffsetVal = -rawNoseOffset;
-      centered = Math.abs(noseOffsetVal) < 0.25;
+      centered = Math.abs(noseOffsetVal) < 0.35;
 
       const noseToEye = Math.sqrt((nose.x - (leftEye.x + rightEye.x) / 2) ** 2 + (nose.y - (leftEye.y + rightEye.y) / 2) ** 2);
       faceRatioVal = eyeDistVal > 0 ? noseToEye / eyeDistVal : 0;
 
       const mouthWidth = Math.sqrt((rightMouth.x - leftMouth.x) ** 2 + (rightMouth.y - leftMouth.y) ** 2);
 
-      if (angle === 'frontal') angleOk = Math.abs(noseOffsetVal) < 0.2;
-      else if (angle === 'izquierda') angleOk = noseOffsetVal > 0.2;
-      else if (angle === 'derecha') angleOk = noseOffsetVal < -0.2;
+      if (angle === 'frontal') angleOk = Math.abs(noseOffsetVal) < 0.35;
+      else if (angle === 'izquierda') angleOk = noseOffsetVal > 0.1;
+      else if (angle === 'derecha') angleOk = noseOffsetVal < -0.1;
       else angleOk = true;
     }
   } catch {}
@@ -552,9 +552,9 @@ export async function checkAngle(input: HTMLVideoElement | HTMLCanvasElement, an
     const eyeDist = Math.abs(rightEye.x - leftEye.x);
     const noseOffset = -(nose.x - centerX) / eyeDist;
 
-    if (angle === 'frontal') return { ok: Math.abs(noseOffset) < 0.2 };
-    if (angle === 'izquierda') return { ok: noseOffset > 0.2 };
-    if (angle === 'derecha') return { ok: noseOffset < -0.2 };
+    if (angle === 'frontal') return { ok: Math.abs(noseOffset) < 0.35 };
+    if (angle === 'izquierda') return { ok: noseOffset > 0.1 };
+    if (angle === 'derecha') return { ok: noseOffset < -0.1 };
     return { ok: true };
   } catch {
     return { ok: false };

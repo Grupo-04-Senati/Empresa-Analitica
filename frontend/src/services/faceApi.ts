@@ -134,21 +134,23 @@ export async function faceApiLogin(
 
     const embeddings = await extractEmbeddings(photos);
 
-    const missing: string[] = [];
-    if (!embeddings.frontal) missing.push('frontal');
-    if (!embeddings.izquierda) missing.push('izquierda');
-    if (!embeddings.derecha) missing.push('derecha');
+    const presentAngles: string[] = [];
+    if (embeddings.frontal) presentAngles.push('frontal');
+    if (embeddings.izquierda) presentAngles.push('izquierda');
+    if (embeddings.derecha) presentAngles.push('derecha');
 
-    if (missing.length > 0) {
-      console.warn(`[faceApi] login REJECTED: missing angles: ${missing.join(', ')}`);
+    if (presentAngles.length < 2) {
+      console.warn(`[faceApi] login REJECTED: only ${presentAngles.length} angles detected`);
       return {
         ok: false,
-        error: `No se pudo detectar rostro en los angulos: ${missing.join(', ')}. Asegurate de mirar directamente a la camara en cada posicion.`,
-        missing,
+        error: `Solo se detecto rostro en ${presentAngles.length} de 3 angulos. Necesitas al menos 2.`,
       };
     }
 
-    const embList = [embeddings.frontal!, embeddings.izquierda!, embeddings.derecha!];
+    const embList: number[][] = [];
+    if (embeddings.frontal) embList.push(embeddings.frontal);
+    if (embeddings.izquierda) embList.push(embeddings.izquierda);
+    if (embeddings.derecha) embList.push(embeddings.derecha);
 
     for (let i = 0; i < embList.length; i++) {
       const emb = embList[i];
@@ -163,7 +165,7 @@ export async function faceApiLogin(
       }
     }
 
-    console.log('[faceApi] login embeddings: 3/3 angles OK, dims:', embList[0]?.length);
+    console.log(`[faceApi] login embeddings: ${embList.length}/3 angles OK, dims:`, embList[0]?.length);
 
     const frontalPhoto = photos['frontal'] || photos[Object.keys(photos)[0]];
     const loginFaceShape = frontalPhoto ? await extractFrontalShape(frontalPhoto) : null;

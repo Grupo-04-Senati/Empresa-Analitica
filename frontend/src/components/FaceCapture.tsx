@@ -14,9 +14,9 @@ interface FaceCaptureProps {
 }
 
 const ANGLES = [
-  { key: 'frontal', label: 'Frontal', instruction: 'Mira de frente' },
-  { key: 'izquierda', label: 'Izquierda', instruction: 'Gira a la IZQUIERDA' },
-  { key: 'derecha', label: 'Derecha', instruction: 'Gira a la DERECHA' },
+  { key: 'frontal', label: 'Frontal', instruction: 'Mira de frente a la camara' },
+  { key: 'izquierda', label: 'Izquierda', instruction: 'Inclina la cabeza a un lado' },
+  { key: 'derecha', label: 'Derecha', instruction: 'Inclina la cabeza al otro lado' },
 ];
 
 type Phase = 'loading' | 'scanning' | 'countdown' | 'processing' | 'done' | 'error';
@@ -115,12 +115,12 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
         if (phaseRef.current === 'scanning') {
           const angleKey = ANGLES[angleRef.current]?.key;
-          const isGood = q.detected && q.angleOk && q.score >= 0.4;
+          const isGood = q.detected && q.angleOk && q.score >= 0.3;
 
           if (isGood) {
             goodFramesRef.current++;
             setStatusMsg(q.message || 'Detectando...');
-            if (goodFramesRef.current >= 3) {
+            if (goodFramesRef.current >= 2) {
               goodFramesRef.current = 0;
               setStatusMsg('Posicion correcta - Capturando...');
               alive = false;
@@ -405,9 +405,9 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                   <div className="bg-black/60 rounded-xl px-5 py-3 text-center max-w-xs">
                     <p className="text-white text-base font-bold">{statusMsg}</p>
                     <p className="text-white/70 text-xs mt-1">
-                      {currentAngle === 0 && 'Posiciona tu cara dentro del ovalo de frente'}
-                      {currentAngle === 1 && 'Gira tu cara lentamente a la IZQUIERDA'}
-                      {currentAngle === 2 && 'Gira tu cara lentamente a la DERECHA'}
+                      {currentAngle === 0 && 'Posiciona tu cara dentro del ovalo, mirando de frente'}
+                      {currentAngle === 1 && 'Inclina la cabeza suavemente hacia un lado'}
+                      {currentAngle === 2 && 'Inclina la cabeza suavemente hacia el otro lado'}
                     </p>
                   </div>
                 </div>
