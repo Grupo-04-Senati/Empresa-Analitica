@@ -5,6 +5,7 @@ import {
   loadFaceModels, detectFace, analyzeFaceQuality, checkAngle,
 } from '../services/faceRecognition';
 import { faceApiRegister, faceApiLogin } from '../services/faceApi';
+import { generateFaceSignature, compareSignatures, FaceSignature, Point2D } from '../services/faceGeometry';
 
 interface FaceCaptureProps {
   mode: 'register' | 'login';
@@ -60,6 +61,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   const [statusMsg, setStatusMsg] = useState('Buscando rostro...');
   const [multiFace, setMultiFace] = useState(false);
   const [faceGeometry, setFaceGeometry] = useState<FaceGeometry | null>(null);
+  const [faceSig, setFaceSig] = useState<FaceSignature | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -340,6 +342,10 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         const geom = calculateGeometry(det.landmarks, videoW, videoH);
         setFaceGeometry(geom);
 
+        const pts2d: Point2D[] = det.landmarks.positions.map((p: any) => ({ x: p.x, y: p.y }));
+        const sig = generateFaceSignature(pts2d);
+        setFaceSig(sig);
+
         if (phaseRef.current === 'scanning') {
           const isGood = q.detected && q.angleOk && q.score >= 0.3;
 
@@ -591,6 +597,23 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                 </div>
               )}
 
+              {faceSig && (
+                <div className="mt-1 grid grid-cols-5 gap-1 text-[9px] text-slate-400">
+                  {faceSig.ratios.slice(0, 5).map((r, i) => (
+                    <div key={`r${i}`} className="bg-blue-50 rounded px-1 py-0.5 text-center">
+                      <div className="font-bold text-blue-600">R{i+1}</div>
+                      <div>{r.toFixed(3)}</div>
+                    </div>
+                  ))}
+                  {faceSig.angles.slice(0, 5).map((a, i) => (
+                    <div key={`a${i}`} className="bg-green-50 rounded px-1 py-0.5 text-center">
+                      <div className="font-bold text-green-600">A{i+1}</div>
+                      <div>{a.toFixed(1)}°</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="mt-3 flex items-center justify-center gap-2">
                 <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
                   <div
@@ -611,7 +634,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
               <div className="flex items-center justify-center gap-4 mt-2 text-xs text-slate-400">
                 <div className="flex items-center gap-1"><Eye size={12} /><span>68 puntos</span></div>
-                <div className="flex items-center gap-1"><Scan size={12} /><span>3 angulos</span></div>
+                <div className="flex items-center gap-1"><Scan size={12} /><span>15 ratios + 12 angulos</span></div>
+                {faceSig && <span className="text-[9px] text-blue-400">Firma: {faceSig.ratios.length}R + {faceSig.angles.length}A</span>}
               </div>
             </>
           )}
