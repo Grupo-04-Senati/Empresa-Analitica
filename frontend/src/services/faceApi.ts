@@ -1,4 +1,5 @@
 import { extractEmbeddings, extractEmbeddingsAndShape, detectMultipleFaces, extractFrontalShape } from './faceRecognition';
+import { generateFaceSignature, Point2D } from './faceGeometry';
 
 const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || '';
 
@@ -72,6 +73,24 @@ export async function faceApiRegister(
       return { ok: false, error: `No se detecto rostro en: ${missing.join(', ')}. Intenta de nuevo.`, missing };
     }
 
+    let geometryRatios: number[] = [];
+    let geometryAngles: number[] = [];
+    let geometryVectors: number[] = [];
+    if (landmarks && landmarks.length >= 68) {
+      const pts2d: Point2D[] = landmarks.map((p: any) => ({ x: p.x, y: p.y }));
+      const sig = generateFaceSignature(pts2d);
+      geometryRatios = sig.ratios;
+      geometryAngles = sig.angles;
+      geometryVectors = sig.vectors;
+      console.log('[faceApi] geometry calculated:', {
+        ratios: geometryRatios.length,
+        angles: geometryAngles.length,
+        vectors: geometryVectors.length,
+        sampleRatios: geometryRatios.slice(0, 3).map(r => r.toFixed(4)),
+        sampleAngles: geometryAngles.slice(0, 3).map(a => a.toFixed(1)),
+      });
+    }
+
     console.log('[faceApi] register embeddings:', {
       frontal: embeddings.frontal ? `${embeddings.frontal.length} dims` : 'NULL',
       izquierda: embeddings.izquierda ? `${embeddings.izquierda.length} dims` : 'NULL',
@@ -83,10 +102,15 @@ export async function faceApiRegister(
       usuario_id: usuarioId,
       embeddings,
       face_shape: faceShape,
-      proporciones: proportions,
+      proporciones: {
+        ...(proportions || {}),
+        ratios: geometryRatios,
+        angles: geometryAngles,
+        vectors: geometryVectors,
+      },
       landmarks_68: landmarks,
     };
-    console.log('[faceApi] register body:', JSON.stringify({ usuario_id: usuarioId, embeddingsKeys: Object.keys(embeddings), embeddingsValues: Object.values(embeddings).map(e => e ? e.length : null), faceShape }));
+    console.log('[faceApi] register body:', JSON.stringify({ usuario_id: usuarioId, embeddingsKeys: Object.keys(embeddings), ratiosCount: geometryRatios.length, anglesCount: geometryAngles.length }));
 
     const res = await fetch(apiUrl('register'), {
       method: 'POST',

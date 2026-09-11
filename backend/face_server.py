@@ -304,23 +304,31 @@ def face_register(req: FaceRegisterReq):
 
         existing = sb.table("rostros").select("id").eq("usuario_id", req.usuario_id).execute()
 
-        import json
-        face_info = {
-            "shape": req.face_shape or "",
-            "engine": "face_recognition+dlib",
-            "embedding_dims": 128,
-        }
-        if req.proporciones:
-            face_info["proporciones"] = req.proporciones
-        if req.landmarks_68:
-            face_info["landmarks_68"] = req.landmarks_68
+        def to_list(v):
+            if isinstance(v, list):
+                return [float(x) for x in v]
+            return v
 
         update_data = {
-            "embedding_frontal": embeddings.get("frontal"),
-            "embedding_izquierda": embeddings.get("izquierda"),
-            "embedding_derecha": embeddings.get("derecha"),
-            "forma_rostro": json.dumps(face_info),
+            "embedding_frontal": to_list(embeddings.get("frontal")),
+            "embedding_izquierda": to_list(embeddings.get("izquierda")),
+            "embedding_derecha": to_list(embeddings.get("derecha")),
+            "forma_rostro": req.face_shape or "",
+            "proporciones": req.proporciones or {},
+            "landmarks_68": req.landmarks_68 or [],
+            "metadata": {
+                "engine": "face_recognition+dlib",
+                "embedding_dims": 128,
+                "valid_angles": valid_count,
+                "ratios": (req.proporciones or {}).get("ratios", []),
+                "angles": (req.proporciones or {}).get("angles", []),
+            },
         }
+
+        print(f"[face] update_data keys: {list(update_data.keys())}")
+        print(f"[face] embedding_frontal dims: {len(update_data['embedding_frontal']) if update_data['embedding_frontal'] else 0}")
+        print(f"[face] proporciones: {bool(update_data['proporciones'])}")
+        print(f"[face] landmarks_68 count: {len(update_data['landmarks_68'])}")
 
         if existing.data:
             result = sb.table("rostros").update(update_data).eq("usuario_id", req.usuario_id).execute()
