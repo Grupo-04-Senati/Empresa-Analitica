@@ -125,12 +125,16 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     const leftEye = pts[36];
     const rightEye = pts[45];
     const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
-    const refSize = eyeDist || 40;
     const noseCenter = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
 
+    const faceScreenX = noseCenter.x * scaleX;
+    const faceScreenY = noseCenter.y * scaleY;
+    const TARGET_SIZE = 280;
+    const scale = eyeDist > 0 ? TARGET_SIZE / eyeDist : 1;
+
     const map = (p: { x: number; y: number }) => ({
-      x: ((p.x - noseCenter.x) / refSize) * eyeDist * scaleX + canvasW / 2,
-      y: ((p.y - noseCenter.y) / refSize) * eyeDist * scaleY + canvasH / 2,
+      x: (p.x - noseCenter.x) * scale * scaleX + faceScreenX,
+      y: (p.y - noseCenter.y) * scale * scaleY + faceScreenY,
     });
 
     const mapped = pts.map(map);
