@@ -95,11 +95,7 @@ def face_register(req: FaceRegisterReq):
             "embedding_frontal": embeddings.get("frontal"),
             "embedding_izquierda": embeddings.get("izquierda"),
             "embedding_derecha": embeddings.get("derecha"),
-            "metadata": {
-                "face_shape": req.face_shape,
-                "proporciones": req.proporciones,
-                "landmarks_68": req.landmarks_68,
-            },
+            "forma_rostro": req.face_shape or "",
         }
 
         if existing.data:
