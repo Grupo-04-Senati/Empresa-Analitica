@@ -62,6 +62,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   const [multiFace, setMultiFace] = useState(false);
   const [faceGeometry, setFaceGeometry] = useState<FaceGeometry | null>(null);
   const [faceSig, setFaceSig] = useState<FaceSignature | null>(null);
+  const [readyToCapture, setReadyToCapture] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -296,6 +297,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     if (!video || !streamRef.current) return;
 
     goodFramesRef.current = 0;
+    setReadyToCapture(false);
 
     let alive = true;
     intervalRef.current = setInterval(async () => {
@@ -352,16 +354,26 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           if (isGood) {
             goodFramesRef.current++;
             setStatusMsg(q.message || 'Detectando...');
-            if (goodFramesRef.current >= 2) {
-              goodFramesRef.current = 0;
-              setStatusMsg('Posicion correcta - Capturando...');
-              alive = false;
-              if (intervalRef.current) clearInterval(intervalRef.current);
-              setTimeout(() => startCaptureRef.current(), 300);
-              return;
+
+            if (mode === 'register') {
+              if (goodFramesRef.current >= 2) {
+                goodFramesRef.current = 0;
+                setReadyToCapture(true);
+                setStatusMsg('Rostro listo - Presiona el boton');
+              }
+            } else {
+              if (goodFramesRef.current >= 2) {
+                goodFramesRef.current = 0;
+                setStatusMsg('Posicion correcta - Capturando...');
+                alive = false;
+                if (intervalRef.current) clearInterval(intervalRef.current);
+                setTimeout(() => startCaptureRef.current(), 300);
+                return;
+              }
             }
           } else {
             goodFramesRef.current = Math.max(0, goodFramesRef.current - 1);
+            setReadyToCapture(false);
             setStatusMsg(q.message || 'Ajuste su posicion');
           }
         }
@@ -404,6 +416,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           if (angleIdx < ANGLES.length - 1) {
             setCurrentAngle(angleIdx + 1);
             goodFramesRef.current = 0;
+            setReadyToCapture(false);
             setPhase('scanning');
             setStatusMsg(`Posicion: ${ANGLES[angleIdx + 1].instruction}`);
           } else if (mode === 'login') {
@@ -428,6 +441,12 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   }, [mode, onCapture, usuarioId, stopAll]);
 
   startCaptureRef.current = startCapture;
+
+  const handleManualCapture = useCallback(() => {
+    if (!readyToCapture) return;
+    setReadyToCapture(false);
+    startCaptureRef.current();
+  }, [readyToCapture]);
 
   const doRegister = useCallback(async (photos: Record<string, string>) => {
     setPhase('processing');
@@ -480,7 +499,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           <div className="flex items-center gap-2">
             <Shield size={18} className="text-blue-600" />
             <h3 className="font-semibold text-slate-800">
-              {mode === 'register' ? 'Registro Facial Seguro' : 'Verificacion de Identidad'}
+              {mode === 'register' ? 'Registro Facial - Paso a Paso' : 'Verificacion de Identidad'}
             </h3>
           </div>
           <button onClick={handleClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-500" /></button>
@@ -555,6 +574,22 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                   </div>
                 </div>
 
+                {mode === 'register' && (
+                  <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10">
+                    <div className="flex gap-1">
+                      {ANGLES.map((a, i) => (
+                        <div key={a.key} className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          i < currentAngle ? 'bg-green-500 text-white' :
+                          i === currentAngle ? 'bg-blue-500 text-white' :
+                          'bg-white/20 text-white/60'
+                        }`}>
+                          {i < currentAngle ? '✓' : a.label}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {multiFace && (
                   <div className="absolute inset-0 flex items-center justify-center bg-red-500/30 z-20">
                     <div className="bg-red-500 rounded-2xl px-6 py-3 flex items-center gap-2">
@@ -568,9 +603,15 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                   <div className="bg-black/60 rounded-xl px-5 py-3 text-center max-w-xs">
                     <p className="text-white text-base font-bold">{statusMsg}</p>
                     <p className="text-white/70 text-xs mt-1">
-                      {currentAngle === 0 && 'Posiciona tu cara dentro del ovalo, mirando de frente'}
-                      {currentAngle === 1 && 'Gira la cabeza lentamente a un lado'}
-                      {currentAngle === 2 && 'Gira la cabeza lentamente al otro lado'}
+                      {mode === 'register' ? (
+                        currentAngle === 0 ? 'Posiciona tu cara de frente, centrada en la pantalla' :
+                        currentAngle === 1 ? 'Gira la cabeza lentamente a la izquierda' :
+                        'Gira la cabeza lentamente a la derecha'
+                      ) : (
+                        currentAngle === 0 && 'Posiciona tu cara dentro del ovalo, mirando de frente'
+                      )}
+                      {mode === 'login' && currentAngle === 1 && 'Gira la cabeza lentamente a un lado'}
+                      {mode === 'login' && currentAngle === 2 && 'Gira la cabeza lentamente al otro lado'}
                     </p>
                   </div>
                 </div>
@@ -637,6 +678,27 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                 <div className="flex items-center gap-1"><Scan size={12} /><span>15 ratios + 12 angulos</span></div>
                 {faceSig && <span className="text-[9px] text-blue-400">Firma: {faceSig.ratios.length}R + {faceSig.angles.length}A</span>}
               </div>
+
+              {mode === 'register' && (
+                <div className="mt-3">
+                  <button
+                    onClick={handleManualCapture}
+                    disabled={!readyToCapture}
+                    className={`w-full py-3 rounded-xl font-bold text-white text-sm transition-all ${
+                      readyToCapture
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/30 active:scale-95'
+                        : 'bg-slate-300 cursor-not-allowed text-slate-500'
+                    }`}
+                  >
+                    {readyToCapture ? 'Capturar Rostro' : 'Ajusta tu posicion...'}
+                  </button>
+                  {readyToCapture && (
+                    <p className="text-center text-[10px] text-emerald-600 mt-1 font-medium animate-pulse">
+                      Rostro detectado correctamente
+                    </p>
+                  )}
+                </div>
+              )}
             </>
           )}
 
