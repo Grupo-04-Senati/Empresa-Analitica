@@ -162,7 +162,10 @@ export async function faceApiLogin(
 
     console.log('[faceApi] multi-face check passed: 1 face detected');
 
-    const embeddings = await extractEmbeddings(photos);
+    const result = await extractEmbeddingsAndShape(photos);
+    const embeddings = result.embeddings;
+    const landmarks = result.landmarks;
+    const proportions = result.proportions;
 
     const presentAngles: string[] = [];
     if (embeddings.frontal) presentAngles.push('frontal');
@@ -197,14 +200,47 @@ export async function faceApiLogin(
 
     console.log(`[faceApi] login embeddings: ${embList.length}/3 angles OK, dims:`, embList[0]?.length);
 
+    let geometryRatios: number[] = [];
+    let geometryAngles: number[] = [];
+    let geometryVectors: number[] = [];
+    if (landmarks && landmarks.length >= 68) {
+      const pts2d: Point2D[] = landmarks.map((p: any) => ({ x: p.x, y: p.y }));
+      const sig = generateFaceSignature(pts2d);
+      geometryRatios = sig.ratios;
+      geometryAngles = sig.angles;
+      geometryVectors = sig.vectors;
+      console.log('[faceApi] login geometry:', {
+        ratios: geometryRatios.length,
+        angles: geometryAngles.length,
+        vectors: geometryVectors.length,
+      });
+    }
+
     const frontalPhoto = photos['frontal'] || photos[Object.keys(photos)[0]];
     const loginFaceShape = frontalPhoto ? await extractFrontalShape(frontalPhoto) : null;
-    console.log('[faceApi] login face shape detected:', loginFaceShape);
+
+    const loginBody = {
+      embeddings: embList,
+      face_shape: loginFaceShape,
+      proporciones: {
+        ratios: geometryRatios,
+        angles: geometryAngles,
+        vectors: geometryVectors,
+      },
+      landmarks_68: landmarks,
+    };
+    console.log('[faceApi] login body dimensions:', {
+      embeddings: embList.length,
+      ratios: geometryRatios.length,
+      angles: geometryAngles.length,
+      vectors: geometryVectors.length,
+      landmarks: landmarks ? landmarks.length : 0,
+    });
 
     const res = await fetch(apiUrl('login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeddings: embList, face_shape: loginFaceShape }),
+      body: JSON.stringify(loginBody),
     });
 
     if (!res.ok) {

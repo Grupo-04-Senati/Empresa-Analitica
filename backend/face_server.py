@@ -145,7 +145,7 @@ def distancia(a, b):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "face+delete", "engine": "face_recognition+dlib"}
+    return {"status": "ok", "service": "face+delete", "engine": "face_recognition+dlib+geometry", "version": "2.0"}
 
 
 @app.get("/")
@@ -362,7 +362,6 @@ def face_register(req: FaceRegisterReq):
         print(f"[face] Resultado busqueda usuario: {usuario.data}")
         
         if not usuario.data:
-            # Try to list some users to debug
             try:
                 all_users = sb.table("usuarios").select("id, email").limit(10).execute()
                 print(f"[face] Usuarios en tabla (debug): {all_users.data}")
@@ -377,26 +376,37 @@ def face_register(req: FaceRegisterReq):
                 return [float(x) for x in v]
             return v
 
+        ratios = (req.proporciones or {}).get("ratios", [])
+        angles = (req.proporciones or {}).get("angles", [])
+        vectors = (req.proporciones or {}).get("vectors", [])
+
+        proporciones_data = {
+            "ratios": [float(x) for x in ratios] if ratios else [],
+            "angles": [float(x) for x in angles] if angles else [],
+            "vectors": [float(x) for x in vectors] if vectors else [],
+        }
+
         update_data = {
             "embedding_frontal": to_list(embeddings.get("frontal")),
             "embedding_izquierda": to_list(embeddings.get("izquierda")),
             "embedding_derecha": to_list(embeddings.get("derecha")),
             "forma_rostro": req.face_shape or "",
-            "proporciones": req.proporciones or {},
+            "proporciones": proporciones_data,
             "landmarks_68": req.landmarks_68 or [],
             "metadata": {
                 "engine": "face_recognition+dlib",
                 "embedding_dims": 128,
                 "valid_angles": valid_count,
-                "ratios": (req.proporciones or {}).get("ratios", []),
-                "angles": (req.proporciones or {}).get("angles", []),
+                "ratios_count": len(ratios),
+                "angles_count": len(angles),
+                "vectors_count": len(vectors),
+                "landmarks_count": len(req.landmarks_68) if req.landmarks_68 else 0,
             },
         }
 
-        print(f"[face] update_data keys: {list(update_data.keys())}")
-        print(f"[face] embedding_frontal dims: {len(update_data['embedding_frontal']) if update_data['embedding_frontal'] else 0}")
-        print(f"[face] proporciones: {bool(update_data['proporciones'])}")
-        print(f"[face] landmarks_68 count: {len(update_data['landmarks_68'])}")
+        print(f"[face] register: usuario_id={req.usuario_id}, angles={valid_count}, "
+              f"ratios={len(ratios)}, angles_geo={len(angles)}, vectors={len(vectors)}, "
+              f"landmarks={len(req.landmarks_68) if req.landmarks_68 else 0}")
 
         if existing.data:
             try:
@@ -404,7 +414,6 @@ def face_register(req: FaceRegisterReq):
                 print(f"[face] Update OK: {result.data}")
             except Exception as e:
                 print(f"[face] Error en update: {e}")
-                # If update fails, try to add updated_at column suggestion
                 if "updated_at" in str(e):
                     raise HTTPException(
                         status_code=500, 
@@ -440,6 +449,39 @@ def face_register(req: FaceRegisterReq):
 class FaceLoginReq(BaseModel):
     embeddings: list
     face_shape: str | None = None
+    proporciones: dict | None = None
+    landmarks_68: list | None = None
+
+
+def _distancia_embedding(a, b):
+    a_arr = np.array(a, dtype=np.float64)
+    b_arr = np.array(b, dtype=np.float64)
+    norm_a = np.linalg.norm(a_arr)
+    norm_b = np.linalg.norm(b_arr)
+    if norm_a > 0:
+        a_arr = a_arr / norm_a
+    if norm_b > 0:
+        b_arr = b_arr / norm_b
+    dot = np.clip(np.dot(a_arr, b_arr), -1.0, 1.0)
+    return float(1.0 - dot)
+
+
+def _distancia_firma(a, b):
+    if not a or not b or len(a) == 0 or len(b) == 0:
+        return 1.0
+    a_arr = np.array(a, dtype=np.float64)
+    b_arr = np.array(b, dtype=np.float64)
+    min_len = min(len(a_arr), len(b_arr))
+    a_arr = a_arr[:min_len]
+    b_arr = b_arr[:min_len]
+    norm_a = np.linalg.norm(a_arr)
+    norm_b = np.linalg.norm(b_arr)
+    if norm_a > 0:
+        a_arr = a_arr / norm_a
+    if norm_b > 0:
+        b_arr = b_arr / norm_b
+    diff = a_arr - b_arr
+    return float(np.sqrt(np.mean(diff ** 2)))
 
 
 @app.post("/face/login")
@@ -450,11 +492,28 @@ def face_login(req: FaceLoginReq):
         if not login_embeddings:
             raise HTTPException(status_code=422, detail="No se detecto ningun rostro en las imagenes")
 
-        rostros = sb.table("rostros").select("usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha").execute().data
+        rostros = sb.table("rostros").select(
+            "usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha, "
+            "proporciones, landmarks_68, forma_rostro"
+        ).execute().data
         if not rostros:
             raise HTTPException(status_code=404, detail="No hay usuarios con rostro registrado. Debes registrarte primero.")
 
+        login_ratios = []
+        login_angles = []
+        login_vectors = []
+        login_landmarks = None
+
+        if req.proporciones:
+            login_ratios = req.proporciones.get("ratios", [])
+            login_angles = req.proporciones.get("angles", [])
+            login_vectors = req.proporciones.get("vectors", [])
+
+        if req.landmarks_68:
+            login_landmarks = req.landmarks_68
+
         user_scores: dict[int, list[float]] = {}
+        user_details: dict[int, dict] = {}
 
         for login_emb in login_embeddings:
             login_arr = np.array(login_emb, dtype=np.float64)
@@ -464,6 +523,10 @@ def face_login(req: FaceLoginReq):
 
             for r in rostros:
                 uid = r["usuario_id"]
+                if uid not in user_scores:
+                    user_scores[uid] = []
+                    user_details[uid] = {"emb_matches": 0, "ratio_dists": [], "angle_dists": [], "vector_dists": [], "landmark_dists": []}
+
                 for angle_key in ["embedding_frontal", "embedding_izquierda", "embedding_derecha"]:
                     stored_emb = r.get(angle_key)
                     if stored_emb is None:
@@ -472,26 +535,72 @@ def face_login(req: FaceLoginReq):
                     norm_s = np.linalg.norm(stored_arr)
                     if norm_s > 0:
                         stored_arr = stored_arr / norm_s
-                    dist = distancia(login_arr.tolist(), stored_arr.tolist())
-                    if uid not in user_scores:
-                        user_scores[uid] = []
-                    user_scores[uid].append(dist)
-                    print(f"[face] vs user {uid} ({angle_key}): dist={dist:.4f}")
+
+                    emb_dist = _distancia_embedding(login_emb, stored_emb)
+                    score = emb_dist
+
+                    if login_ratios and r.get("proporciones"):
+                        stored_ratios = (r["proporciones"] or {}).get("ratios", [])
+                        if stored_ratios:
+                            ratio_dist = _distancia_firma(login_ratios, stored_ratios)
+                            user_details[uid]["ratio_dists"].append(ratio_dist)
+                            score = score * 0.50 + ratio_dist * 0.20
+
+                    if login_angles and r.get("proporciones"):
+                        stored_angles = (r["proporciones"] or {}).get("angles", [])
+                        if stored_angles:
+                            angle_dist = _distancia_firma(login_angles, stored_angles)
+                            user_details[uid]["angle_dists"].append(angle_dist)
+                            score = score * 0.70 + angle_dist * 0.15
+
+                    if login_vectors and r.get("proporciones"):
+                        stored_vectors = (r["proporciones"] or {}).get("vectors", [])
+                        if stored_vectors:
+                            vector_dist = _distancia_firma(login_vectors, stored_vectors)
+                            user_details[uid]["vector_dists"].append(vector_dist)
+                            score = score * 0.80 + vector_dist * 0.10
+
+                    if login_landmarks and r.get("landmarks_68"):
+                        stored_landmarks = r["landmarks_68"]
+                        if stored_landmarks and len(stored_landmarks) >= 68:
+                            lm_dist = _distancia_firma(
+                                [p.get("x", 0) for p in login_landmarks[:68]],
+                                [p.get("x", 0) for p in stored_landmarks[:68]]
+                            ) * 0.5 + _distancia_firma(
+                                [p.get("y", 0) for p in login_landmarks[:68]],
+                                [p.get("y", 0) for p in stored_landmarks[:68]]
+                            ) * 0.5
+                            user_details[uid]["landmark_dists"].append(lm_dist)
+                            score = score * 0.90 + lm_dist * 0.05
+
+                    user_scores[uid].append(score)
+                    user_details[uid]["emb_matches"] += 1
+                    print(f"[face] vs user {uid} ({angle_key}): score={score:.4f}")
 
         results = []
-        for uid, dists in user_scores.items():
-            matches = [d for d in dists if d <= UMBRAL]
+        for uid, scores in user_scores.items():
+            matches = [s for s in scores if s <= UMBRAL]
             if len(matches) >= MIN_MATCHES:
                 best = min(matches)
-                results.append({"userId": uid, "bestDist": best, "matchCount": len(matches)})
+                detail = user_details[uid]
+                results.append({
+                    "userId": uid,
+                    "bestScore": best,
+                    "matchCount": len(matches),
+                    "embMatches": detail["emb_matches"],
+                    "avgRatioDist": np.mean(detail["ratio_dists"]) if detail["ratio_dists"] else None,
+                    "avgAngleDist": np.mean(detail["angle_dists"]) if detail["angle_dists"] else None,
+                    "avgVectorDist": np.mean(detail["vector_dists"]) if detail["vector_dists"] else None,
+                    "avgLandmarkDist": np.mean(detail["landmark_dists"]) if detail["landmark_dists"] else None,
+                })
 
         if not results:
             raise HTTPException(status_code=401, detail="Rostro no reconocido. Debes registrarte primero.")
 
-        results.sort(key=lambda x: x["bestDist"])
+        results.sort(key=lambda x: x["bestScore"])
 
         if len(results) > 1:
-            gap = results[1]["bestDist"] - results[0]["bestDist"]
+            gap = results[1]["bestScore"] - results[0]["bestScore"]
             if gap < UMBRAL_GAP:
                 print(f"[face] Ambiguo: gap={gap:.4f} < {UMBRAL_GAP}")
                 raise HTTPException(status_code=401, detail="Rostro ambiguo, intente de nuevo")
@@ -501,14 +610,27 @@ def face_login(req: FaceLoginReq):
 
         if usuario.data:
             u = usuario.data[0]
-            print(f"[face] Login OK: user={u['id']} dist={winner['bestDist']:.4f}")
+            print(f"[face] Login OK: user={u['id']} score={winner['bestScore']:.4f} "
+                  f"emb={winner['embMatches']} ratios={winner['avgRatioDist']} angles={winner['avgAngleDist']}")
             return {
                 "ok": True,
                 "usuario_id": u["id"],
                 "nombre": u["nombre"],
                 "email": u["email"],
                 "rol": u["rol"],
-                "distancia": round(winner["bestDist"], 4),
+                "distancia": round(winner["bestScore"], 4),
+                "_debug": {
+                    "embeddingsReceived": len(login_embeddings),
+                    "threshold": UMBRAL,
+                    "avgSimilarity": round(1.0 - winner["bestScore"], 4),
+                    "avgDistance": round(winner["bestScore"], 4),
+                    "matchCount": winner["matchCount"],
+                    "embMatches": winner["embMatches"],
+                    "avgRatioDist": round(winner["avgRatioDist"], 4) if winner["avgRatioDist"] else None,
+                    "avgAngleDist": round(winner["avgAngleDist"], 4) if winner["avgAngleDist"] else None,
+                    "avgVectorDist": round(winner["avgVectorDist"], 4) if winner["avgVectorDist"] else None,
+                    "avgLandmarkDist": round(winner["avgLandmarkDist"], 4) if winner["avgLandmarkDist"] else None,
+                },
             }
 
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
