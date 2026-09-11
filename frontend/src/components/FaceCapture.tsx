@@ -115,13 +115,12 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
         if (phaseRef.current === 'scanning') {
           const angleKey = ANGLES[angleRef.current]?.key;
-          const needsCentered = angleKey === 'frontal';
-          const isGood = q.detected && (needsCentered ? q.centered : true) && q.score >= 0.3;
+          const isGood = q.detected && q.angleOk && q.score >= 0.4;
 
           if (isGood) {
             goodFramesRef.current++;
             setStatusMsg(q.message || 'Detectando...');
-            if (goodFramesRef.current >= 2) {
+            if (goodFramesRef.current >= 3) {
               goodFramesRef.current = 0;
               setStatusMsg('Posicion correcta - Capturando...');
               alive = false;

@@ -481,7 +481,8 @@ export async function analyzeFaceQuality(input: HTMLVideoElement | HTMLCanvasEle
       const rightEye = pts[45];
       const centerX = (leftEye.x + rightEye.x) / 2;
       const eyeDist = Math.abs(rightEye.x - leftEye.x);
-      const noseOffset = (nose.x - centerX) / eyeDist;
+      const rawNoseOffset = (nose.x - centerX) / eyeDist;
+      const noseOffset = -rawNoseOffset;
       centered = Math.abs(noseOffset) < 0.25;
       if (angle === 'frontal') angleOk = Math.abs(noseOffset) < 0.2;
       else if (angle === 'izquierda') angleOk = noseOffset > 0.2;
@@ -519,7 +520,7 @@ export async function checkAngle(input: HTMLVideoElement | HTMLCanvasElement, an
     const rightEye = pts[45];
     const centerX = (leftEye.x + rightEye.x) / 2;
     const eyeDist = Math.abs(rightEye.x - leftEye.x);
-    const noseOffset = (nose.x - centerX) / eyeDist;
+    const noseOffset = -(nose.x - centerX) / eyeDist;
 
     if (angle === 'frontal') return { ok: Math.abs(noseOffset) < 0.2 };
     if (angle === 'izquierda') return { ok: noseOffset > 0.2 };

@@ -167,7 +167,7 @@ class FaceRegisterReq(BaseModel):
     embeddings: dict
     face_shape: str | None = None
     proporciones: dict | None = None
-    landmarks_68: dict | None = None
+    landmarks_68: list | None = None
 
 
 @app.post("/face/register")
@@ -194,6 +194,14 @@ def face_register(req: FaceRegisterReq):
             "embedding_derecha": embeddings.get("derecha"),
             "forma_rostro": req.face_shape or "",
         }
+
+        metadata = {}
+        if req.proporciones:
+            metadata["proporciones"] = req.proporciones
+        if req.landmarks_68:
+            metadata["landmarks_68"] = req.landmarks_68
+        if metadata:
+            update_data["metadata"] = metadata
 
         if existing.data:
             result = sb.table("rostros").update(update_data).eq("usuario_id", req.usuario_id).execute()
