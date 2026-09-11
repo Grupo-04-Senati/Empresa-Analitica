@@ -214,16 +214,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
 
     try {
-      const { error: clienteErr } = await supabase.from('clientes').insert({
+      const { error: clienteErr } = await supabase.from('clientes').upsert({
         nombre: data.nombre.trim(),
         email: cleanEmail,
         telefono: data.telefono?.trim() || null,
         empresa: data.empresa?.trim() || null,
         usuario_id: dbData.id,
         activo: true,
-      });
+      }, { onConflict: 'email' });
       if (clienteErr) {
-        console.warn('[auth] Cliente insert conflict/err:', clienteErr.message);
+        console.warn('[auth] Cliente upsert err:', clienteErr.message);
       }
     } catch (e) {
       console.warn('[auth] No se pudo crear cliente automaticamente:', e);

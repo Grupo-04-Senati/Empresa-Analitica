@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://empresa-analitica.onrender.com';
 
 function sanitizeHeader(s: string): string {
   return s.replace(/[^\x00-\x7F]/g, '');

@@ -1,10 +1,10 @@
 import { extractEmbeddings, extractEmbeddingsAndShape, detectMultipleFaces, extractFrontalShape } from './faceRecognition';
 import { generateFaceSignature, Point2D } from './faceGeometry';
 
-const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || '';
+const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || 'https://empresa-analitica-face.onrender.com';
 
-if (!FACE_API_BASE) {
-  console.error('[faceApi] WARNING: VITE_FACE_API_URL is EMPTY! Face registration will fail.');
+if (!FACE_API_BASE || FACE_API_BASE === '') {
+  console.error('[faceApi] WARNING: VITE_FACE_API_URL is EMPTY! Using hardcoded fallback.');
 } else {
   console.log('[faceApi] FACE_API_BASE:', FACE_API_BASE);
 }
