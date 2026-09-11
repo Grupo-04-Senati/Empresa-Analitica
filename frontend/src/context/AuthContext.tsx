@@ -36,6 +36,28 @@ function isAdminRole(rol: string): boolean {
 
 const FACE_KEY = 'badi_face_session';
 
+async function waitForProfile(authUserId: string, maxAttempts = 10): Promise<any> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const { data } = await supabase
+      .from('usuarios')
+      .select('id, nombre, email, rol, activo, telefono, empresa')
+      .eq('auth_user_id', authUserId)
+      .maybeSingle();
+    if (data) return data;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return null;
+}
+
+async function getProfileByEmail(email: string) {
+  const { data } = await supabase
+    .from('usuarios')
+    .select('id, nombre, email, rol, activo, telefono, empresa')
+    .eq('email', email)
+    .maybeSingle();
+  return data;
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,18 +68,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const init = async () => {
       try {
         const { data: { session } } = await auth.getSession();
-        if (session?.user?.email) {
-          const email = session.user.email.toLowerCase();
-          const { data: profile } = await supabase
-            .from('usuarios')
-            .select('id, nombre, email, rol, activo, telefono, empresa')
-            .eq('email', email)
-            .maybeSingle();
+        if (session?.user) {
+          const uid = session.user.id;
+          let profile = await waitForProfile(uid, 3);
+          if (!profile && session.user.email) {
+            profile = await getProfileByEmail(session.user.email.toLowerCase());
+          }
           if (profile) {
             setUser({
               id: String(profile.id),
-              nombre: profile.nombre || email.split('@')[0],
-              email,
+              nombre: profile.nombre || session.user.email?.split('@')[0] || '',
+              email: profile.email.toLowerCase(),
               rol: (profile.rol as UserRole) || 'usuario',
               activo: profile.activo ?? true,
               telefono: profile.telefono || undefined,
@@ -104,18 +125,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (registeringRef.current) return;
       if (faceLockRef.current) return;
 
-      if (session?.user?.email) {
-        const email = session.user.email.toLowerCase();
-        const { data: profile } = await supabase
-          .from('usuarios')
-          .select('id, nombre, email, rol, activo, telefono, empresa')
-          .eq('email', email)
-          .maybeSingle();
+      if (session?.user) {
+        const uid = session.user.id;
+        let profile = await waitForProfile(uid, 3);
+        if (!profile && session.user.email) {
+          profile = await getProfileByEmail(session.user.email.toLowerCase());
+        }
         if (profile) {
           setUser({
             id: String(profile.id),
-            nombre: profile.nombre || email.split('@')[0],
-            email,
+            nombre: profile.nombre || session.user.email?.split('@')[0] || '',
+            email: profile.email.toLowerCase(),
             rol: (profile.rol as UserRole) || 'usuario',
             activo: profile.activo ?? true,
             telefono: profile.telefono || undefined,
@@ -169,19 +189,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     registeringRef.current = true;
 
     try {
-      const existingUser = await supabase.from('usuarios').select('id').eq('email', cleanEmail).maybeSingle();
-
-      if (existingUser.data) {
+      const existingProfile = await getProfileByEmail(cleanEmail);
+      if (existingProfile) {
         const { data: signInData, error: signInErr } = await auth.signInWithPassword({
           email: cleanEmail,
           password: data.password,
         });
         if (!signInErr && signInData?.user) {
           registeringRef.current = false;
-          return { success: true, userId: existingUser.data.id };
+          return { success: true, userId: existingProfile.id };
         }
-        await supabase.from('clientes').delete().eq('email', cleanEmail);
-        await supabase.from('usuarios').delete().eq('id', existingUser.data.id);
       }
 
       const { data: authData, error: authError } = await auth.signUp({
@@ -196,20 +213,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, message: 'Error al crear cuenta: ' + authError.message };
       }
 
-      const { data: dbData, error: dbError } = await supabase.from('usuarios').insert({
-        nombre: data.nombre.trim(),
-        email: cleanEmail,
-        password_hash: 'auth_managed',
-        rol: rolAsignado,
-        activo: true,
-        telefono: data.telefono?.trim() || null,
-        empresa: data.empresa?.trim() || null,
-      }).select('id').single();
-
-      if (dbError) {
-        console.error('DB insert error:', dbError.message);
+      if (!authData?.user?.id) {
         registeringRef.current = false;
-        return { success: false, message: 'Error al crear perfil: ' + dbError.message };
+        return { success: false, message: 'No se pudo crear la cuenta.' };
+      }
+
+      const profile = await waitForProfile(authData.user.id, 15);
+
+      if (!profile) {
+        registeringRef.current = false;
+        return { success: false, message: 'Error: el perfil no se creo automaticamente. Intenta de nuevo.' };
+      }
+
+      const updates: Record<string, unknown> = {};
+      if (data.nombre.trim()) updates.nombre = data.nombre.trim();
+      if (rolAsignado) updates.rol = rolAsignado;
+      if (data.telefono?.trim()) updates.telefono = data.telefono.trim();
+      if (data.empresa?.trim()) updates.empresa = data.empresa.trim();
+      updates.updated_at = new Date().toISOString();
+
+      if (Object.keys(updates).length > 1) {
+        await supabase.from('usuarios').update(updates).eq('id', profile.id);
       }
 
       try {
@@ -224,27 +248,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch {}
 
       try {
-        const { error: clienteErr } = await supabase.from('clientes').upsert({
+        await supabase.from('clientes').upsert({
           nombre: data.nombre.trim(),
           email: cleanEmail,
           telefono: data.telefono?.trim() || null,
           empresa: data.empresa?.trim() || null,
-          usuario_id: dbData.id,
+          usuario_id: profile.id,
           activo: true,
         }, { onConflict: 'email' });
-        if (clienteErr) {
-          console.warn('[auth] Cliente upsert err:', clienteErr.message);
-        }
       } catch (e) {
-        console.warn('[auth] No se pudo crear cliente automaticamente:', e);
+        console.warn('[auth] Cliente upsert err:', e);
       }
 
-      logAudit({ accion: 'REGISTER', tabla: 'usuarios', registro_id: dbData.id, usuario_email: cleanEmail, modulo: 'Auth', detalles: `Nuevo registro: ${data.nombre.trim()} (${cleanEmail})`, datos_nuevos: { nombre: data.nombre.trim(), email: cleanEmail, rol: rolAsignado } });
+      logAudit({ accion: 'REGISTER', tabla: 'usuarios', registro_id: profile.id, usuario_email: cleanEmail, modulo: 'Auth', detalles: `Nuevo registro: ${data.nombre.trim()} (${cleanEmail})`, datos_nuevos: { nombre: data.nombre.trim(), email: cleanEmail, rol: rolAsignado } });
 
       await auth.signOut();
       registeringRef.current = false;
 
-      return { success: true, userId: dbData.id };
+      return { success: true, userId: profile.id };
     } catch (e: any) {
       console.error('[auth] register exception:', e);
       registeringRef.current = false;
@@ -271,37 +292,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Correo o contrasena incorrectos.' };
     }
 
-    let { data: profile } = await supabase
-      .from('usuarios')
-      .select('id, nombre, email, rol, activo, telefono, empresa')
-      .eq('email', cleanEmail)
-      .maybeSingle();
+    if (!authData?.user?.id) {
+      return { success: false, message: 'Error de autenticacion.' };
+    }
 
+    let profile = await waitForProfile(authData.user.id, 5);
     if (!profile) {
-      const nombre = authData.user?.user_metadata?.nombre || cleanEmail.split('@')[0];
-      const { data: newProfile, error: insertErr } = await supabase
-        .from('usuarios')
-        .insert({
-          nombre,
-          email: cleanEmail,
-          password_hash: 'auth_managed',
-          rol: 'USUARIO',
-          activo: true,
-        })
-        .select('id, nombre, email, rol, activo, telefono, empresa')
-        .maybeSingle();
-
-      if (insertErr) {
-        console.error('Error creando perfil:', insertErr);
-        await auth.signOut();
-        return { success: false, message: 'Error al crear perfil: ' + insertErr.message };
-      }
-      profile = newProfile;
+      profile = await getProfileByEmail(cleanEmail);
     }
 
     if (!profile) {
       await auth.signOut();
-      return { success: false, message: 'No se pudo crear el perfil.' };
+      return { success: false, message: 'No se encontro el perfil. Contacta al administrador.' };
     }
 
     if (!profile.activo) {
