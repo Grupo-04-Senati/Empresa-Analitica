@@ -41,6 +41,31 @@ interface FrozenDetection {
   videoH: number;
 }
 
+function interpolatePoints(pts: { x: number; y: number }[], count: number): { x: number; y: number }[] {
+  if (pts.length < 2) return pts;
+  const result: { x: number; y: number }[] = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const steps = Math.max(1, Math.floor(count / pts.length));
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      result.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    }
+  }
+  result.push(pts[pts.length - 1]);
+  return result;
+}
+
+function estimateDepth(pts: { x: number; y: number }[], center: { x: number; y: number }, eyeDist: number): number[] {
+  return pts.map(p => {
+    const dx = (p.x - center.x) / eyeDist;
+    const dy = (p.y - center.y) / eyeDist;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    return Math.max(0, 1 - dist * 0.4);
+  });
+}
+
 export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCapture, onLoginMatch, onClose }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -78,7 +103,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     if (intervalRef.current) { clearInterval(intervalRef.current); }
   }, []);
 
-  const drawLandmarks = useCallback((landmarks: faceapi.FaceLandmarks68, videoW: number, videoH: number, canvasW: number, canvasH: number) => {
+  const drawWireframeMask = useCallback((landmarks: faceapi.FaceLandmarks68, videoW: number, videoH: number, canvasW: number, canvasH: number) => {
     const overlay = overlayRef.current;
     if (!overlay) return;
     const ctx = overlay.getContext('2d');
@@ -93,102 +118,138 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     ctx.translate(-canvasW, 0);
 
     const pts = landmarks.positions;
-
     const leftEye = pts[36];
     const rightEye = pts[45];
     const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
     const refSize = eyeDist || 40;
+    const noseCenter = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
 
-    const noseCenter = {
-      x: (leftEye.x + rightEye.x) / 2,
-      y: (leftEye.y + rightEye.y) / 2,
-    };
-
-    const normalizePoint = (p: { x: number; y: number }) => ({
+    const map = (p: { x: number; y: number }) => ({
       x: ((p.x - noseCenter.x) / refSize) * eyeDist * scaleX + canvasW / 2,
       y: ((p.y - noseCenter.y) / refSize) * eyeDist * scaleY + canvasH / 2,
     });
 
-    const getPoint = (idx: number) => normalizePoint(pts[idx]);
+    const mapped = pts.map(map);
+    const depths = estimateDepth(pts, noseCenter, eyeDist);
 
-    const drawPoint = (p: { x: number; y: number }, color: string, size: number = 3) => {
+    const jawLine = pts.slice(0, 17).map(map);
+    const leftBrow = pts.slice(17, 22).map(map);
+    const rightBrow = pts.slice(22, 27).map(map);
+    const noseBridge = pts.slice(27, 31).map(map);
+    const noseBottom = pts.slice(31, 36).map(map);
+    const leftEyeContour = [...pts.slice(36, 42).map(map), map(pts[36])];
+    const rightEyeContour = [...pts.slice(42, 48).map(map), map(pts[42])];
+    const mouthOuter = [...pts.slice(48, 60).map(map), map(pts[48])];
+    const mouthInner = [...pts.slice(60, 68).map(map), map(pts[60])];
+
+    const jawInterp = interpolatePoints(jawLine, 34);
+    const leftCheek = interpolatePoints([jawLine[3], leftEyeContour[0], leftBrow[0]], 20);
+    const rightCheek = interpolatePoints([jawLine[13], rightEyeContour[0], rightBrow[4]], 20);
+    const forehead = interpolatePoints([leftBrow[0], { x: noseCenter.x, y: leftBrow[0].y - eyeDist * 0.5 }, rightBrow[4]], 20);
+    const chinLine = interpolatePoints([jawLine[6], jawLine[8], jawLine[10]], 16);
+    const leftJawline = interpolatePoints([jawLine[0], jawLine[3], jawLine[6]], 16);
+    const rightJawline = interpolatePoints([jawLine[10], jawLine[13], jawLine[16]], 16);
+
+    const allMeshLines = [jawInterp, leftCheek, rightCheek, forehead, chinLine, leftJawline, rightJawline, leftEyeContour, rightEyeContour, mouthOuter, mouthInner, noseBridge, noseBottom];
+
+    ctx.strokeStyle = 'rgba(0, 255, 200, 0.15)';
+    ctx.lineWidth = 0.5;
+    for (const line of allMeshLines) {
+      if (line.length < 2) continue;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 1;
+      ctx.moveTo(line[0].x, line[0].y);
+      for (let i = 1; i < line.length; i++) ctx.lineTo(line[i].x, line[i].y);
       ctx.stroke();
-    };
-
-    const drawLine = (a: { x: number; y: number }, b: { x: number; y: number }, color: string) => {
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    };
-
-    const drawContour = (indices: number[], color: string) => {
-      if (indices.length < 2) return;
-      ctx.beginPath();
-      const first = getPoint(indices[0]);
-      ctx.moveTo(first.x, first.y);
-      for (let i = 1; i < indices.length; i++) {
-        const p = getPoint(indices[i]);
-        ctx.lineTo(p.x, p.y);
-      }
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    };
-
-    drawContour(Array.from({ length: 17 }, (_, i) => i), 'rgba(0, 200, 255, 0.6)');
-    drawContour([17, 18, 19, 20, 21], 'rgba(255, 200, 0, 0.6)');
-    drawContour([22, 23, 24, 25, 26], 'rgba(255, 200, 0, 0.6)');
-    drawContour([27, 28, 29, 30, 31, 32, 33, 34, 35], 'rgba(0, 255, 100, 0.6)');
-    drawContour([36, 37, 38, 39, 40, 41, 36], 'rgba(255, 100, 100, 0.8)');
-    drawContour([42, 43, 44, 45, 46, 47, 42], 'rgba(255, 100, 100, 0.8)');
-    drawContour([48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 48], 'rgba(255, 150, 0, 0.6)');
-    drawContour([60, 61, 62, 63, 64, 65, 66, 67, 60], 'rgba(255, 100, 200, 0.5)');
-
-    for (let i = 0; i < pts.length; i++) {
-      const p = getPoint(i);
-      let color = 'rgba(255,255,255,0.7)';
-      let size = 2;
-      if (i >= 36 && i <= 47) { color = '#ff4444'; size = 3; }
-      else if (i >= 27 && i <= 35) { color = '#44ff44'; size = 3; }
-      else if (i >= 48 && i <= 67) { color = '#ff8800'; size = 2; }
-      else if (i <= 16) { color = '#00ccff'; size = 2; }
-      drawPoint(p, color, size);
     }
 
-    const le = normalizePoint({ x: pts.slice(36, 42).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(36, 42).reduce((s, p) => s + p.y, 0) / 6 });
-    const re = normalizePoint({ x: pts.slice(42, 48).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(42, 48).reduce((s, p) => s + p.y, 0) / 6 });
-    const nt = getPoint(30);
-    const mc = normalizePoint({ x: pts.slice(48, 68).reduce((s, p) => s + p.x, 0) / 20, y: pts.slice(48, 68).reduce((s, p) => s + p.y, 0) / 20 });
-    const ch = getPoint(8);
+    ctx.strokeStyle = 'rgba(0, 255, 200, 0.08)';
+    ctx.lineWidth = 0.3;
+    const hLines = 12;
+    for (let i = 1; i < hLines; i++) {
+      const t = i / hLines;
+      const leftP = { x: leftJawline[Math.floor(leftJawline.length * t)]?.x || jawLine[0].x, y: leftJawline[Math.floor(leftJawline.length * t)]?.y || jawLine[0].y };
+      const rightP = { x: rightJawline[Math.floor(rightJawline.length * t)]?.x || jawLine[16].x, y: rightJawline[Math.floor(rightJawline.length * t)]?.y || jawLine[16].y };
+      if (leftP && rightP) {
+        ctx.beginPath();
+        ctx.moveTo(leftP.x, leftP.y);
+        ctx.lineTo(rightP.x, rightP.y);
+        ctx.stroke();
+      }
+    }
 
-    drawLine(le, re, 'rgba(255,255,0,0.3)');
-    drawLine(nt, mc, 'rgba(0,255,0,0.3)');
-    drawLine(le, ch, 'rgba(0,200,255,0.2)');
-    drawLine(re, ch, 'rgba(0,200,255,0.2)');
+    const vLines = 8;
+    for (let i = 1; i < vLines; i++) {
+      const t = i / vLines;
+      const topP = forehead[Math.floor(forehead.length * t)];
+      const botP = chinLine[Math.floor(chinLine.length * t)];
+      if (topP && botP) {
+        ctx.beginPath();
+        ctx.moveTo(topP.x, topP.y);
+        ctx.lineTo(botP.x, botP.y);
+        ctx.stroke();
+      }
+    }
+
+    const glowIntensity = phase === 'countdown' ? 0.8 : 0.4;
+    for (let i = 0; i < mapped.length; i++) {
+      const p = mapped[i];
+      const d = depths[i];
+      const baseSize = 1.5 + d * 2;
+      const alpha = 0.3 + d * 0.5;
+
+      let color: string;
+      if (i >= 36 && i <= 47) color = `rgba(255, 80, 80, ${alpha})`;
+      else if (i >= 27 && i <= 35) color = `rgba(80, 255, 80, ${alpha})`;
+      else if (i >= 48 && i <= 67) color = `rgba(255, 160, 40, ${alpha})`;
+      else if (i <= 16) color = `rgba(40, 200, 255, ${alpha})`;
+      else color = `rgba(255, 255, 255, ${alpha})`;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, baseSize, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+
+      if (d > 0.7) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, baseSize + 3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 255, 200, ${glowIntensity * 0.15 * d})`;
+        ctx.fill();
+      }
+    }
+
+    ctx.strokeStyle = 'rgba(0, 255, 200, 0.25)';
+    ctx.lineWidth = 1;
+    const crosshair = [leftEyeContour, rightEyeContour, mouthOuter, noseBridge];
+    for (const contour of crosshair) {
+      if (contour.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(contour[0].x, contour[0].y);
+      for (let i = 1; i < contour.length; i++) ctx.lineTo(contour[i].x, contour[i].y);
+      ctx.stroke();
+    }
+
+    const le = map({ x: pts.slice(36, 42).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(36, 42).reduce((s, p) => s + p.y, 0) / 6 });
+    const re = map({ x: pts.slice(42, 48).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(42, 48).reduce((s, p) => s + p.y, 0) / 6 });
+    const nt = map(pts[30]);
+    const ch = map(pts[8]);
+    const mc = map({ x: pts.slice(48, 68).reduce((s, p) => s + p.x, 0) / 20, y: pts.slice(48, 68).reduce((s, p) => s + p.y, 0) / 20 });
+
+    ctx.strokeStyle = 'rgba(255, 255, 0, 0.15)';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(le.x, le.y); ctx.lineTo(re.x, re.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(nt.x, nt.y); ctx.lineTo(mc.x, mc.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(le.x, le.y); ctx.lineTo(ch.x, ch.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(re.x, re.y); ctx.lineTo(ch.x, ch.y); ctx.stroke();
+    ctx.setLineDash([]);
 
     ctx.restore();
-  }, []);
+  }, [phase]);
 
   const calculateGeometry = useCallback((landmarks: faceapi.FaceLandmarks68, videoW: number, videoH: number): FaceGeometry => {
     const pts = landmarks.positions;
-    const leftEye = pts[36];
-    const rightEye = pts[45];
-    const noseTip = pts[30];
-    const noseBridge = pts[27];
-    const chin = pts[8];
-    const leftMouth = pts[48];
-    const rightMouth = pts[54];
-    const leftJaw = pts[0];
-    const rightJaw = pts[16];
+    const leftEye = pts[36], rightEye = pts[45], noseTip = pts[30], noseBridge = pts[27], chin = pts[8];
+    const leftMouth = pts[48], rightMouth = pts[54], leftJaw = pts[0], rightJaw = pts[16];
 
     const interEyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
     const noseLength = Math.sqrt((noseTip.x - noseBridge.x) ** 2 + (noseTip.y - noseBridge.y) ** 2);
@@ -198,7 +259,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     const eyeAngle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x) * (180 / Math.PI);
     const centerX = (leftEye.x + rightEye.x) / 2;
     const noseOffsetNorm = (noseTip.x - centerX) / (interEyeDist || 1);
-
     const faceArea = jawWidth * faceHeight;
     const imageArea = videoW * videoH;
     const faceRatio = faceArea / imageArea;
@@ -207,7 +267,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     else if (faceRatio < 0.06) distance = 'lejos';
     else if (faceRatio > 0.15) distance = 'muy_cerca';
     else if (faceRatio > 0.10) distance = 'cerca';
-
     const probability = ((1 - Math.abs(noseOffsetNorm)) * 0.3 + Math.min(1, faceRatio / 0.08) * 0.3 + (1 - Math.abs(noseOffsetNorm * 45) / 45) * 0.4);
 
     return {
@@ -277,22 +336,19 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         }
 
         setMultiFace(false);
-
         const videoW = video.videoWidth || video.clientWidth;
         const videoH = video.videoHeight || video.clientHeight;
         const overlay = overlayRef.current;
         if (overlay) {
           overlay.width = overlay.clientWidth;
           overlay.height = overlay.clientHeight;
-          drawLandmarks(detections.landmarks, videoW, videoH, overlay.width, overlay.height);
+          drawWireframeMask(detections.landmarks, videoW, videoH, overlay.width, overlay.height);
         }
 
         frozenRef.current = { landmarks: detections.landmarks, score: detections.detection.score, videoW, videoH };
 
         const pts = detections.landmarks.positions;
-        const leftEye = pts[36];
-        const rightEye = pts[45];
-        const nose = pts[30];
+        const leftEye = pts[36], rightEye = pts[45], nose = pts[30];
         const centerX = (leftEye.x + rightEye.x) / 2;
         const eyeDist = Math.abs(rightEye.x - leftEye.x);
         const noseOffset = eyeDist > 0 ? -(nose.x - centerX) / eyeDist : 0;
@@ -305,7 +361,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
         const isCentered = Math.abs(noseOffset) < 0.4;
         const detScore = detections.detection.score;
-
         const noseToEye = Math.sqrt((nose.x - centerX) ** 2 + (nose.y - (leftEye.y + rightEye.y) / 2) ** 2);
         const faceRatio = eyeDist > 0 ? noseToEye / eyeDist : 0;
 
@@ -341,113 +396,77 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         else message = 'Listo para capturar';
 
         setQuality({ detected: detScore > 0.15, centered: isCentered, angleOk: isAngleOk, score, probability: score, confidence: detScore, message, brightness, blur: 50, size: 1, noseOffset, faceRatio, eyeDistance: eyeDist });
-
         const geom = calculateGeometry(detections.landmarks, videoW, videoH);
         setFaceGeometry(geom);
-
         const pts2d: Point2D[] = pts.map((p: any) => ({ x: p.x, y: p.y }));
-        const sig = generateFaceSignature(pts2d);
-        setFaceSig(sig);
+        setFaceSig(generateFaceSignature(pts2d));
 
         if (phaseRef.current === 'scanning') {
           const isGood = detScore > 0.15 && isAngleOk && isCentered && faceRatio > 0.08 && faceRatio < 2.5 && isGoodBrightness && score >= 0.6;
-
           if (isGood) {
             goodFramesRef.current++;
             setStatusMsg(message);
             if (mode === 'register') {
-              if (goodFramesRef.current >= 2) {
-                goodFramesRef.current = 0;
-                setReadyToCapture(true);
-                setStatusMsg('Rostro listo - Presiona el boton');
-              }
+              if (goodFramesRef.current >= 2) { goodFramesRef.current = 0; setReadyToCapture(true); setStatusMsg('Rostro listo - Presiona el boton'); }
             } else {
               if (goodFramesRef.current >= 2) {
-                goodFramesRef.current = 0;
-                setStatusMsg('Capturando...');
-                alive = false;
-                if (intervalRef.current) clearInterval(intervalRef.current);
-                setTimeout(() => startCaptureRef.current(), 200);
-                return;
+                goodFramesRef.current = 0; setStatusMsg('Capturando...');
+                alive = false; if (intervalRef.current) clearInterval(intervalRef.current);
+                setTimeout(() => startCaptureRef.current(), 200); return;
               }
             }
           } else {
             goodFramesRef.current = Math.max(0, goodFramesRef.current - 1);
-            setReadyToCapture(false);
-            setStatusMsg(message);
+            setReadyToCapture(false); setStatusMsg(message);
           }
         }
       } catch {}
     }, 250);
 
     return () => { alive = false; if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [phase, drawLandmarks, calculateGeometry, mode]);
+  }, [phase, drawWireframeMask, calculateGeometry, mode]);
 
   useEffect(() => {
     if (phase !== 'countdown') return;
     const frozen = frozenRef.current;
     if (!frozen) return;
-
     const overlay = overlayRef.current;
     if (overlay) {
       overlay.width = overlay.clientWidth;
       overlay.height = overlay.clientHeight;
-      drawLandmarks(frozen.landmarks, frozen.videoW, frozen.videoH, overlay.width, overlay.height);
+      drawWireframeMask(frozen.landmarks, frozen.videoW, frozen.videoH, overlay.width, overlay.height);
     }
-  }, [phase, countdown, drawLandmarks]);
+  }, [phase, countdown, drawWireframeMask]);
 
   const startCapture = useCallback(() => {
     setPhase('countdown');
     let c = 3;
     setCountdown(c);
-
     const tick = async () => {
       c--;
       if (c <= 0) {
         const video = videoRef.current;
         const canvas = canvasRef.current;
         if (!video || !canvas) return;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(video, 0, 0);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.translate(canvas.width, 0); ctx.scale(-1, 1); ctx.drawImage(video, 0, 0); ctx.setTransform(1, 0, 0, 1, 0, 0);
         const photo = canvas.toDataURL('image/jpeg', 0.95);
-
         const angleIdx = angleRef.current;
         const ang = ANGLES[angleIdx];
         const newPhotos = { ...photosRef.current, [ang.key]: photo };
-        photosRef.current = newPhotos;
-        setCapturedPhotos(newPhotos);
-        setStatusMsg(`${ang.label} capturada!`);
-        setCountdown(0);
-
+        photosRef.current = newPhotos; setCapturedPhotos(newPhotos); setStatusMsg(`${ang.label} capturada!`); setCountdown(0);
         timerRef.current = setTimeout(() => {
           if (angleIdx < ANGLES.length - 1) {
-            setCurrentAngle(angleIdx + 1);
-            goodFramesRef.current = 0;
-            setReadyToCapture(false);
-            frozenRef.current = null;
-            setPhase('scanning');
-            setStatusMsg(`Posicion: ${ANGLES[angleIdx + 1].instruction}`);
-          } else if (mode === 'login') {
-            doLoginRef.current(newPhotos);
-          } else if (mode === 'register' && usuarioId) {
-            setPhase('processing');
-            doRegister(newPhotos);
-          } else {
-            setPhase('done');
-            setSuccessMsg('Fotos capturadas correctamente');
-            stopAll();
-            if (onCapture) onCapture(newPhotos);
-          }
+            setCurrentAngle(angleIdx + 1); goodFramesRef.current = 0; setReadyToCapture(false); frozenRef.current = null;
+            setPhase('scanning'); setStatusMsg(`Posicion: ${ANGLES[angleIdx + 1].instruction}`);
+          } else if (mode === 'login') { doLoginRef.current(newPhotos); }
+          else if (mode === 'register' && usuarioId) { setPhase('processing'); doRegister(newPhotos); }
+          else { setPhase('done'); setSuccessMsg('Fotos capturadas correctamente'); stopAll(); if (onCapture) onCapture(newPhotos); }
         }, 800);
         return;
       }
-
       setCountdown(c);
       timerRef.current = setTimeout(tick, 700);
     };
@@ -455,51 +474,26 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   }, [mode, onCapture, usuarioId, stopAll]);
 
   startCaptureRef.current = startCapture;
-
-  const handleManualCapture = useCallback(() => {
-    if (!readyToCapture) return;
-    setReadyToCapture(false);
-    startCaptureRef.current();
-  }, [readyToCapture]);
+  const handleManualCapture = useCallback(() => { if (!readyToCapture) return; setReadyToCapture(false); startCaptureRef.current(); }, [readyToCapture]);
 
   const doRegister = useCallback(async (photos: Record<string, string>) => {
     setPhase('processing');
     try {
-      setStatusMsg('Enviando al servidor de reconocimiento facial...');
+      setStatusMsg('Enviando al servidor...');
       const result = await faceApiRegister(usuarioId!, photos);
-      if (!result.ok) {
-        setErrorMsg(result.error || 'Error registrando rostro');
-        setPhase('error');
-        return;
-      }
-      setSuccessMsg('Rostro registrado correctamente');
-      setPhase('done');
-      stopAll();
-      if (onCapture) onCapture(photos);
-    } catch {
-      setErrorMsg('Error de conexion con el servidor');
-      setPhase('error');
-    }
+      if (!result.ok) { setErrorMsg(result.error || 'Error registrando rostro'); setPhase('error'); return; }
+      setSuccessMsg('Rostro registrado correctamente'); setPhase('done'); stopAll(); if (onCapture) onCapture(photos);
+    } catch { setErrorMsg('Error de conexion con el servidor'); setPhase('error'); }
   }, [usuarioId, onCapture, stopAll]);
 
   const doLogin = useCallback(async (photos: Record<string, string>) => {
     setPhase('processing');
     try {
-      setStatusMsg('Verificando identidad en el servidor...');
+      setStatusMsg('Verificando identidad...');
       const result = await faceApiLogin(photos);
-      if (!result.ok) {
-        setErrorMsg(result.error || 'Rostro no reconocido');
-        setPhase('error');
-        return;
-      }
-      setSuccessMsg(`Bienvenido ${result.nombre}`);
-      setPhase('done');
-      stopAll();
-      if (onLoginMatch) onLoginMatch(result.usuario_id!, result.nombre!);
-    } catch {
-      setErrorMsg('Error de conexion con el servidor');
-      setPhase('error');
-    }
+      if (!result.ok) { setErrorMsg(result.error || 'Rostro no reconocido'); setPhase('error'); return; }
+      setSuccessMsg(`Bienvenido ${result.nombre}`); setPhase('done'); stopAll(); if (onLoginMatch) onLoginMatch(result.usuario_id!, result.nombre!);
+    } catch { setErrorMsg('Error de conexion con el servidor'); setPhase('error'); }
   }, [onLoginMatch, stopAll]);
 
   doLoginRef.current = doLogin;
@@ -511,214 +505,67 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
           <div className="flex items-center gap-2">
             <Shield size={18} className="text-blue-600" />
-            <h3 className="font-semibold text-slate-800">
-              {mode === 'register' ? 'Registro Facial' : 'Verificacion de Identidad'}
-            </h3>
+            <h3 className="font-semibold text-slate-800">{mode === 'register' ? 'Registro Facial' : 'Verificacion de Identidad'}</h3>
           </div>
           <button onClick={handleClose} className="p-1 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-500" /></button>
         </div>
-
         <div className="p-5">
-          {phase === 'loading' && (
-            <div className="flex flex-col items-center py-12 gap-3">
-              <Loader2 size={32} className="animate-spin text-blue-600" />
-              <p className="text-sm text-slate-500">Cargando modelos de seguridad...</p>
-            </div>
-          )}
-
-          {phase === 'error' && (
-            <div className="flex flex-col items-center py-8 gap-4">
-              <AlertCircle size={28} className="text-red-500" />
-              <p className="text-sm text-red-600 text-center">{errorMsg}</p>
-              <button onClick={handleClose} className="px-4 py-2 text-sm rounded-xl bg-blue-600 text-white hover:bg-blue-700">Cerrar</button>
-            </div>
-          )}
-
-          {phase === 'processing' && (
-            <div className="flex flex-col items-center py-12 gap-3">
-              <Loader2 size={32} className="animate-spin text-blue-600" />
-              <p className="text-sm text-slate-500">{statusMsg || (mode === 'register' ? 'Registrando tu rostro...' : 'Verificando identidad...')}</p>
-            </div>
-          )}
-
+          {phase === 'loading' && (<div className="flex flex-col items-center py-12 gap-3"><Loader2 size={32} className="animate-spin text-blue-600" /><p className="text-sm text-slate-500">Cargando modelos de seguridad...</p></div>)}
+          {phase === 'error' && (<div className="flex flex-col items-center py-8 gap-4"><AlertCircle size={28} className="text-red-500" /><p className="text-sm text-red-600 text-center">{errorMsg}</p><button onClick={handleClose} className="px-4 py-2 text-sm rounded-xl bg-blue-600 text-white hover:bg-blue-700">Cerrar</button></div>)}
+          {phase === 'processing' && (<div className="flex flex-col items-center py-12 gap-3"><Loader2 size={32} className="animate-spin text-blue-600" /><p className="text-sm text-slate-500">{statusMsg}</p></div>)}
           {(phase === 'scanning' || phase === 'countdown') && (
             <>
               <div className="relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3]">
                 <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
                 <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none z-5" />
-
                 {phase === 'countdown' && countdown > 0 && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
-                    <span className="text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
-                  </div>
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10"><span className="text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span></div>
                 )}
-
                 <div className="absolute top-3 left-3 right-3 flex justify-between items-start z-10">
                   <div className="bg-black/60 rounded-lg px-3 py-2 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${quality?.detected ? 'bg-green-400' : 'bg-red-400'}`} />
-                      <span className="text-white text-xs">{quality?.detected ? 'Rostro detectado' : 'Buscando rostro...'}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${quality?.centered ? 'bg-green-400' : 'bg-yellow-400'}`} />
-                      <span className="text-white text-xs">{quality?.centered ? 'Centrado' : 'Centra tu cara'}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${quality?.angleOk ? 'bg-green-400' : 'bg-blue-400'}`} />
-                      <span className="text-white text-xs">{quality?.angleOk ? 'Angulo OK' : 'Ajusta angulo'}</span>
-                    </div>
-                    {quality?.detected && (
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${quality.probability > 0.7 ? 'bg-green-400' : quality.probability > 0.4 ? 'bg-yellow-400' : 'bg-red-400'}`} />
-                        <span className="text-white text-xs">Prob: {(quality.probability * 100).toFixed(0)}%</span>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${quality?.detected ? 'bg-green-400' : 'bg-red-400'}`} /><span className="text-white text-xs">{quality?.detected ? 'Rostro detectado' : 'Buscando rostro...'}</span></div>
+                    <div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${quality?.centered ? 'bg-green-400' : 'bg-yellow-400'}`} /><span className="text-white text-xs">{quality?.centered ? 'Centrado' : 'Centra tu cara'}</span></div>
+                    <div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${quality?.angleOk ? 'bg-green-400' : 'bg-blue-400'}`} /><span className="text-white text-xs">{quality?.angleOk ? 'Angulo OK' : 'Ajusta angulo'}</span></div>
+                    {quality?.detected && (<div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${quality.probability > 0.7 ? 'bg-green-400' : quality.probability > 0.4 ? 'bg-yellow-400' : 'bg-red-400'}`} /><span className="text-white text-xs">Prob: {(quality.probability * 100).toFixed(0)}%</span></div>)}
                   </div>
-
-                  <div className="bg-black/60 rounded-lg px-2 py-1">
-                    <span className="text-white text-xs font-bold">{currentAngle + 1}/3</span>
-                  </div>
+                  <div className="bg-black/60 rounded-lg px-2 py-1"><span className="text-white text-xs font-bold">{currentAngle + 1}/3</span></div>
                 </div>
-
                 {mode === 'register' && (
                   <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10">
-                    <div className="flex gap-1">
-                      {ANGLES.map((a, i) => (
-                        <div key={a.key} className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          i < currentAngle ? 'bg-green-500 text-white' :
-                          i === currentAngle ? 'bg-blue-500 text-white' :
-                          'bg-white/20 text-white/60'
-                        }`}>
-                          {i < currentAngle ? '✓' : a.label}
-                        </div>
-                      ))}
-                    </div>
+                    <div className="flex gap-1">{ANGLES.map((a, i) => (<div key={a.key} className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${i < currentAngle ? 'bg-green-500 text-white' : i === currentAngle ? 'bg-blue-500 text-white' : 'bg-white/20 text-white/60'}`}>{i < currentAngle ? '✓' : a.label}</div>))}</div>
                   </div>
                 )}
-
-                {multiFace && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-red-500/30 z-20">
-                    <div className="bg-red-500 rounded-2xl px-6 py-3 flex items-center gap-2">
-                      <AlertCircle size={24} className="text-white" />
-                      <span className="text-white text-lg font-bold">Solo una persona en pantalla</span>
-                    </div>
-                  </div>
-                )}
-
+                {multiFace && (<div className="absolute inset-0 flex items-center justify-center bg-red-500/30 z-20"><div className="bg-red-500 rounded-2xl px-6 py-3 flex items-center gap-2"><AlertCircle size={24} className="text-white" /><span className="text-white text-lg font-bold">Solo una persona</span></div></div>)}
                 <div className="absolute bottom-3 left-0 right-0 flex justify-center z-10">
                   <div className="bg-black/60 rounded-xl px-5 py-3 text-center max-w-xs">
                     <p className="text-white text-base font-bold">{statusMsg}</p>
-                    <p className="text-white/70 text-xs mt-1">
-                      {phase === 'countdown' ? 'Mantente quieto - Capturando...' : (
-                        mode === 'register' ? (
-                          currentAngle === 0 ? 'Mira de frente, centrado' :
-                          currentAngle === 1 ? 'Gira la cabeza a la izquierda' :
-                          'Gira la cabeza a la derecha'
-                        ) : (
-                          currentAngle === 0 ? 'Mira de frente a la camara' :
-                          currentAngle === 1 ? 'Gira la cabeza a un lado' :
-                          'Gira la cabeza al otro lado'
-                        )
-                      )}
-                    </p>
+                    <p className="text-white/70 text-xs mt-1">{phase === 'countdown' ? 'Mantente quieto...' : (mode === 'register' ? (currentAngle === 0 ? 'Mira de frente' : currentAngle === 1 ? 'Gira a la izquierda' : 'Gira a la derecha') : (currentAngle === 0 ? 'Mira de frente' : currentAngle === 1 ? 'Gira a un lado' : 'Gira al otro lado'))}</p>
                   </div>
                 </div>
               </div>
-
-              {faceGeometry && (
-                <div className="mt-2 grid grid-cols-4 gap-1 text-[10px] text-slate-500">
-                  <div className="bg-slate-50 rounded px-2 py-1 text-center">
-                    <div className="font-bold text-slate-700">Ojos</div>
-                    <div>{faceGeometry.interEyeDist}px</div>
-                  </div>
-                  <div className="bg-slate-50 rounded px-2 py-1 text-center">
-                    <div className="font-bold text-slate-700">Nariz</div>
-                    <div>{faceGeometry.noseLength}px</div>
-                  </div>
-                  <div className="bg-slate-50 rounded px-2 py-1 text-center">
-                    <div className="font-bold text-slate-700">Boca</div>
-                    <div>{faceGeometry.mouthWidth}px</div>
-                  </div>
-                  <div className="bg-slate-50 rounded px-2 py-1 text-center">
-                    <div className="font-bold text-slate-700">Dist</div>
-                    <div>{faceGeometry.distance}</div>
-                  </div>
-                </div>
-              )}
-
-              {faceSig && (
-                <div className="mt-1 grid grid-cols-5 gap-1 text-[9px] text-slate-400">
-                  {faceSig.ratios.slice(0, 5).map((r, i) => (
-                    <div key={`r${i}`} className="bg-blue-50 rounded px-1 py-0.5 text-center">
-                      <div className="font-bold text-blue-600">R{i+1}</div>
-                      <div>{r.toFixed(3)}</div>
-                    </div>
-                  ))}
-                  {faceSig.angles.slice(0, 5).map((a, i) => (
-                    <div key={`a${i}`} className="bg-green-50 rounded px-1 py-0.5 text-center">
-                      <div className="font-bold text-green-600">A{i+1}</div>
-                      <div>{a.toFixed(1)}°</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
+              {faceGeometry && (<div className="mt-2 grid grid-cols-4 gap-1 text-[10px] text-slate-500"><div className="bg-slate-50 rounded px-2 py-1 text-center"><div className="font-bold text-slate-700">Ojos</div><div>{faceGeometry.interEyeDist}px</div></div><div className="bg-slate-50 rounded px-2 py-1 text-center"><div className="font-bold text-slate-700">Nariz</div><div>{faceGeometry.noseLength}px</div></div><div className="bg-slate-50 rounded px-2 py-1 text-center"><div className="font-bold text-slate-700">Boca</div><div>{faceGeometry.mouthWidth}px</div></div><div className="bg-slate-50 rounded px-2 py-1 text-center"><div className="font-bold text-slate-700">Dist</div><div>{faceGeometry.distance}</div></div></div>)}
+              {faceSig && (<div className="mt-1 grid grid-cols-5 gap-1 text-[9px] text-slate-400">{faceSig.ratios.slice(0, 5).map((r, i) => (<div key={`r${i}`} className="bg-blue-50 rounded px-1 py-0.5 text-center"><div className="font-bold text-blue-600">R{i+1}</div><div>{r.toFixed(3)}</div></div>))}{faceSig.angles.slice(0, 5).map((a, i) => (<div key={`a${i}`} className="bg-green-50 rounded px-1 py-0.5 text-center"><div className="font-bold text-green-600">A{i+1}</div><div>{a.toFixed(1)}°</div></div>))}</div>)}
               <div className="mt-3 flex items-center justify-center gap-2">
-                <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-300 ${
-                      phase === 'countdown' ? 'bg-green-500' :
-                      (quality?.score || 0) >= 0.6 ? 'bg-blue-500' : 'bg-yellow-500'
-                    }`}
-                    style={{
-                      width: phase === 'countdown' ? '100%' :
-                        `${Math.min(80, (quality?.score || 0) * 100)}%`
-                    }}
-                  />
-                </div>
-                <span className="text-xs text-slate-500 font-mono w-16 text-right">
-                  {phase === 'countdown' ? 'Capturando' : `${Math.round((quality?.score || 0) * 100)}%`}
-                </span>
+                <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden"><div className={`h-full rounded-full transition-all duration-300 ${phase === 'countdown' ? 'bg-green-500' : (quality?.score || 0) >= 0.6 ? 'bg-blue-500' : 'bg-yellow-500'}`} style={{ width: phase === 'countdown' ? '100%' : `${Math.min(80, (quality?.score || 0) * 100)}%` }} /></div>
+                <span className="text-xs text-slate-500 font-mono w-16 text-right">{phase === 'countdown' ? 'Capturando' : `${Math.round((quality?.score || 0) * 100)}%`}</span>
               </div>
-
               <div className="flex items-center justify-center gap-4 mt-2 text-xs text-slate-400">
-                <div className="flex items-center gap-1"><Eye size={12} /><span>68 puntos</span></div>
-                <div className="flex items-center gap-1"><Scan size={12} /><span>15 ratios + 12 angulos</span></div>
-                {faceSig && <span className="text-[9px] text-blue-400">Firma: {faceSig.ratios.length}R + {faceSig.angles.length}A</span>}
+                <div className="flex items-center gap-1"><Eye size={12} /><span>200+ puntos</span></div>
+                <div className="flex items-center gap-1"><Scan size={12} /><span>Wireframe 3D</span></div>
+                {faceSig && <span className="text-[9px] text-cyan-400">Mascara activa</span>}
               </div>
-
               {mode === 'register' && (
                 <div className="mt-3">
-                  <button
-                    onClick={handleManualCapture}
-                    disabled={!readyToCapture}
-                    className={`w-full py-3 rounded-xl font-bold text-white text-sm transition-all ${
-                      readyToCapture
-                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/30 active:scale-95'
-                        : 'bg-slate-300 cursor-not-allowed text-slate-500'
-                    }`}
-                  >
+                  <button onClick={handleManualCapture} disabled={!readyToCapture} className={`w-full py-3 rounded-xl font-bold text-white text-sm transition-all ${readyToCapture ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/30 active:scale-95' : 'bg-slate-300 cursor-not-allowed text-slate-500'}`}>
                     {readyToCapture ? 'Capturar Rostro' : 'Ajusta tu posicion...'}
                   </button>
-                  {readyToCapture && (
-                    <p className="text-center text-[10px] text-emerald-600 mt-1 font-medium animate-pulse">
-                      Rostro detectado correctamente
-                    </p>
-                  )}
+                  {readyToCapture && <p className="text-center text-[10px] text-emerald-600 mt-1 font-medium animate-pulse">Rostro detectado correctamente</p>}
                 </div>
               )}
             </>
           )}
-
-          {phase === 'done' && (
-            <div className="flex flex-col items-center py-8 gap-3">
-              <CheckCircle size={28} className="text-emerald-500" />
-              <p className="text-sm text-emerald-700 font-medium">{successMsg || 'Completado!'}</p>
-              <button onClick={handleClose} className="px-4 py-2 text-sm rounded-xl bg-blue-600 text-white hover:bg-blue-700 mt-2">Cerrar</button>
-            </div>
-          )}
+          {phase === 'done' && (<div className="flex flex-col items-center py-8 gap-3"><CheckCircle size={28} className="text-emerald-500" /><p className="text-sm text-emerald-700 font-medium">{successMsg || 'Completado!'}</p><button onClick={handleClose} className="px-4 py-2 text-sm rounded-xl bg-blue-600 text-white hover:bg-blue-700 mt-2">Cerrar</button></div>)}
         </div>
-
         <canvas ref={canvasRef} className="hidden" />
       </div>
     </div>
