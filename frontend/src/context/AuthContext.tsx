@@ -152,31 +152,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           return;
         }
-        const { data } = await supabase
-          .from('usuarios')
-          .select('id')
-          .eq('email', user.email)
-          .maybeSingle();
-        if (!data && !dead) {
-          dead = true;
-          const adminKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
-          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-          if (adminKey && supabaseUrl && authUser.user) {
-            await fetch(`${supabaseUrl}/auth/v1/admin/users/${authUser.user.id}`, {
-              method: 'DELETE',
-              headers: { apikey: adminKey, Authorization: `Bearer ${adminKey}` },
-            });
-          }
-          await supabase.auth.signOut();
-          setUser(null);
-        }
       } catch (e) {
         console.warn('[auth] check error:', e);
       }
     };
 
     check();
-    const interval = setInterval(check, 5000);
+    const interval = setInterval(check, 30000);
     return () => { dead = true; clearInterval(interval); };
   }, [user?.id]);
 
@@ -232,7 +214,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
 
     try {
-      await supabase.from('clientes').insert({
+      const { error: clienteErr } = await supabase.from('clientes').insert({
         nombre: data.nombre.trim(),
         email: cleanEmail,
         telefono: data.telefono?.trim() || null,
@@ -240,6 +222,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         usuario_id: dbData.id,
         activo: true,
       });
+      if (clienteErr) {
+        console.warn('[auth] Cliente insert conflict/err:', clienteErr.message);
+      }
     } catch (e) {
       console.warn('[auth] No se pudo crear cliente automaticamente:', e);
     }

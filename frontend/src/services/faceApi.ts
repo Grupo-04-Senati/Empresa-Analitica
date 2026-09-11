@@ -3,6 +3,12 @@ import { generateFaceSignature, Point2D } from './faceGeometry';
 
 const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || '';
 
+if (!FACE_API_BASE) {
+  console.error('[faceApi] WARNING: VITE_FACE_API_URL is EMPTY! Face registration will fail.');
+} else {
+  console.log('[faceApi] FACE_API_BASE:', FACE_API_BASE);
+}
+
 function apiUrl(action: string): string {
   if (action === 'health') return `${FACE_API_BASE}/health`;
   if (action === 'check-registered') return `${FACE_API_BASE}/face/check-registered`;

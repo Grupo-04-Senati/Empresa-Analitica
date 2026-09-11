@@ -1,6 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-
-const SUPABASE_URL = 'https://poikhicityheikmnfltb.supabase.co';
+import { supabase } from './supabase';
 
 export interface AuditEvent {
   usuario_email?: string;
@@ -17,8 +15,6 @@ export interface AuditEvent {
 
 export async function logAudit(event: AuditEvent) {
   try {
-    const key = import.meta.env.VITE_SUPABASE_SERVICE_KEY || '';
-    const client = createClient(SUPABASE_URL, key);
     const row: Record<string, unknown> = {
       usuario_email: event.usuario_email || null,
       usuario_id: event.usuario_id || null,
@@ -32,7 +28,7 @@ export async function logAudit(event: AuditEvent) {
       modulo: event.modulo || null,
     };
 
-    const { error } = await client.from('auditoria').insert(row);
+    const { error } = await supabase.from('auditoria').insert(row);
     if (error) {
       console.warn('[audit] INSERT FAILED:', error.message);
     } else {
