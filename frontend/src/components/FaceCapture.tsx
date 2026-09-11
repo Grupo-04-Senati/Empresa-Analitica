@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Camera, X, CheckCircle, AlertCircle, Loader2, Shield, Eye, Scan } from 'lucide-react';
+import * as faceapi from 'face-api.js';
 import {
   loadFaceModels, detectFace, analyzeFaceQuality, checkAngle,
 } from '../services/faceRecognition';
@@ -15,15 +16,40 @@ interface FaceCaptureProps {
 
 const ANGLES = [
   { key: 'frontal', label: 'Frontal', instruction: 'Mira de frente a la camara' },
-  { key: 'izquierda', label: 'Izquierda', instruction: 'Inclina la cabeza a un lado' },
-  { key: 'derecha', label: 'Derecha', instruction: 'Inclina la cabeza al otro lado' },
+  { key: 'izquierda', label: 'Izquierda', instruction: 'Gira la cabeza lentamente' },
+  { key: 'derecha', label: 'Derecha', instruction: 'Gira la cabeza al otro lado' },
 ];
 
 type Phase = 'loading' | 'scanning' | 'countdown' | 'processing' | 'done' | 'error';
 
+interface LandmarkData {
+  leftEye: { x: number; y: number }[];
+  rightEye: { x: number; y: number }[];
+  nose: { x: number; y: number }[];
+  mouth: { x: number; y: number }[];
+  jaw: { x: number; y: number }[];
+}
+
+interface FaceGeometry {
+  interEyeDist: number;
+  noseLength: number;
+  mouthWidth: number;
+  jawWidth: number;
+  faceWidth: number;
+  faceHeight: number;
+  eyeAngle: number;
+  noseOffsetNorm: number;
+  pitchAngle: number;
+  yawAngle: number;
+  probability: number;
+  distance: string;
+  landmarks: LandmarkData;
+}
+
 export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCapture, onLoginMatch, onClose }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
   const [phase, setPhase] = useState<Phase>('loading');
   const [currentAngle, setCurrentAngle] = useState(0);
   const [countdown, setCountdown] = useState(0);
@@ -33,6 +59,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   const [successMsg, setSuccessMsg] = useState('');
   const [statusMsg, setStatusMsg] = useState('Buscando rostro...');
   const [multiFace, setMultiFace] = useState(false);
+  const [faceGeometry, setFaceGeometry] = useState<FaceGeometry | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -51,6 +78,188 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     if (timerRef.current) { clearTimeout(timerRef.current); }
     if (intervalRef.current) { clearInterval(intervalRef.current); }
+  }, []);
+
+  const drawLandmarks = useCallback((landmarks: faceapi.FaceLandmarks68, videoW: number, videoH: number, canvasW: number, canvasH: number) => {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    const ctx = overlay.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvasW, canvasH);
+
+    const scaleX = canvasW / videoW;
+    const scaleY = canvasH / videoH;
+
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.translate(-canvasW, 0);
+
+    const pts = landmarks.positions;
+
+    const getPoint = (idx: number) => ({
+      x: pts[idx].x * scaleX,
+      y: pts[idx].y * scaleY,
+    });
+
+    const drawPoint = (p: { x: number; y: number }, color: string, size: number = 3) => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    };
+
+    const drawLine = (a: { x: number; y: number }, b: { x: number; y: number }, color: string) => {
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+
+    const drawContour = (indices: number[], color: string) => {
+      if (indices.length < 2) return;
+      ctx.beginPath();
+      const first = getPoint(indices[0]);
+      ctx.moveTo(first.x, first.y);
+      for (let i = 1; i < indices.length; i++) {
+        const p = getPoint(indices[i]);
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+
+    const jawIndices = Array.from({ length: 17 }, (_, i) => i);
+    const leftEyebrowIndices = [17, 18, 19, 20, 21];
+    const rightEyebrowIndices = [22, 23, 24, 25, 26];
+    const noseIndices = [27, 28, 29, 30, 31, 32, 33, 34, 35];
+    const leftEyeIndices = [36, 37, 38, 39, 40, 41, 36];
+    const rightEyeIndices = [42, 43, 44, 45, 46, 47, 42];
+    const mouthOuterIndices = [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 48];
+    const mouthInnerIndices = [60, 61, 62, 63, 64, 65, 66, 67, 60];
+
+    drawContour(jawIndices, 'rgba(0, 200, 255, 0.6)');
+    drawContour(leftEyebrowIndices, 'rgba(255, 200, 0, 0.6)');
+    drawContour(rightEyebrowIndices, 'rgba(255, 200, 0, 0.6)');
+    drawContour(noseIndices, 'rgba(0, 255, 100, 0.6)');
+    drawContour(leftEyeIndices, 'rgba(255, 100, 100, 0.8)');
+    drawContour(rightEyeIndices, 'rgba(255, 100, 100, 0.8)');
+    drawContour(mouthOuterIndices, 'rgba(255, 150, 0, 0.6)');
+    drawContour(mouthInnerIndices, 'rgba(255, 100, 200, 0.5)');
+
+    for (let i = 0; i < pts.length; i++) {
+      const p = getPoint(i);
+      let color = 'rgba(255,255,255,0.7)';
+      let size = 2;
+      if (i >= 36 && i <= 41) { color = '#ff4444'; size = 3; }
+      else if (i >= 42 && i <= 47) { color = '#ff4444'; size = 3; }
+      else if (i >= 27 && i <= 35) { color = '#44ff44'; size = 3; }
+      else if (i >= 48 && i <= 67) { color = '#ff8800'; size = 2; }
+      else if (i <= 16) { color = '#00ccff'; size = 2; }
+      drawPoint(p, color, size);
+    }
+
+    const leftEyeCenter = {
+      x: pts.slice(36, 42).reduce((s, p) => s + p.x, 0) / 6 * scaleX,
+      y: pts.slice(36, 42).reduce((s, p) => s + p.y, 0) / 6 * scaleY,
+    };
+    const rightEyeCenter = {
+      x: pts.slice(42, 48).reduce((s, p) => s + p.x, 0) / 6 * scaleX,
+      y: pts.slice(42, 48).reduce((s, p) => s + p.y, 0) / 6 * scaleY,
+    };
+    const noseTip = getPoint(30);
+    const mouthCenter = {
+      x: pts.slice(48, 68).reduce((s, p) => s + p.x, 0) / 20 * scaleX,
+      y: pts.slice(48, 68).reduce((s, p) => s + p.y, 0) / 20 * scaleY,
+    };
+    const chin = getPoint(8);
+
+    drawLine(leftEyeCenter, rightEyeCenter, 'rgba(255,255,0,0.3)');
+    drawLine(noseTip, mouthCenter, 'rgba(0,255,0,0.3)');
+    drawLine(leftEyeCenter, chin, 'rgba(0,200,255,0.2)');
+    drawLine(rightEyeCenter, chin, 'rgba(0,200,255,0.2)');
+
+    ctx.restore();
+  }, []);
+
+  const calculateGeometry = useCallback((landmarks: faceapi.FaceLandmarks68, videoW: number, videoH: number): FaceGeometry => {
+    const pts = landmarks.positions;
+
+    const leftEye = pts[36];
+    const rightEye = pts[45];
+    const noseTip = pts[30];
+    const noseBridge = pts[27];
+    const chin = pts[8];
+    const leftMouth = pts[48];
+    const rightMouth = pts[54];
+    const leftJaw = pts[0];
+    const rightJaw = pts[16];
+
+    const interEyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
+    const noseLength = Math.sqrt((noseTip.x - noseBridge.x) ** 2 + (noseTip.y - noseBridge.y) ** 2);
+    const mouthWidth = Math.sqrt((rightMouth.x - leftMouth.x) ** 2 + (rightMouth.y - leftMouth.y) ** 2);
+    const jawWidth = Math.sqrt((rightJaw.x - leftJaw.x) ** 2 + (rightJaw.y - leftJaw.y) ** 2);
+    const faceWidth = jawWidth;
+    const faceHeight = Math.sqrt((chin.x - noseBridge.x) ** 2 + (chin.y - noseBridge.y) ** 2);
+
+    const eyeAngle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x) * (180 / Math.PI);
+
+    const centerX = (leftEye.x + rightEye.x) / 2;
+    const noseOffsetNorm = (noseTip.x - centerX) / (interEyeDist || 1);
+
+    const eyeToNoseDist = Math.sqrt((noseTip.x - centerX) ** 2 + (noseTip.y - (leftEye.y + rightEye.y) / 2) ** 2);
+    const pitchAngle = (eyeToNoseDist / (interEyeDist || 1)) * 30;
+
+    const yawAngle = noseOffsetNorm * 45;
+
+    const faceArea = faceWidth * faceHeight;
+    const imageArea = videoW * videoH;
+    const faceRatio = faceArea / imageArea;
+
+    let distance = 'optimo';
+    if (faceRatio < 0.03) distance = 'muy_lejos';
+    else if (faceRatio < 0.06) distance = 'lejos';
+    else if (faceRatio > 0.15) distance = 'muy_cerca';
+    else if (faceRatio > 0.10) distance = 'cerca';
+
+    const symScore = 1 - Math.abs(noseOffsetNorm);
+    const sizeScore = Math.min(1, faceRatio / 0.08);
+    const angleScore = 1 - Math.abs(yawAngle) / 45;
+    const probability = (symScore * 0.3 + sizeScore * 0.3 + angleScore * 0.4);
+
+    const leftEyePoints = pts.slice(36, 42).map(p => ({ x: p.x, y: p.y }));
+    const rightEyePoints = pts.slice(42, 48).map(p => ({ x: p.x, y: p.y }));
+    const nosePoints = pts.slice(27, 36).map(p => ({ x: p.x, y: p.y }));
+    const mouthPoints = pts.slice(48, 68).map(p => ({ x: p.x, y: p.y }));
+    const jawPoints = pts.slice(0, 17).map(p => ({ x: p.x, y: p.y }));
+
+    return {
+      interEyeDist: Math.round(interEyeDist),
+      noseLength: Math.round(noseLength),
+      mouthWidth: Math.round(mouthWidth),
+      jawWidth: Math.round(jawWidth),
+      faceWidth: Math.round(faceWidth),
+      faceHeight: Math.round(faceHeight),
+      eyeAngle: Math.round(eyeAngle * 10) / 10,
+      noseOffsetNorm: Math.round(noseOffsetNorm * 1000) / 1000,
+      pitchAngle: Math.round(pitchAngle * 10) / 10,
+      yawAngle: Math.round(yawAngle * 10) / 10,
+      probability: Math.round(probability * 1000) / 1000,
+      distance,
+      landmarks: {
+        leftEye: leftEyePoints,
+        rightEye: rightEyePoints,
+        nose: nosePoints,
+        mouth: mouthPoints,
+        jaw: jawPoints,
+      },
+    };
   }, []);
 
   useEffect(() => {
@@ -91,21 +300,27 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       if (!alive || !video || video.readyState < 2) return;
 
       try {
-        const det = await detectFace(video);
+        const inputSize = 416;
+        const detections = await (faceapi as any)
+          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.3 }))
+          .withFaceLandmarks();
 
-        if (!det.detected) {
-          if (det.count > 1) {
-            setMultiFace(true);
-            setStatusMsg('Solo una persona en pantalla');
-          } else {
-            setMultiFace(false);
-            setStatusMsg('Coloque su rostro frente a la camara');
-          }
+        if (!detections) {
+          setMultiFace(false);
+          setStatusMsg('Coloque su rostro frente a la camara');
           setQuality(null);
+          setFaceGeometry(null);
           goodFramesRef.current = 0;
+
+          const overlay = overlayRef.current;
+          if (overlay) {
+            const ctx = overlay.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, overlay.width, overlay.height);
+          }
           return;
         }
 
+        const det = { detected: true, count: 1, landmarks: detections.landmarks, score: detections.detection.score };
         setMultiFace(false);
 
         const angle = ANGLES[angleRef.current]?.key as 'frontal' | 'izquierda' | 'derecha';
@@ -113,8 +328,19 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         if (!alive) return;
         setQuality(q);
 
+        const videoW = video.videoWidth || video.clientWidth;
+        const videoH = video.videoHeight || video.clientHeight;
+        const overlay = overlayRef.current;
+        if (overlay) {
+          overlay.width = overlay.clientWidth;
+          overlay.height = overlay.clientHeight;
+          drawLandmarks(det.landmarks, videoW, videoH, overlay.width, overlay.height);
+        }
+
+        const geom = calculateGeometry(det.landmarks, videoW, videoH);
+        setFaceGeometry(geom);
+
         if (phaseRef.current === 'scanning') {
-          const angleKey = ANGLES[angleRef.current]?.key;
           const isGood = q.detected && q.angleOk && q.score >= 0.3;
 
           if (isGood) {
@@ -137,7 +363,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     }, 300);
 
     return () => { alive = false; if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [phase]);
+  }, [phase, drawLandmarks, calculateGeometry]);
 
   const startCapture = useCallback(() => {
     setPhase('countdown');
@@ -187,16 +413,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           }
         }, 1000);
         return;
-      }
-
-      const video = videoRef.current;
-      if (video && video.readyState >= 2) {
-        const angleCheck = await checkAngle(video, ANGLES[angleRef.current]?.key || 'frontal');
-        if (!angleCheck.ok) {
-          setStatusMsg('Manteniendo posicion...');
-        } else {
-          setStatusMsg('Perfecto, manteniendo...');
-        }
       }
 
       setCountdown(c);
@@ -251,62 +467,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
   const handleClose = () => { stopAll(); onClose(); };
 
-  const getAngleIcon = () => {
-    if (currentAngle === 0) return (
-      <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
-        quality?.detected && quality?.centered ? 'text-green-400' :
-        quality?.detected ? 'text-yellow-400' : 'text-white/60'
-      }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-        <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
-        <path d="M60 95 Q65 80 75 78" strokeWidth="2" />
-        <path d="M140 95 Q135 80 125 78" strokeWidth="2" />
-        <circle cx="78" cy="98" r="3" fill="currentColor" stroke="none" />
-        <circle cx="122" cy="98" r="3" fill="currentColor" stroke="none" />
-        <path d="M92 120 Q100 128 108 120" strokeWidth="2" />
-        <line x1="100" y1="112" x2="100" y2="122" strokeWidth="2" />
-        <path d="M85 145 Q100 158 115 145" strokeWidth="2" />
-        <path d="M35 85 Q30 110 35 140" strokeWidth="2" strokeDasharray="6 4" />
-        <path d="M165 85 Q170 110 165 140" strokeWidth="2" strokeDasharray="6 4" />
-      </svg>
-    );
-    if (currentAngle === 1) return (
-      <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
-        quality?.angleOk ? 'text-green-400' :
-        quality?.detected ? 'text-yellow-400' : 'text-white/60'
-      }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-        <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
-        <path d="M55 92 Q62 76 74 76" strokeWidth="2" />
-        <path d="M130 88 Q124 76 116 78" strokeWidth="2" />
-        <circle cx="72" cy="95" r="3" fill="currentColor" stroke="none" />
-        <circle cx="112" cy="98" r="3" fill="currentColor" stroke="none" />
-        <path d="M88 118 Q96 126 106 120" strokeWidth="2" />
-        <line x1="96" y1="110" x2="98" y2="122" strokeWidth="2" />
-        <path d="M80 144 Q96 156 112 144" strokeWidth="2" />
-        <path d="M30 82 Q24 110 30 140" strokeWidth="2" strokeDasharray="6 4" />
-        <path d="M160 82 Q168 110 162 140" strokeWidth="2" strokeDasharray="6 4" />
-        <path d="M170 100 L185 95 L185 105 Z" fill="currentColor" stroke="none" opacity="0.5" />
-      </svg>
-    );
-    return (
-      <svg viewBox="0 0 200 260" className={`w-40 h-52 transition-colors duration-300 ${
-        quality?.angleOk ? 'text-green-400' :
-        quality?.detected ? 'text-yellow-400' : 'text-white/60'
-      }`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-        <ellipse cx="100" cy="110" rx="65" ry="80" strokeDasharray="8 4" />
-        <path d="M70 88 Q76 76 84 78" strokeWidth="2" />
-        <path d="M145 92 Q138 76 126 76" strokeWidth="2" />
-        <circle cx="88" cy="98" r="3" fill="currentColor" stroke="none" />
-        <circle cx="128" cy="95" r="3" fill="currentColor" stroke="none" />
-        <path d="M94 120 Q104 126 112 118" strokeWidth="2" />
-        <line x1="102" y1="110" x2="100" y2="122" strokeWidth="2" />
-        <path d="M88 144 Q104 156 120 144" strokeWidth="2" />
-        <path d="M40 82 Q32 110 38 140" strokeWidth="2" strokeDasharray="6 4" />
-        <path d="M170 82 Q176 110 170 140" strokeWidth="2" strokeDasharray="6 4" />
-        <path d="M30 100 L15 95 L15 105 Z" fill="currentColor" stroke="none" opacity="0.5" />
-      </svg>
-    );
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
@@ -347,10 +507,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
             <>
               <div className="relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3]">
                 <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
-
-                <div className="absolute inset-0 flex items-center justify-center z-5 pointer-events-none">
-                  {getAngleIcon()}
-                </div>
+                <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none z-5" />
 
                 {phase === 'countdown' && countdown > 0 && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
@@ -406,12 +563,33 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
                     <p className="text-white text-base font-bold">{statusMsg}</p>
                     <p className="text-white/70 text-xs mt-1">
                       {currentAngle === 0 && 'Posiciona tu cara dentro del ovalo, mirando de frente'}
-                      {currentAngle === 1 && 'Inclina la cabeza suavemente hacia un lado'}
-                      {currentAngle === 2 && 'Inclina la cabeza suavemente hacia el otro lado'}
+                      {currentAngle === 1 && 'Gira la cabeza lentamente a un lado'}
+                      {currentAngle === 2 && 'Gira la cabeza lentamente al otro lado'}
                     </p>
                   </div>
                 </div>
               </div>
+
+              {faceGeometry && (
+                <div className="mt-2 grid grid-cols-4 gap-1 text-[10px] text-slate-500">
+                  <div className="bg-slate-50 rounded px-2 py-1 text-center">
+                    <div className="font-bold text-slate-700">Ojos</div>
+                    <div>{faceGeometry.interEyeDist}px</div>
+                  </div>
+                  <div className="bg-slate-50 rounded px-2 py-1 text-center">
+                    <div className="font-bold text-slate-700">Nariz</div>
+                    <div>{faceGeometry.noseLength}px</div>
+                  </div>
+                  <div className="bg-slate-50 rounded px-2 py-1 text-center">
+                    <div className="font-bold text-slate-700">Boca</div>
+                    <div>{faceGeometry.mouthWidth}px</div>
+                  </div>
+                  <div className="bg-slate-50 rounded px-2 py-1 text-center">
+                    <div className="font-bold text-slate-700">Dist</div>
+                    <div>{faceGeometry.distance}</div>
+                  </div>
+                </div>
+              )}
 
               <div className="mt-3 flex items-center justify-center gap-2">
                 <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
@@ -432,7 +610,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
               </div>
 
               <div className="flex items-center justify-center gap-4 mt-2 text-xs text-slate-400">
-                <div className="flex items-center gap-1"><Eye size={12} /><span>Deteccion facial</span></div>
+                <div className="flex items-center gap-1"><Eye size={12} /><span>68 puntos</span></div>
                 <div className="flex items-center gap-1"><Scan size={12} /><span>3 angulos</span></div>
               </div>
             </>
