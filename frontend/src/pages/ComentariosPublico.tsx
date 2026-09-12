@@ -46,7 +46,7 @@ export default function ComentariosPublico() {
               <MessageSquare size={20} className="text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-wide">NEXUS Corp</h1>
+              <h1 className="text-lg font-bold tracking-wide">BADI Corp</h1>
               <p className="text-[10px] text-blue-300 tracking-widest uppercase">Comentarios</p>
             </div>
           </div>
@@ -109,7 +109,7 @@ export default function ComentariosPublico() {
         </main>
 
         <footer className="px-8 py-4 text-center text-xs text-slate-600">
-          &copy; 2026 NEXUS Corp. Todos los derechos reservados.
+          &copy; 2026 BADI Corp. Todos los derechos reservados.
         </footer>
       </div>
     </div>

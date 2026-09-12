@@ -13,42 +13,42 @@ interface SubMenuItem { label: string; path: string; adminOnly?: boolean; }
 interface MenuItem { title: string; icon: React.ReactNode; adminOnly?: boolean; items: SubMenuItem[]; }
 
 const menuAdmin: MenuItem[] = [
-  { title: 'DASHBOARD', icon: <LayoutDashboard size={18} />, items: [{ label: 'Inicio', path: '/' }] },
-  { title: 'CLIENTES', icon: <Users size={18} />, adminOnly: true, items: [{ label: 'Lista de clientes', path: '/clientes' }, { label: 'Nuevo cliente', path: '/clientes/nuevo', adminOnly: true }] },
+  { title: 'DASHBOARD', icon: <LayoutDashboard size={18} />, items: [{ label: 'Inicio', path: '/dashboard' }] },
+  { title: 'CLIENTES', icon: <Users size={18} />, adminOnly: true, items: [{ label: 'Lista de clientes', path: '/dashboard/clientes' }, { label: 'Nuevo cliente', path: '/dashboard/clientes/nuevo', adminOnly: true }] },
   { title: 'ATENCION', icon: <Headphones size={18} />, items: [
-    { label: 'Solicitudes', path: '/solicitudes' },
-    { label: 'Comentarios', path: '/comentarios' },
-    { label: 'Tiempos de atencion', path: '/tiempo-atencion', adminOnly: true },
+    { label: 'Solicitudes', path: '/dashboard/solicitudes' },
+    { label: 'Comentarios', path: '/dashboard/comentarios' },
+    { label: 'Tiempos de atencion', path: '/dashboard/tiempo-atencion', adminOnly: true },
   ]},
   { title: 'INTELIGENCIA NLP', icon: <Brain size={18} />, adminOnly: true, items: [
-    { label: 'Analizar comentario', path: '/analizar-comentario' },
-    { label: 'Palabras frecuentes', path: '/palabras-frecuentes' },
-    { label: 'Categorias', path: '/categorias' },
-    { label: 'Clasificacion', path: '/clasificacion' },
+    { label: 'Analizar comentario', path: '/dashboard/analizar-comentario' },
+    { label: 'Palabras frecuentes', path: '/dashboard/palabras-frecuentes' },
+    { label: 'Categorias', path: '/dashboard/categorias' },
+    { label: 'Clasificacion', path: '/dashboard/clasificacion' },
   ]},
   { title: 'SCIENTIFIC DATA', icon: <Database size={18} />, adminOnly: true, items: [
-    { label: 'Estadisticas', path: '/estadisticas' },
-    { label: 'Interpolacion', path: '/interpolacion' },
-    { label: 'Optimizacion', path: '/optimizacion' },
+    { label: 'Estadisticas', path: '/dashboard/estadisticas' },
+    { label: 'Interpolacion', path: '/dashboard/interpolacion' },
+    { label: 'Optimizacion', path: '/dashboard/optimizacion' },
   ]},
   { title: 'REPORTES', icon: <FileText size={18} />, adminOnly: true, items: [
-    { label: 'Atencion', path: '/reportes/atencion' },
-    { label: 'NLP', path: '/reportes/nlp' },
-    { label: 'Estadisticas', path: '/reportes/estadisticas' },
+    { label: 'Atencion', path: '/dashboard/reportes/atencion' },
+    { label: 'NLP', path: '/dashboard/reportes/nlp' },
+    { label: 'Estadisticas', path: '/dashboard/reportes/estadisticas' },
   ]},
   { title: 'CONFIGURACION', icon: <Settings size={18} />, adminOnly: true, items: [
-    { label: 'Usuarios', path: '/usuarios', adminOnly: true },
-    { label: 'Categorias', path: '/configuracion', adminOnly: true },
-    { label: 'Auditoria', path: '/auditoria', adminOnly: true },
-    { label: 'Notificaciones', path: '/notificaciones', adminOnly: true },
+    { label: 'Usuarios', path: '/dashboard/usuarios', adminOnly: true },
+    { label: 'Categorias', path: '/dashboard/configuracion', adminOnly: true },
+    { label: 'Auditoria', path: '/dashboard/auditoria', adminOnly: true },
+    { label: 'Notificaciones', path: '/dashboard/notificaciones', adminOnly: true },
   ]},
 ];
 
 const menuUser: MenuItem[] = [
-  { title: 'MI PANEL', icon: <LayoutDashboard size={18} />, items: [{ label: 'Inicio', path: '/' }] },
+  { title: 'MI PANEL', icon: <LayoutDashboard size={18} />, items: [{ label: 'Inicio', path: '/dashboard' }] },
   { title: 'ATENCION', icon: <Headphones size={18} />, items: [
-    { label: 'Mis Solicitudes', path: '/solicitudes' },
-    { label: 'Mis Comentarios', path: '/comentarios' },
+    { label: 'Mis Solicitudes', path: '/dashboard/solicitudes' },
+    { label: 'Mis Comentarios', path: '/dashboard/comentarios' },
   ]},
   { title: 'AYUDA', icon: <HelpCircle size={18} />, items: [
     { label: 'Centro de Ayuda', path: '/faq' },

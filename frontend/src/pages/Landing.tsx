@@ -91,13 +91,13 @@ export default function Landing() {
               <BarChart3 size={20} className="text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-wide">NEXUS Corp</h1>
+              <h1 className="text-lg font-bold tracking-wide">BADI Corp</h1>
               <p className="text-[10px] text-blue-300 tracking-widest uppercase">Analitica & Desarrollo</p>
             </div>
           </div>
         </header>
 
-        <main className="flex-1 flex flex-col justify-center px-8 md:px-16 lg:px-24 max-w-6xl mx-auto w-full">
+        <main className="flex-1 flex flex-col justify-center items-center text-center px-4 py-12">
           <div className="max-w-2xl">
             <h2 className="text-4xl md:text-5xl font-bold leading-tight mb-2">
               Centro Inteligente de
@@ -143,7 +143,7 @@ export default function Landing() {
         </div>
 
         <footer className="px-8 py-4 text-center text-xs text-slate-600">
-          &copy; 2026 NEXUS Corp. Todos los derechos reservados.
+          &copy; 2026 BADI Corp. Todos los derechos reservados.
         </footer>
       </div>
     </div>
