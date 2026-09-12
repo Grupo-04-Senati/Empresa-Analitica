@@ -393,9 +393,19 @@ export async function faceApiLogin(
 
       for (const r of rostros) {
         const storedLm = r.landmarks_68;
-        if (!storedLm || storedLm.length < 68) {
-          console.log(`[faceApi] user ${r.usuario_id}: sin landmarks68, saltando`);
-          continue;
+        const hasLandmarks = storedLm && storedLm.length >= 68;
+
+        if (!hasLandmarks) {
+          // Intentar usar embedding_frontal como fallback
+          const storedEmb = r.embedding_frontal;
+          if (storedEmb && storedEmb.length > 0) {
+            console.log(`[faceApi] user ${r.usuario_id}: sin landmarks68, intentando con embedding...`);
+          } else {
+            console.log(`[faceApi] user ${r.usuario_id}: sin landmarks68 ni embedding, saltando`);
+            continue;
+          }
+        } else {
+          console.log(`[faceApi] user ${r.usuario_id}: landmarks68 OK (${storedLm.length} pts)`);
         }
 
         // Obtener ratios almacenados (puede no existir para registros viejos)
@@ -449,6 +459,10 @@ export async function faceApiLogin(
       }
 
       if (geoScores.length === 0) {
+        const countNoLandmarks = rostros.filter(r => !r.landmarks_68 || r.landmarks_68.length < 68).length;
+        if (countNoLandmarks > 0) {
+          return { ok: false, error: `Tus datos faciales estan desactualizados (${countNoLandmarks} registros sin puntos). Debes RE-REGISTRAR tu rostro desde "Crear Cuenta".` };
+        }
         return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
       }
 
