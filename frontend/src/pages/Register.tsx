@@ -3,7 +3,6 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, Loader2, ArrowRight, UserPlus } from 'lucide-react';
 import { FaceCapture } from '../components/FaceCapture';
-import { faceApiRegister } from '../services/faceApi';
 
 export const Register: React.FC = () => {
   const navigate = useNavigate();
@@ -60,9 +59,6 @@ export const Register: React.FC = () => {
 
   const handleFaceRegistered = async (photos: Record<string, string>) => {
     setShowFaceCapture(false);
-    if (userId) {
-      try { await faceApiRegister(userId, photos); } catch {}
-    }
     setSuccessMsg('Cuenta y rostro registrados correctamente.');
     setTimeout(() => navigate('/login'), 2000);
   };
