@@ -76,8 +76,9 @@ export async function faceApiRegister(
     if (!embeddings.izquierda) missing.push('izquierda');
     if (!embeddings.derecha) missing.push('derecha');
 
-    if (missing.length > 0) {
-      return { ok: false, error: `No se detecto rostro en: ${missing.join(', ')}. Intenta de nuevo.`, missing };
+    // Solo necesita frontal para funcionar
+    if (!embeddings.frontal) {
+      return { ok: false, error: 'No se detecto rostro frontal. Colocate frente a la camara.', missing };
     }
 
     let geometryRatios: number[] = [];
@@ -103,8 +104,11 @@ export async function faceApiRegister(
     const derArr = toFlatArray(embeddings.derecha);
 
     if (!frontalArr || frontalArr.length !== 128) return { ok: false, error: 'Embedding frontal invalido' };
-    if (!izqArr || izqArr.length !== 128) return { ok: false, error: 'Embedding izquierda invalido' };
-    if (!derArr || derArr.length !== 128) return { ok: false, error: 'Embedding derecha invalido' };
+
+    const pgVectorStr = (arr: number[] | null): string | null => {
+      if (!arr || arr.length === 0) return null;
+      return '[' + arr.map(v => v.toFixed(6)).join(',') + ']';
+    };
 
     const proporcionesData = {
       ratios: geometryRatios.map(Number),
@@ -121,7 +125,7 @@ export async function faceApiRegister(
 
     const serverBody = {
       usuario_id: usuarioId,
-      embeddings: { frontal: frontalArr, izquierda: izqArr, derecha: derArr },
+      embeddings: { frontal: frontalArr, izquierda: izqArr || [], derecha: derArr || [] },
       face_shape: faceShape || '',
       proporciones: proporcionesData,
       landmarks_68: normalizedLandmarks,
@@ -182,8 +186,8 @@ export async function faceApiRegister(
       const fullData: Record<string, any> = {
         usuario_id: numericUserId,
         embedding_frontal: pgVectorStr(frontalArr),
-        embedding_izquierda: pgVectorStr(izqArr),
-        embedding_derecha: pgVectorStr(derArr),
+        embedding_izquierda: izqArr ? pgVectorStr(izqArr) : null,
+        embedding_derecha: derArr ? pgVectorStr(derArr) : null,
         forma_rostro: faceShape || '',
         proporciones: proporcionesData,
         landmarks_68: normalizedLandmarks,
@@ -191,7 +195,7 @@ export async function faceApiRegister(
         metadata: {
           engine: 'face-api.js+fallback',
           embedding_dims: 128,
-          valid_angles: 3,
+          valid_angles: izqArr && derArr ? 3 : 1,
           registered_via: 'direct_supabase',
           timestamp: new Date().toISOString(),
         },
@@ -200,9 +204,10 @@ export async function faceApiRegister(
       const minimalData: Record<string, any> = {
         usuario_id: numericUserId,
         embedding_frontal: pgVectorStr(frontalArr),
-        embedding_izquierda: pgVectorStr(izqArr),
-        embedding_derecha: pgVectorStr(derArr),
+        embedding_izquierda: izqArr ? pgVectorStr(izqArr) : null,
+        embedding_derecha: derArr ? pgVectorStr(derArr) : null,
         landmarks_68: normalizedLandmarks,
+        proporciones: proporcionesData,
         interocular_distance: interEyeDist,
         metadata: {
           engine: 'face-api.js+fallback',

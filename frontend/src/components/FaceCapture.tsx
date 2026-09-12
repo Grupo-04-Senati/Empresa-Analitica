@@ -16,8 +16,6 @@ interface FaceCaptureProps {
 
 const ANGLES = [
   { key: 'frontal', label: 'Frontal', instruction: 'Mira de frente a la camara' },
-  { key: 'izquierda', label: 'Derecha', instruction: 'Gira la cabeza a la derecha' },
-  { key: 'derecha', label: 'Izquierda', instruction: 'Gira la cabeza a la izquierda' },
 ];
 
 type Phase = 'loading' | 'scanning' | 'countdown' | 'processing' | 'done' | 'error';
