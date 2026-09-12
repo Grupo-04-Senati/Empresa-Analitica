@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, Loader2, Scan, ArrowRight } from 'lucide-react';
-import { FaceCapture478 } from '../components/FaceCapture478';
+import { FaceCapture } from '../components/FaceCapture';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -27,7 +27,7 @@ export default function Login() {
     setLoading(false);
   };
 
-  const handleFaceLogin = async (userId: number, nombre: string) => {
+  const handleFaceLogin = async (userId: number) => {
     setShowFace(false);
     setLoading(true);
     try {
@@ -115,7 +115,7 @@ export default function Login() {
         </p>
       </div>
 
-      {showFace && <FaceCapture478 mode="login" onLoginMatch={handleFaceLogin} onClose={() => setShowFace(false)} />}
+      {showFace && <FaceCapture mode="login" onLoginMatch={handleFaceLogin} onClose={() => setShowFace(false)} />}
     </div>
   );
 }
