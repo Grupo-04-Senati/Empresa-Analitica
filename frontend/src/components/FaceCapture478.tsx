@@ -85,6 +85,7 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
         framesRef.current = [];
 
         // Start detection loop
+        const detectStart = performance.now();
         scanIntervalRef.current = setInterval(() => {
           const video = videoRef.current;
           if (!video || video.readyState < 2) return;
@@ -93,7 +94,7 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
           const progress = Math.min(1, elapsed / SCAN_DURATION_MS);
           setScanProgress(progress);
 
-          const result = detectFrame(video, performance.now());
+          const result = detectFrame(video, performance.now() - detectStart);
           if (result && result.landmarks.length >= 478) {
             setFaceDetected(true);
             framesRef.current.push(result);

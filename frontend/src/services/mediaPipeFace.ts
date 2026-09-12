@@ -74,8 +74,8 @@ export async function loadFaceLandmarker(): Promise<FaceLandmarker> {
         baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
         runningMode: 'VIDEO',
         numFaces: 1,
-        minFaceDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
+        minFaceDetectionConfidence: 0.3,
+        minTrackingConfidence: 0.3,
         outputFaceBlendshapes: true,
       });
     } catch {
@@ -84,8 +84,8 @@ export async function loadFaceLandmarker(): Promise<FaceLandmarker> {
         baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
         runningMode: 'VIDEO',
         numFaces: 1,
-        minFaceDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
+        minFaceDetectionConfidence: 0.3,
+        minTrackingConfidence: 0.3,
         outputFaceBlendshapes: true,
       });
     }
