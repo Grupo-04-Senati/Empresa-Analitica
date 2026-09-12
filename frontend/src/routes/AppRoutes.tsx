@@ -3,6 +3,7 @@ import { DashboardLayout } from '../layouts/dashboard';
 import { useAuth } from '../context/AuthContext';
 import { Loader2 } from 'lucide-react';
 
+import Landing from '../pages/Landing';
 import DashboardInicio from '../pages/dashboard';
 import Clientes from '../pages/Clientes';
 import ClientesNuevo from '../pages/ClientesNuevo';
@@ -25,7 +26,7 @@ import Usuarios from '../pages/Usuarios';
 import AdminUsuarios from '../pages/AdminUsuarios';
 import Perfil from '../pages/Perfil';
 import Login from '../pages/Login';
-import Register from '../pages/Register';
+import { Register } from '../pages/Register';
 import LimpiezaDatos from '../pages/LimpiezaDatos';
 import Notificaciones from '../pages/Notificaciones';
 import FAQ from '../pages/FAQ';
@@ -40,25 +41,26 @@ const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const AdminGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAdmin } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (!isAdmin) return <Navigate to="/" replace />;
+  if (!isAdmin) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 };
 
 const GuestGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="flex items-center justify-center min-h-screen bg-slate-950 flex-col gap-4"><Loader2 size={32} className="animate-spin text-blue-500" /><p className="text-slate-500 text-sm">Cargando...</p></div>;
-  if (user) return <Navigate to="/" replace />;
+  if (loading) return <div className="flex items-center justify-center min-h-screen bg-slate-50 flex-col gap-4"><Loader2 size={32} className="animate-spin text-blue-600" /><p className="text-slate-500 text-sm">Cargando...</p></div>;
+  if (user) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 };
 
 export const AppRoutes = () => (
   <Routes>
+    <Route path="/" element={<Landing />} />
     <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
     <Route path="/register" element={<GuestGuard><Register /></GuestGuard>} />
     <Route path="/perfil" element={<AuthGuard><Perfil /></AuthGuard>} />
     <Route path="/faq" element={<AuthGuard><FAQ /></AuthGuard>} />
 
-    <Route path="/" element={<AuthGuard><DashboardLayout /></AuthGuard>}>
+    <Route path="/dashboard" element={<AuthGuard><DashboardLayout /></AuthGuard>}>
       <Route index element={<DashboardInicio />} />
       <Route path="clientes" element={<Clientes />} />
       <Route path="clientes/nuevo" element={<ClientesNuevo />} />
@@ -73,7 +75,7 @@ export const AppRoutes = () => (
       <Route path="estadisticas" element={<Estadisticas />} />
       <Route path="interpolacion" element={<Interpolacion />} />
       <Route path="optimizacion" element={<Optimizacion />} />
-      <Route path="reportes" element={<Navigate to="/reportes/atencion" replace />} />
+      <Route path="reportes" element={<Navigate to="/dashboard/reportes/atencion" replace />} />
       <Route path="reportes/atencion" element={<ReportesAtencion />} />
       <Route path="reportes/nlp" element={<ReportesNLP />} />
       <Route path="reportes/estadisticas" element={<ReportesEstadisticas />} />

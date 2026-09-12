@@ -239,7 +239,7 @@ export const Perfil: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 p-4 sm:p-6">
       <div className="max-w-4xl mx-auto flex flex-col gap-5">
         <div className="flex items-center justify-between">
-          <button type="button" onClick={() => navigate('/')} className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-700 bg-slate-800/60 text-sm font-semibold text-slate-200 hover:bg-slate-800 transition-colors backdrop-blur-sm">
+          <button type="button" onClick={() => navigate('/dashboard')} className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-700 bg-slate-800/60 text-sm font-semibold text-slate-200 hover:bg-slate-800 transition-colors backdrop-blur-sm">
             <ArrowLeft size={16} /> Volver al Dashboard
           </button>
           <span className="text-sm font-semibold text-slate-400">Ajustes de Cuenta</span>

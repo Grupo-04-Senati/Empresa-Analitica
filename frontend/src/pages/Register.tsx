@@ -1,55 +1,9 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { AlertCircle, CheckCircle, Eye, EyeOff, Loader2, BrainCircuit, Shield, Zap, ArrowRight, ArrowLeft, Scan, Camera } from 'lucide-react';
+import { Eye, EyeOff, Loader2, ArrowRight, UserPlus } from 'lucide-react';
 import { FaceCapture } from '../components/FaceCapture';
-import { faceApiRegister, faceApiHealth } from '../services/faceApi';
-import { auth } from '../services/supabase';
-
-const Particles = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    let animId: number;
-    const particles: { x: number; y: number; vx: number; vy: number; r: number; o: number }[] = [];
-    const resize = () => { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; };
-    resize();
-    window.addEventListener('resize', resize);
-    for (let i = 0; i < 60; i++) {
-      particles.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5, r: Math.random() * 2 + 1, o: Math.random() * 0.5 + 0.2 });
-    }
-    const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      particles.forEach((p) => {
-        p.x += p.vx; p.y += p.vy;
-        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(99,102,241,${p.o})`; ctx.fill();
-      });
-      for (let i = 0; i < particles.length; i++) {
-        for (let j = i + 1; j < particles.length; j++) {
-          const dx = particles[i].x - particles[j].x;
-          const dy = particles[i].y - particles[j].y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 120) {
-            ctx.beginPath(); ctx.moveTo(particles[i].x, particles[i].y);
-            ctx.lineTo(particles[j].x, particles[j].y);
-            ctx.strokeStyle = `rgba(99,102,241,${0.1 * (1 - dist / 120)})`;
-            ctx.lineWidth = 0.5; ctx.stroke();
-          }
-        }
-      }
-      animId = requestAnimationFrame(draw);
-    };
-    draw();
-    return () => { cancelAnimationFrame(animId); window.removeEventListener('resize', resize); };
-  }, []);
-  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />;
-};
+import { faceApiRegister } from '../services/faceApi';
 
 export const Register: React.FC = () => {
   const navigate = useNavigate();
@@ -65,7 +19,7 @@ export const Register: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [enableFace, setEnableFace] = useState(false);
   const [showFaceCapture, setShowFaceCapture] = useState(false);
-  const [capturedFacePhotos, setCapturedFacePhotos] = useState<Record<string, string> | null>(null);
+  const [userId, setUserId] = useState<number | null>(null);
 
   const handleRegister = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,8 +32,6 @@ export const Register: React.FC = () => {
     if (nombre.trim().length < 2) { setErrorMsg('El nombre debe tener al menos 2 caracteres.'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setErrorMsg('Ingresa un correo electronico valido.'); return; }
     if (password.length < 6) { setErrorMsg('La contrasena debe tener al menos 6 caracteres.'); return; }
-    if (telefono.trim() && !/^\d{9}$/.test(telefono.trim())) { setErrorMsg('El telefono debe tener exactamente 9 digitos numericos.'); return; }
-    if (enableFace && !capturedFacePhotos) { setErrorMsg('Primero toma las fotos de tu rostro.'); return; }
 
     setIsLoading(true);
     try {
@@ -87,210 +39,127 @@ export const Register: React.FC = () => {
         nombre: nombre.trim(),
         email: email.trim(),
         password,
-        rol: 'USUARIO',
-        telefono: telefono.trim(),
-        empresa: empresa.trim(),
+        telefono: telefono.trim() || undefined,
+        empresa: empresa.trim() || undefined,
       });
-      if (result.success && result.userId) {
-        if (enableFace && capturedFacePhotos) {
-          console.log('[Register] Registrando rostro en servidor Python. userId:', result.userId);
-          try {
-            const backendOk = await faceApiHealth();
-            if (!backendOk) {
-              setSuccessMsg('Cuenta creada pero el servidor de reconocimiento facial no esta disponible.');
-              try { await auth.signOut(); } catch {}
-              setTimeout(() => navigate('/login'), 3000);
-              return;
-            }
-            const faceResult = await faceApiRegister(result.userId, capturedFacePhotos);
-            console.log('[Register] Face result:', faceResult);
-            if (!faceResult.ok) {
-              setSuccessMsg('Cuenta creada pero el rostro fallo: ' + (faceResult.error || 'error'));
-              try { await auth.signOut(); } catch {}
-              setTimeout(() => navigate('/login'), 3000);
-              return;
-            }
-            setSuccessMsg('Cuenta y rostro registrados! Ya puedes iniciar sesion con tu cara.');
-          } catch (faceErr: any) {
-            console.error('[Register] Face error:', faceErr);
-            setSuccessMsg('Cuenta creada pero error registrando rostro: ' + faceErr.message);
-            try { await auth.signOut(); } catch {}
-            setTimeout(() => navigate('/login'), 3000);
-            return;
-          }
+      if (result.success) {
+        if (result.userId) setUserId(result.userId);
+        if (enableFace && result.userId) {
+          setSuccessMsg('Cuenta creada. Ahora registra tu rostro.');
+          setShowFaceCapture(true);
         } else {
-          setSuccessMsg('Cuenta creada! Ahora puedes iniciar sesion con tu correo y contrasena.');
+          setSuccessMsg('Cuenta creada correctamente. Revisa tu email para confirmar.');
+          setTimeout(() => navigate('/login'), 2000);
         }
-        try { await auth.signOut(); } catch {}
-        setTimeout(() => navigate('/login'), 2500);
       } else {
-        setErrorMsg(result.message || 'Error al crear la cuenta.');
+        setErrorMsg(result.message || 'Error al crear la cuenta');
       }
-    } catch (err: any) {
-      console.error('[Register] Error completo:', err);
-      setErrorMsg('Error de conexion: ' + (err?.message || 'desconocido'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [nombre, email, password, telefono, empresa, registerUser, navigate, enableFace, capturedFacePhotos]);
+    } catch { setErrorMsg('Error de conexion'); }
+    setIsLoading(false);
+  }, [nombre, email, password, telefono, empresa, enableFace, navigate]);
 
-  const features = [
-    { icon: <BrainCircuit size={20} />, title: 'NLP Avanzado', desc: 'Analiza sentimiento y categoriza comentarios automaticamente' },
-    { icon: <Shield size={20} />, title: 'Datos Seguros', desc: 'Infraestructura Supabase con autenticacion JWT' },
-    { icon: <Zap size={20} />, title: 'Configuracion Rapida', desc: 'Empieza a usar la plataforma en minutos' },
-  ];
+  const handleFaceRegistered = async (photos: Record<string, string>) => {
+    setShowFaceCapture(false);
+    if (userId) {
+      try { await faceApiRegister(userId, photos); } catch {}
+    }
+    setSuccessMsg('Cuenta y rostro registrados correctamente.');
+    setTimeout(() => navigate('/login'), 2000);
+  };
+
+  const passwordStrength = password.length === 0 ? 0 : password.length < 6 ? 1 : password.length < 10 ? 2 : /[A-Z]/.test(password) && /[0-9]/.test(password) ? 3 : 2;
+  const strengthColors = ['bg-slate-200', 'bg-red-400', 'bg-yellow-400', 'bg-green-400'];
+  const strengthLabels = ['', 'Debil', 'Media', 'Fuerte'];
 
   return (
-    <div className="flex min-h-screen bg-white">
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950">
-        <Particles />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(99,102,241,0.12),transparent_60%)]" />
-        <div className="relative z-10 flex flex-col justify-between w-full px-12 py-10">
-          <div>
-            <div className="flex items-center gap-3 mb-16">
-              <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="12" width="4" height="9" rx="1" fill="white"/><rect x="10" y="7" width="4" height="14" rx="1" fill="white"/><rect x="17" y="3" width="4" height="18" rx="1" fill="white"/></svg>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="bg-white rounded-2xl shadow-xl p-8 md:p-10">
+          <h1 className="text-2xl font-bold text-slate-800 mb-1">Crear Cuenta</h1>
+          <p className="text-slate-500 text-sm mb-8">Registrate para comenzar</p>
+
+          {errorMsg && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6">
+              <span className="text-red-500 text-sm">{errorMsg}</span>
+            </div>
+          )}
+          {successMsg && (
+            <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 mb-6">
+              <span className="text-green-600 text-sm">{successMsg}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Nombre completo *</label>
+              <input type="text" value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Tu nombre"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-sm" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Correo Electronico *</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@empresa.com"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-sm" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Telefono</label>
+                <input type="tel" value={telefono} onChange={e => setTelefono(e.target.value.replace(/\D/g, '').slice(0, 9))} placeholder="9 digitos"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-sm" />
               </div>
               <div>
-                <h1 className="text-white font-bold text-lg leading-tight">BADI Corp</h1>
-                <span className="text-[11px] font-semibold tracking-[0.2em] text-indigo-400 uppercase">Analitica & Desarrollo</span>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Empresa</label>
+                <input type="text" value={empresa} onChange={e => setEmpresa(e.target.value)} placeholder="Tu empresa"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-sm" />
               </div>
             </div>
-            <h2 className="text-4xl font-bold text-white leading-tight mb-4">
-              Unete a la<br />
-              <span className="bg-gradient-to-r from-indigo-400 to-blue-400 bg-clip-text text-transparent">Revolucion Inteligente</span>
-            </h2>
-            <p className="text-slate-400 text-base leading-relaxed max-w-md mb-12">
-              Crea tu cuenta y accede a herramientas de analisis avanzado, procesamiento de lenguaje natural y dashboards en tiempo real.
-            </p>
-            <div className="space-y-5">
-              {features.map((f, i) => (
-                <div key={i} className="flex items-start gap-4 group">
-                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-500/20 transition-colors shrink-0">{f.icon}</div>
-                  <div>
-                    <h4 className="text-white font-semibold text-sm">{f.title}</h4>
-                    <p className="text-slate-400 text-sm">{f.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <p className="text-slate-500 text-xs">&copy; 2026 BADI Corp. Todos los derechos reservados.</p>
-        </div>
-      </div>
 
-      <div className="flex flex-1 items-center justify-center px-6 py-12 bg-gradient-to-br from-slate-50 to-indigo-50">
-        <div className="w-full max-w-md">
-          <div className="flex items-center gap-3 mb-8 lg:hidden">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="12" width="4" height="9" rx="1" fill="white"/><rect x="10" y="7" width="4" height="14" rx="1" fill="white"/><rect x="17" y="3" width="4" height="18" rx="1" fill="white"/></svg>
-            </div>
             <div>
-              <h1 className="text-slate-800 font-bold leading-tight">BADI Corp</h1>
-              <span className="text-[10px] font-semibold tracking-[0.2em] text-indigo-500 uppercase">Analitica & Desarrollo</span>
-            </div>
-          </div>
-
-          <Link to="/login" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors mb-6">
-            <ArrowLeft size={16} /> Volver al login
-          </Link>
-
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-slate-800 mb-1">Crear Cuenta</h2>
-            <p className="text-slate-500 text-sm">Completa tus datos para registrarte</p>
-          </div>
-
-          <div className="space-y-3 mb-6">
-            {errorMsg && (
-              <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm animate-[fadeIn_0.3s_ease]">
-                <AlertCircle size={16} className="shrink-0" /><span>{errorMsg}</span>
-              </div>
-            )}
-            {successMsg && (
-              <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-600 text-sm animate-[fadeIn_0.3s_ease]">
-                <CheckCircle size={16} className="shrink-0" /><span>{successMsg}</span>
-              </div>
-            )}
-          </div>
-
-          <form onSubmit={handleRegister} className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Nombre completo</label>
-              <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, ''))} placeholder="Tu nombre" maxLength={100} autoComplete="name" className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Correo Electronico</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@empresa.com" maxLength={200} autoComplete="email" className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Numero de Telefono</label>
-              <input type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value.replace(/[^0-9]/g, '').slice(0, 9))} placeholder="999888777" maxLength={9} autoComplete="tel" className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
-              <p className="text-[11px] text-slate-400 mt-1">Opcional - 9 digitos exactos</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Empresa (opcional)</label>
-              <input type="text" value={empresa} onChange={(e) => setEmpresa(e.target.value)} placeholder="Nombre de tu empresa" maxLength={200} className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Contrasena</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Contrasena *</label>
               <div className="relative">
-                <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimo 6 caracteres" maxLength={128} autoComplete="new-password" className="w-full px-4 py-2.5 pr-11 rounded-xl bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all" />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Minimo 6 caracteres"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-sm pr-12" />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
               {password.length > 0 && (
-                <div className="mt-2 flex gap-1">
-                  {[1,2,3,4].map((i) => (
-                    <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${password.length >= i * 3 ? (i <= 2 ? 'bg-red-400' : i === 3 ? 'bg-amber-400' : 'bg-emerald-400') : 'bg-slate-200'}`} />
-                  ))}
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${strengthColors[passwordStrength]}`} style={{ width: `${(passwordStrength + 1) * 25}%` }} />
+                  </div>
+                  <span className="text-[10px] text-slate-500">{strengthLabels[passwordStrength]}</span>
                 </div>
               )}
-              <p className="text-[11px] text-slate-400 mt-1">Entre mas caracteres, mas segura sera tu contrasena</p>
             </div>
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
-              <button type="button" onClick={() => { setEnableFace(!enableFace); setCapturedFacePhotos(null); }} className={`relative w-10 h-5 rounded-full transition-colors ${enableFace ? 'bg-blue-600' : 'bg-slate-300'}`}>
-                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enableFace ? 'translate-x-5' : 'translate-x-0.5'}`} />
-              </button>
-              <div className="flex items-center gap-2">
-                <Scan size={16} className="text-slate-500" />
-                <span className="text-sm text-slate-700">Activar inicio de sesion con rostro</span>
-              </div>
+
+            <div className="flex items-center gap-2 py-1">
+              <input type="checkbox" id="enableFace" checked={enableFace} onChange={e => setEnableFace(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+              <label htmlFor="enableFace" className="text-sm text-slate-600">Registrar rostro ahora (opcional)</label>
             </div>
-            {enableFace && (
-              <div className="space-y-2">
-                <button type="button" onClick={() => setShowFaceCapture(true)} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-blue-300 bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100 transition-all">
-                  <Camera size={16} />
-                  {capturedFacePhotos ? 'Volver a Capturar Rostro (3 Angulos)' : 'Tomar Fotos de mi Rostro'}
-                </button>
-                {capturedFacePhotos && (
-                  <p className="text-xs text-green-600 text-center flex items-center justify-center gap-1">
-                    <CheckCircle size={12} /> Fotos listas — haz clic en "Crear Cuenta" para registrarte
-                  </p>
-                )}
-              </div>
-            )}
-            <button type="submit" disabled={isLoading} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm hover:from-blue-500 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-500/25">
-              {isLoading ? <Loader2 size={18} className="animate-spin" /> : <><span>Crear Cuenta</span><ArrowRight size={16} /></>}
+
+            <button type="submit" disabled={isLoading}
+              className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+              {isLoading ? <Loader2 size={18} className="animate-spin" /> : <>Crear Cuenta <UserPlus size={16} /></>}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-slate-500">
+          <p className="text-center text-sm text-slate-500 mt-6">
             Ya tienes una cuenta?{' '}
-            <Link to="/login" className="font-medium text-blue-600 hover:text-blue-500 transition-colors">Inicia sesion</Link>
+            <Link to="/login" className="text-blue-600 hover:text-blue-700 font-semibold">Inicia sesion</Link>
           </p>
         </div>
+
+        <p className="text-center text-xs text-slate-400 mt-6">
+          <Link to="/" className="hover:text-slate-600">&larr; Volver al inicio</Link>
+        </p>
       </div>
 
-      {showFaceCapture && (
-        <FaceCapture
-          mode="register"
-          onCapture={(photos) => { setCapturedFacePhotos(photos); setShowFaceCapture(false); }}
-          onClose={() => setShowFaceCapture(false)}
-        />
+      {showFaceCapture && userId && (
+        <FaceCapture mode="register" usuarioId={userId} onCapture={handleFaceRegistered} onClose={() => { setShowFaceCapture(false); setSuccessMsg('Cuenta creada. Puedes registrar tu rostro desde tu perfil.'); setTimeout(() => navigate('/login'), 1500); }} />
       )}
     </div>
   );
 };
-
-export default Register;
