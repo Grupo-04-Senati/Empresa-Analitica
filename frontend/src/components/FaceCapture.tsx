@@ -322,9 +322,9 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       ctx.stroke();
     };
 
-    L(jawD, 'rgba(0,200,255,0.4)', 0.9); L(chinD, 'rgba(0,200,255,0.35)', 0.8);
-    L(lJawD, 'rgba(0,200,255,0.35)', 0.8); L(rJawD, 'rgba(0,200,255,0.35)', 0.8);
-    L(lCheekD, 'rgba(0,200,255,0.25)', 0.5); L(rCheekD, 'rgba(0,200,255,0.25)', 0.5);
+    L(jawD, 'rgba(0,200,255,0.6)', 1.2); L(chinD, 'rgba(0,200,255,0.55)', 1.1);
+    L(lJawD, 'rgba(0,200,255,0.55)', 1.1); L(rJawD, 'rgba(0,200,255,0.55)', 1.1);
+    L(lCheekD, 'rgba(0,200,255,0.4)', 0.8); L(rCheekD, 'rgba(0,200,255,0.4)', 0.8);
     L(lCheekBone, 'rgba(100,220,255,0.3)', 0.5); L(rCheekBone, 'rgba(100,220,255,0.3)', 0.5);
     L(lNasoFold, 'rgba(0,220,200,0.25)', 0.45); L(rNasoFold, 'rgba(0,220,200,0.25)', 0.45);
     L(foreheadD, 'rgba(0,200,255,0.3)', 0.6); L(foreheadTop, 'rgba(0,200,255,0.2)', 0.45);
@@ -369,16 +369,17 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     for (let i = 0; i < mapped.length; i++) {
       const p = mapped[i];
       const dx = (pts[i].x - nc.x) / eyeDist, dy = (pts[i].y - nc.y) / eyeDist;
-      const d = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) * 0.35);
-      const sz = 0.6 + d * 0.8;
+      const distFromCenter = Math.sqrt(dx * dx + dy * dy);
+      const d = Math.max(0, 1 - distFromCenter * 0.25);
+      const sz = 1.2 + d * 1.2;
       let c: string;
-      if (i >= 36 && i <= 47) c = `rgba(255,80,80,${0.5 + d * 0.5})`;
-      else if (i >= 27 && i <= 35) c = `rgba(0,255,150,${0.5 + d * 0.5})`;
-      else if (i >= 48 && i <= 67) c = `rgba(255,180,50,${0.5 + d * 0.5})`;
-      else if (i <= 16) c = `rgba(0,220,255,${0.5 + d * 0.5})`;
-      else c = `rgba(180,200,255,${0.4 + d * 0.4})`;
+      if (i >= 36 && i <= 47) c = `rgba(255,80,80,${0.7 + d * 0.3})`;
+      else if (i >= 27 && i <= 35) c = `rgba(0,255,150,${0.7 + d * 0.3})`;
+      else if (i >= 48 && i <= 67) c = `rgba(255,180,50,${0.7 + d * 0.3})`;
+      else if (i <= 16) c = `rgba(0,220,255,${0.8 + d * 0.2})`;
+      else c = `rgba(180,200,255,${0.6 + d * 0.4})`;
       ctx.beginPath(); ctx.arc(p.x, p.y, sz, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill();
-      if (d > 0.7) { ctx.beginPath(); ctx.arc(p.x, p.y, sz + 1.8, 0, Math.PI * 2); ctx.fillStyle = `rgba(0,255,200,${0.25 * d})`; ctx.fill(); }
+      if (d > 0.5) { ctx.beginPath(); ctx.arc(p.x, p.y, sz + 2.2, 0, Math.PI * 2); ctx.fillStyle = `rgba(0,255,200,${0.3 * d})`; ctx.fill(); }
     }
 
     // === CROSSHAIR + DISTANCE LABEL ===
