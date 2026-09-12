@@ -109,10 +109,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
   const drawWireframeMask = useCallback((landmarks: faceapi.FaceLandmarks68, videoW: number, videoH: number, canvasW: number, canvasH: number) => {
     const overlay = overlayRef.current;
-    if (!overlay || canvasW < 10 || canvasH < 10) {
-      console.warn('[FaceCapture] drawWireframeMask skipped:', { overlay: !!overlay, canvasW, canvasH });
-      return;
-    }
+    if (!overlay || canvasW < 10 || canvasH < 10) return;
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
 
@@ -426,16 +423,9 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         const videoH = video.videoHeight || video.clientHeight;
         const overlay = overlayRef.current;
         if (overlay && videoW > 0 && videoH > 0) {
-          const cw = overlay.clientWidth || videoW;
-          const ch = overlay.clientHeight || videoH;
-          if (cw > 0 && ch > 0) {
-            overlay.width = cw;
-            overlay.height = ch;
-            if (detectionCount <= 3) console.log(`[FaceCapture] Drawing: videoW=${videoW} videoH=${videoH} canvasW=${cw} canvasH=${ch}`);
-            drawWireframeMask(detections.landmarks, videoW, videoH, cw, ch);
-          } else {
-            console.warn('[FaceCapture] Canvas dims zero:', { cw, ch, clientW: overlay.clientWidth, clientH: overlay.clientHeight });
-          }
+          overlay.width = videoW;
+          overlay.height = videoH;
+          try { drawWireframeMask(detections.landmarks, videoW, videoH, videoW, videoH); } catch (e) { console.error('[FaceCapture] drawWireframeMask error:', e); }
         }
 
         frozenRef.current = { landmarks: detections.landmarks, score: detections.detection.score, videoW, videoH };
