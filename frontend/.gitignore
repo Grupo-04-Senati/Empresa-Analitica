@@ -12,3 +12,5 @@ dist/
 
 # Binarios WASM de MediaPipe: se generan en predev/prebuild desde node_modules
 public/wasm/
+
+.vercel

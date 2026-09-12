@@ -39,8 +39,8 @@ type Phase = 'loading' | 'scanning' | 'processing' | 'done' | 'error';
  * El registro barre la cabeza de lado a lado, asi que necesita mas tiempo que
  * el login, que solo confirma la pose frontal.
  */
-const SCAN_DURATION_MS = { register: 9000, login: 4500 } as const;
-const SCAN_HARD_TIMEOUT_MS = { register: 30000, login: 20000 } as const;
+const SCAN_DURATION_MS = { register: 9000, login: 15000 } as const;
+const SCAN_HARD_TIMEOUT_MS = { register: 30000, login: 30000 } as const;
 /** Periodo entre detecciones (~12 FPS): suficiente y no saturar la CPU. */
 const DETECT_INTERVAL_MS = 80;
 /** Cada cuanto se publican los contadores a React (4 veces por segundo). */
@@ -371,14 +371,13 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
   }, [stopAll]);
 
   /**
-   * Login paso a paso: el usuario captura frontal (obligatoria) y luego
-   * lados A/B (opcionales) con el boton, igual que en registro. Cuando
-   * pulsa "Verificar identidad", se compara con los rostros guardados.
+   * Login automatico: compara las poses capturadas con los rostros guardados.
+   * Requiere al menos la pose frontal.
    */
   const handleFinishLogin = useCallback(async () => {
     const templates = capturedRef.current;
     if (!templates.frontal) {
-      setCaptureMsg('Falta capturar la vista de frente, que es obligatoria.');
+      setCaptureMsg('No se pudo capturar la vista frontal.');
       return;
     }
 
@@ -454,7 +453,7 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
 
         setPhase('scanning');
         setStatusMsg(mode === 'login'
-          ? 'Mira de frente y pulsa Capturar...'
+          ? 'Escaneando rostro... mueve la cabeza de lado a lado'
           : 'Gira la cabeza despacio de un lado al otro...');
         startTimeRef.current = performance.now();
         lastVideoTimeRef.current = -1;
@@ -515,6 +514,37 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
           const counts = poseCountsRef.current;
           const frontalDone = counts.frontal >= POSE_TARGET.frontal;
 
+          // Login automatico: auto-capturar poses cuando tengan suficientes frames
+          if (!isRegister && !frozenRef.current) {
+            const ahora = performance.now();
+            for (const pose of FACE_POSES) {
+              if (capturedRef.current[pose]) continue; // ya capturada
+              if (counts[pose] < POSE_TARGET[pose]) continue; // no hay suficientes frames
+
+              const recientes = framesRef.current.filter(
+                f => f.pose === pose && ahora - f.timestamp <= CAPTURE_WINDOW_MS
+              );
+              if (recientes.length < POSE_TARGET[pose]) continue;
+
+              const resultado = buildPoseTemplates(recientes);
+              const plantilla = resultado.templates[pose];
+              if (!plantilla) continue;
+
+              capturedRef.current = { ...capturedRef.current, [pose]: plantilla };
+              setCaptured({ ...capturedRef.current });
+
+              // Congela la malla como confirmacion visual
+              frozenRef.current = true;
+              setFrozen(true);
+              setTimeout(() => {
+                frozenRef.current = false;
+                setFrozen(false);
+              }, 800);
+
+              break; // capturar una pose por ciclo
+            }
+          }
+
           if (mode === 'register') {
             /*
              * En registro NO se completa por tiempo: cada pose la captura el
@@ -544,12 +574,19 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
             return;
           }
 
-          // Login: paso a paso, igual que registro. El usuario captura cada
-          // pose con el boton; no hay auto-completado por tiempo.
+          // Login automatico: captura las 3 poses (frontal + A + B).
+          // Cuando las 3 estan listas, completa automaticamente.
           const hechas = FACE_POSES.filter(pose => capturedRef.current[pose]).length;
           setScanProgress(hechas / 3);
 
-          // Solo timeout si no se detecta ningun rostro
+          // Si las 3 poses estan capturadas, completar
+          if (hechas >= 3) {
+            finishedRef.current = true;
+            handleFinishLogin();
+            return;
+          }
+
+          // Timeout si no se detecta ningun rostro
           if (!sawFaceRef.current && elapsed >= hardTimeout) {
             finishedRef.current = true;
             if (!videoReady) {
@@ -563,6 +600,13 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
                 'Centra tu cara en el encuadre, acercate un poco y mejora la iluminacion.'
               );
             }
+          }
+
+          // Timeout general: si paso el tiempo y tiene al menos frontal
+          if (elapsed >= hardTimeout && capturedRef.current.frontal) {
+            finishedRef.current = true;
+            handleFinishLogin();
+            return;
           }
         };
 
@@ -910,11 +954,12 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
     if (frozen) return 'Captura tomada';
 
     if (!isRegister) {
-      // Login paso a paso
-      if (!captured.frontal) return 'Mira de frente y pulsa Capturar';
-      if (!captured.izquierda && !captured.derecha) return 'Gira la cabeza a un lado y pulsa Capturar';
-      if (!captured.izquierda || !captured.derecha) return 'Gira al otro lado y pulsa Capturar';
-      return 'Todas las poses listas: pulsa Verificar identidad';
+      // Login automatico: guiar al usuario para que mueva la cabeza
+      if (!captured.frontal) return 'Mira de frente a la camara...';
+      if (!captured.izquierda && !captured.derecha) return 'Gira la cabeza despacio de un lado al otro...';
+      if (!captured.izquierda) return 'Gira a la izquierda...';
+      if (!captured.derecha) return 'Gira a la derecha...';
+      return 'Verificando identidad...';
     }
 
     // Registro
@@ -927,9 +972,10 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
   const subGuidance = (() => {
     if (multiFaceWarning) return 'Retira a las demas personas del encuadre';
     if (!isRegister) {
-      return currentPose
-        ? `Posicion detectada: ${POSE_LABEL[currentPose]}`
-        : 'Cabeza entre dos posiciones: quedate quieto un momento';
+      const hechas = FACE_POSES.filter(p => captured[p]).length;
+      return hechas < 3
+        ? `${hechas}/3 poses capturadas — sigue moviendo la cabeza`
+        : 'Todas las poses capturadas';
     }
     return currentPose
       ? `Posicion detectada: ${POSE_LABEL[currentPose]}`
@@ -1085,62 +1131,61 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
                 )}
               </div>
 
-              {/* Registro y Login manual: el usuario decide cuando congelar cada pose */}
-              {(
-                <>
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    {FACE_POSES.map(pose => {
-                      const done = poseDone(pose);
-                      const active = currentPose === pose;
-                      const plantilla = captured[pose];
-                      return (
-                        <div
-                          key={pose}
-                          className={`rounded-xl border px-2 py-2 text-center transition-colors ${
-                            done
-                              ? 'border-emerald-300 bg-emerald-50'
-                              : active
-                                ? 'border-blue-300 bg-blue-50'
-                                : 'border-slate-200 bg-slate-50'
-                          }`}
-                        >
-                          <div className="flex items-center justify-center gap-1">
-                            {done && <CheckCircle size={12} className="text-emerald-500" />}
-                            <span className={`text-xs font-semibold ${done ? 'text-emerald-700' : 'text-slate-600'}`}>
-                              {POSE_LABEL[pose]}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-slate-400 mt-0.5">
-                            {plantilla
-                              ? `${plantilla.frames} frames`
-                              : pose === 'frontal' ? 'obligatoria' : 'opcional'}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                    <button
-                      onClick={handleCapturePose}
-                      disabled={!puedeCapturar}
-                      className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              {/* Indicadores de pose: siempre visibles */}
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {FACE_POSES.map(pose => {
+                  const done = poseDone(pose);
+                  const active = currentPose === pose;
+                  const plantilla = captured[pose];
+                  return (
+                    <div
+                      key={pose}
+                      className={`rounded-xl border px-2 py-2 text-center transition-colors ${
+                        done
+                          ? 'border-emerald-300 bg-emerald-50'
+                          : active
+                            ? 'border-blue-300 bg-blue-50'
+                            : 'border-slate-200 bg-slate-50'
+                      }`}
                     >
-                      {currentPose ? `Capturar ${POSE_LABEL[currentPose]}` : 'Capturar'}
-                    </button>
-                    <button
-                      onClick={isRegister ? handleFinishRegister : handleFinishLogin}
-                      disabled={!captured.frontal}
-                      className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {isRegister ? 'Guardar rostro' : 'Verificar identidad'}
-                    </button>
-                  </div>
+                      <div className="flex items-center justify-center gap-1">
+                        {done && <CheckCircle size={12} className="text-emerald-500" />}
+                        <span className={`text-xs font-semibold ${done ? 'text-emerald-700' : 'text-slate-600'}`}>
+                          {POSE_LABEL[pose]}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {plantilla
+                          ? `${plantilla.frames} frames`
+                          : isRegister ? 'obligatoria' : 'escaneando...'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-                  {captureMsg && (
-                    <p className="mt-2 text-xs text-center text-slate-600">{captureMsg}</p>
-                  )}
-                </>
+              {/* Botones: solo en registro */}
+              {isRegister && (
+                <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={handleCapturePose}
+                    disabled={!puedeCapturar}
+                    className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {currentPose ? `Capturar ${POSE_LABEL[currentPose]}` : 'Capturar'}
+                  </button>
+                  <button
+                    onClick={handleFinishRegister}
+                    disabled={!captured.frontal || !captured.izquierda || !captured.derecha}
+                    className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Guardar rostro
+                  </button>
+                </div>
+              )}
+
+              {captureMsg && (
+                <p className="mt-2 text-xs text-center text-slate-600">{captureMsg}</p>
               )}
 
               <div className="mt-3 flex items-center gap-2">
