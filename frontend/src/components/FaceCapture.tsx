@@ -122,9 +122,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     const le36 = pts[36], le45 = pts[45];
     const eyeDist = Math.hypot(le45.x - le36.x, le45.y - le36.y);
     const nc = { x: (le36.x + le45.x) / 2, y: (le36.y + le45.y) / 2 };
-    const fcx = canvasW / 2, fcy = canvasH / 2;
 
-    const mapP = (p: { x: number; y: number }) => ({ x: (p.x - nc.x) * sx + fcx, y: (p.y - nc.y) * sy + fcy });
+    const mapP = (p: { x: number; y: number }) => ({ x: p.x * sx, y: p.y * sy });
 
     const ip = (kp: { x: number; y: number }[], n: number): { x: number; y: number }[] => {
       if (kp.length < 2 || n < 2) return kp.map(mapP);
