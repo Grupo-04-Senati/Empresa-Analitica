@@ -54,12 +54,12 @@ export const SIGNATURE_VERSION = 'mediapipe-478-v2';
  *   personas distintas -> ~0.075 en adelante
  */
 const RMS_SAME_PERSON = 0.020;
-const RMS_DIFFERENT_PERSON = 0.085;
+const RMS_DIFFERENT_PERSON = 0.140;
 
 /** Similitud minima para aceptar un login facial. */
-export const MATCH_THRESHOLD = 0.45;
+export const MATCH_THRESHOLD = 0.35;
 /** Ventaja minima del mejor candidato sobre el segundo (evita falsos positivos 1:N). */
-export const MATCH_MIN_MARGIN = 0.05;
+export const MATCH_MIN_MARGIN = 0.04;
 
 let faceLandmarker: FaceLandmarker | null = null;
 let loadingPromise: Promise<FaceLandmarker> | null = null;
@@ -1016,7 +1016,7 @@ const REGION_SLOTS: Record<FaceRegion, number[]> = (() => {
  * promedio sea alto, si una sola zona del rostro no cuadra, no es la misma
  * persona y se rechaza.
  */
-export const REGION_FLOOR = 0.25;
+export const REGION_FLOOR = 0.15;
 
 export interface RegionMatch {
   /** Media de las similitudes por region (cada region pesa igual). */
