@@ -22,6 +22,7 @@ interface AnalisisReciente {
     categoria_detectada: string;
     confianza: number;
     palabras_frecuentes: string[];
+    sentimiento?: string;
   } | null;
 }
 
@@ -33,29 +34,42 @@ interface ResultadoLocal {
   sentimiento: 'positivo' | 'negativo' | 'neutro';
 }
 
-const STOPWORDS_ES = new Set(['de','la','el','en','y','a','los','del','las','un','por','con','una','su','para','es','al','lo','como','más','o','pero','sus','le','ya','este','ha','sí','porque','esta','son','entre','cuando','muy','sin','sobre','también','me','hasta','hay','donde','quien','desde','todo','nos','durante','todos','uno','les','ni','contra','otros','ese','eso','ante','ellos','e','esto','mí','antes','algunos','qué','unos','yo','otro','otras','otra','él','tanto','esa','estos','mucho','quienes','nada','muchos','cual','poco','ella','estar','estas','algunas','algo','nosotros','mi','mis','tú','te','ti','tu','tus','ellas','nosotras','vosotros','vosotras','os','mío','mía','míos','mías','tuyo','tuya','tuyos','tuyas','suyo','suya','suyos','suyas','nuestro','nuestra','nuestros','nuestras','vuestro','vuestra','vuestros','vuestras','esos','esas','estoy','estás','está','estamos','estáis','están','esté','estés','estemos','estéis','estén','estaré','estarás','estará','estaremos','estaréis','estarán','estaría','estarías','estaríamos','estaríais','estarían','estaba','estabas','estábamos','estabais','estaban','estuve','estuviste','estuvo','estuvimos','estuvisteis','estuvieron','estuviera','estuvieras','estuviéramos','estuvierais','estuvieran','estuviese','estuvieses','estuviésemos','estuvieseis','estuviesen','estando','estado','estada','estados','estadas','estad','he','has','ha','hemos','habéis','han','haya','hayas','hayamos','hayáis','hayan','habré','habrás','habrá','habremos','habréis','habrán','habría','habrías','habríamos','habríais','habrían','había','habías','habíamos','habíais','habían','hube','hubiste','hubo','hubimos','hubisteis','hubieron','hubiera','hubieras','hubiéramos','hubierais','hubieran','hubiese','hubieses','hubiésemos','hubieseis','hubiesen','habiendo','habido','habida','habidos','habidas','soy','eres','es','somos','sois','son','sea','seas','seamos','seáis','sean','seré','serás','será','seremos','seréis','serán','sería','serías','seríamos','seríais','serían','era','eras','éramos','erais','eran','fui','fuiste','fue','fuimos','fuisteis','fueron','fuera','fueras','fuéramos','fuerais','fueran','fuese','fueses','fuésemos','fueseis','fuesen','siendo','sido','tengo','tienes','tiene','tenemos','tenéis','tienen','tenga','tengas','tengamos','tengáis','tengan','tendré','tendrás','tendrá','tendremos','tendréis','tendrán','tendría','tendrías','tendríamos','tendríais','tendrían','tenía','tenías','teníamos','teníais','tenían','tuve','tuviste','tuvo','tuvimos','tuvisteis','tuvieron','tuviera','tuvieras','tuviéramos','tuvierais','tuvieran','tuviese','tuvieses','tuviésemos','tuvieseis','tuviesen','teniendo','tenido','tenida','tenidos','tenidas','tened']);
+const STOPWORDS_ES = new Set(['de','la','el','en','y','a','los','del','las','un','por','con','una','su','para','es','al','lo','como','más','o','pero','sus','le','ya','este','ha','sí','porque','esta','son','entre','cuando','muy','sin','sobre','también','me','hasta','hay','donde','quien','desde','todo','nos','durante','todos','uno','les','ni','contra','otros','ese','eso','ante','ellos','e','esto','mí','antes','algunos','qué','unos','yo','otro','otras','otra','él','tanto','esa','estos','mucho','quienes','nada','muchos','cual','poco','ella','estar','estas','algunas','algo','nosotros','mi','mis','tú','te','ti','tu','tus','ellas','nosotras','vosotros','vosotras','os','mío','mía','míos','mías','tuyo','tuya','tuyos','tuyas','suyo','suya','suyos','suyas','nuestro','nuestra','nuestros','nuestras','vuestro','vuestra','vuestros','vuestras','esos','esas','estoy','estás','está','estamos','estáis','están','seré','serás','será','seremos','seréis','serán','sido','siendo','fue','fuera','han','hemos']);
 
-function analizarConCategorias(texto: string, categorias: CategoriaDB[], customWords?: { positivas: string[]; negativas: string[]; neutras: string[] }): ResultadoLocal {
+const DEFAULT_POSITIVAS = ['excelente','bueno','buen','buenas','genial','increíble','increible','perfecto','agradecido','agradecida','gracias','feliz','satisfecho','satisfecha','recomiendo','me gusta','maravilloso','fantástico','fantastico','rápido','rapido','eficiente','calidad','profesional','amable','resolvio','ayuda','mejor','bien','ok','servicio bueno','todo bien','funciona bien'];
+const DEFAULT_NEGATIVAS = ['malo','mala','terrible','pésimo','pesimo','horrible','lento','lenta','error','problema','queja','reclamo','insatisfecho','decepcionado','decepcionada','no funciona','no sirve','muy lento','deficiente','lamentable','estafa','fraude','furioso','furiosa','molesto','molesta','incumplimiento','carajo','mierda','puta','maldito','maldita','culo','pendejo','pendeja','estupido','estupida','imbécil','imbecil','idiota','basura','asco','asqueroso','asquerosa','desastre','falso','robo','robado','corrupto','corrupta','inutil','inútil','vergüenza','verguenza','odio','odioso','detesto','furibundo','desesperado','desesperada','hartado','hartada','harto','harta','jodido','jodida','hijueputa','malparido','careverga','marica','maricon','puto','prostituto','pedo','caca','verga','torpe'];
+
+const STORAGE_KEY = 'badi_custom_words';
+
+function loadCustomWords(): { positivas: string[]; negativas: string[]; neutras: string[] } {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch { /* empty */ }
+  return { positivas: [], negativas: [], neutras: [] };
+}
+
+function saveCustomWords(words: { positivas: string[]; negativas: string[]; neutras: string[] }) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(words)); } catch { /* empty */ }
+}
+
+function analizarConCategorias(texto: string, categorias: CategoriaDB[], customWords: { positivas: string[]; negativas: string[]; neutras: string[] }): ResultadoLocal {
   const limpio = texto.toLowerCase().replace(/[^\w\sáéíóúñ]/g, ' ');
   const tokens = limpio.split(/\s+/).filter((t) => t.length > 2 && !STOPWORDS_ES.has(t));
   const freq: Record<string, number> = {};
   tokens.forEach((t) => { freq[t] = (freq[t] || 0) + 1; });
   const palabrasFrecuentes = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([palabra, frecuencia]) => ({ palabra, frecuencia }));
 
-  const defaultPositivas = ['excelente','bueno','buen','muy bien','genial','increíble','perfecto','agradecido','gracias','feliz','satisfecho','recomiendo','me gusta','maravilloso','fantástico','rápido','eficiente','calidad','profesional','amable','resolvio','ayuda'];
-  const defaultNegativas = ['malo','terrible','pésimo','horrible','lento','error','problema','queja','reclamo','insatisfecho','decepcionado','no funciona','no sirve','muy lento','deficiente','lamentable','estafa','fraude','furioso','molesto','incumplimiento'];
+  const positivas = [...new Set([...DEFAULT_POSITIVAS, ...customWords.positivas])];
+  const negativas = [...new Set([...DEFAULT_NEGATIVAS, ...customWords.negativas])];
 
-  const positivas = customWords?.positivas?.length ? customWords.positivas : defaultPositivas;
-  const negativas = customWords?.negativas?.length ? customWords.negativas : defaultNegativas;
-
-  let posCount = 0, negCount = 0;
   const textoLower = texto.toLowerCase();
+  let posCount = 0, negCount = 0;
   positivas.forEach((p) => { if (textoLower.includes(p.toLowerCase())) posCount++; });
   negativas.forEach((n) => { if (textoLower.includes(n.toLowerCase())) negCount++; });
 
   let categoria = 'OTROS';
   let mejorScore = 0;
-
   for (const cat of categorias) {
     if (!cat.activo) continue;
     const nombreCat = cat.nombre.toLowerCase();
@@ -64,26 +78,22 @@ function analizarConCategorias(texto: string, categorias: CategoriaDB[], customW
     const palabrasDesc = descCat.split(/\s+/).filter(w => w.length > 3);
     const scoreDesc = palabrasDesc.filter(w => textoLower.includes(w)).length;
     const scoreTotal = scoreNombre + scoreDesc;
-    if (scoreTotal > mejorScore) {
-      mejorScore = scoreTotal;
-      categoria = cat.nombre.toUpperCase();
-    }
+    if (scoreTotal > mejorScore) { mejorScore = scoreTotal; categoria = cat.nombre.toUpperCase(); }
   }
-
   if (mejorScore === 0) {
     if (textoLower.match(/compr|venta|adquir|producto|precio/)) categoria = 'VENTAS';
     else if (textoLower.match(/soporte|ayuda|técnic|repar|falla/)) categoria = 'SOPORTE';
-    else if (textoLower.match(/reclamo|queja|malo|pésimo|defecto/)) categoria = 'RECLAMO';
+    else if (textoLower.match(/reclamo|queja|malo|pésimo|defecto|estafa|fraude|mierda|carajo|puta|horrible|basura|asco/)) categoria = 'RECLAMO';
     else if (textoLower.match(/consulta|pregunt|información|duda/)) categoria = 'CONSULTA';
-    else if (textoLower.match(/excelente|gracias|buen|feliz|satisfecho/)) categoria = 'FELICITACION';
+    else if (textoLower.match(/excelente|gracias|buen|feliz|satisfecho|genial|increíble|perfecto/)) categoria = 'FELICITACION';
   }
 
   const total = posCount + negCount || 1;
   const confianza = Math.min(95, Math.round(50 + (Math.abs(posCount - negCount) / total) * 45));
 
   let sentimiento: 'positivo' | 'negativo' | 'neutro' = 'neutro';
-  if (posCount > negCount && posCount >= 2) sentimiento = 'positivo';
-  else if (negCount > posCount && negCount >= 2) sentimiento = 'negativo';
+  if (posCount > negCount) sentimiento = 'positivo';
+  else if (negCount > posCount) sentimiento = 'negativo';
 
   return { tokens, palabrasFrecuentes, categoria, confianza, sentimiento };
 }
@@ -96,22 +106,20 @@ export const AnalizarComentario = () => {
   const [guardando, setGuardando] = useState(false);
   const [recientes, setRecientes] = useState<AnalisisReciente[]>([]);
   const [categorias, setCategorias] = useState<CategoriaDB[]>([]);
-  const [customWords, setCustomWords] = useState<{ positivas: string[]; negativas: string[]; neutras: string[] }>({ positivas: [], negativas: [], neutras: [] });
+  const [customWords, setCustomWords] = useState<{ positivas: string[]; negativas: string[]; neutras: string[] }>(loadCustomWords);
   const [newWord, setNewWord] = useState('');
   const [newWordType, setNewWordType] = useState<'positivas' | 'negativas' | 'neutras'>('positivas');
   const [showWordEditor, setShowWordEditor] = useState(false);
 
   useEffect(() => {
     const comentarioParam = searchParams.get('comentario');
-    if (comentarioParam) {
-      setTexto(comentarioParam);
-    }
+    if (comentarioParam) setTexto(comentarioParam);
   }, [searchParams]);
 
+  useEffect(() => { saveCustomWords(customWords); }, [customWords]);
+
   useEffect(() => {
-    if (texto.trim() && categorias.length > 0 && !resultado) {
-      analizar();
-    }
+    if (texto.trim() && categorias.length > 0 && !resultado) analizar();
   }, [texto, categorias]);
 
   useEffect(() => {
@@ -131,9 +139,7 @@ export const AnalizarComentario = () => {
         ]);
         if (comentariosRes.data) setRecientes(comentariosRes.data as unknown as AnalisisReciente[]);
         if (catsRes.data) setCategorias(catsRes.data as CategoriaDB[]);
-      } catch {
-        /* empty */
-      }
+      } catch { /* empty */ }
     };
     fetchData();
   }, []);
@@ -150,7 +156,7 @@ export const AnalizarComentario = () => {
     if (!newWord.trim()) return;
     setCustomWords(prev => ({
       ...prev,
-      [newWordType]: [...prev[newWordType], newWord.trim().toLowerCase()],
+      [newWordType]: [...new Set([...prev[newWordType], newWord.trim().toLowerCase()])],
     }));
     setNewWord('');
   };
@@ -174,10 +180,9 @@ export const AnalizarComentario = () => {
         procesado: true,
         fecha: new Date().toISOString(),
       }).select('id').single();
-
       if (err1) throw err1;
       if (comentario) {
-        await supabase.from('analisis_nlp').insert({
+        const { error: err2 } = await supabase.from('analisis_nlp').insert({
           comentario_id: comentario.id,
           idioma: 'es',
           cantidad_palabras: resultado.tokens.length,
@@ -185,8 +190,10 @@ export const AnalizarComentario = () => {
           palabras_frecuentes: resultado.palabrasFrecuentes.map(p => p.palabra),
           categoria_detectada: resultado.categoria,
           confianza: resultado.confianza / 100,
+          sentimiento: resultado.sentimiento,
           fecha_analisis: new Date().toISOString(),
         });
+        if (err2) console.error('Error saving analisis_nlp:', err2);
       }
       setTexto('');
       setResultado(null);
@@ -241,8 +248,8 @@ export const AnalizarComentario = () => {
               onClick={analizar}
               disabled={cargando || !texto.trim()}
             >
-              {cargando ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-              {cargando ? 'Analizando...' : 'Analizar'}
+              {cargando ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              Analizar
             </button>
           </div>
         </div>
@@ -345,11 +352,9 @@ export const AnalizarComentario = () => {
           <h3 className="font-semibold text-slate-700 flex-1">Palabras de Analisis (Admin)</h3>
           <span className="text-xs text-slate-400">{showWordEditor ? 'Ocultar' : 'Mostrar'}</span>
         </button>
-        
         {showWordEditor && (
           <div className="mt-4 space-y-4">
-            <p className="text-xs text-slate-500">Edita las palabras que el sistema usa para clasificar sentimientos. Agrega o elimina palabras personalizadas.</p>
-            
+            <p className="text-xs text-slate-500">Edita las palabras que el sistema usa para clasificar sentimientos. Las palabras personalizadas se guardan localmente.</p>
             <div className="flex gap-2">
               <select value={newWordType} onChange={e => setNewWordType(e.target.value as any)}
                 className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
@@ -361,31 +366,27 @@ export const AnalizarComentario = () => {
                 placeholder="Nueva palabra..." className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
               <button onClick={addWord} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">Agregar</button>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {([
-                { key: 'positivas' as const, label: 'Positivas', color: 'emerald', defaultWords: ['excelente','bueno','genial','increíble','perfecto','agradecido','gracias','feliz','satisfecho','recomiendo'] },
-                { key: 'negativas' as const, label: 'Negativas', color: 'red', defaultWords: ['malo','terrible','pésimo','horrible','lento','error','problema','queja','reclamo','deficiente'] },
-                { key: 'neutras' as const, label: 'Neutras', color: 'slate', defaultWords: ['informacion','consulta','datos','estado','proceso','tiempo','fecha','numero','detalle','general'] },
-              ]).map(({ key, label, color, defaultWords }) => {
-                const allWords = [...new Set([...customWords[key], ...defaultWords])];
-                return (
-                  <div key={key} className={`bg-${color}-50 rounded-lg p-3`}>
-                    <p className={`text-xs font-medium text-${color}-700 mb-2 uppercase`}>{label} ({customWords[key].length > 0 ? `${customWords[key].length} custom + ${defaultWords.length} default` : `${defaultWords.length} default`})</p>
-                    <div className="flex flex-wrap gap-1">
-                      {customWords[key].map(w => (
-                        <span key={`custom-${w}`} className={`px-2 py-0.5 bg-${color}-100 text-${color}-700 text-[10px] rounded-full flex items-center gap-1`}>
-                          {w}
-                          <button onClick={() => removeWord(key, w)} className={`text-${color}-400 hover:text-${color}-700`}>x</button>
-                        </span>
-                      ))}
-                      {defaultWords.map(w => (
-                        <span key={`default-${w}`} className={`px-2 py-0.5 bg-white text-${color}-600 text-[10px] rounded-full border border-${color}-200`}>{w}</span>
-                      ))}
-                    </div>
+                { key: 'positivas' as const, label: 'Positivas', color: 'emerald', defaults: DEFAULT_POSITIVAS },
+                { key: 'negativas' as const, label: 'Negativas', color: 'red', defaults: DEFAULT_NEGATIVAS },
+                { key: 'neutras' as const, label: 'Neutras', color: 'slate', defaults: ['informacion','consulta','datos','estado','proceso','tiempo','fecha','numero','detalle','general'] },
+              ]).map(({ key, label, color, defaults }) => (
+                <div key={key} className={`bg-${color}-50 rounded-lg p-3`}>
+                  <p className={`text-xs font-medium text-${color}-700 mb-2 uppercase`}>{label} ({customWords[key].length} custom + {defaults.length} default)</p>
+                  <div className="flex flex-wrap gap-1">
+                    {customWords[key].map(w => (
+                      <span key={`custom-${w}`} className={`px-2 py-0.5 bg-${color}-100 text-${color}-700 text-[10px] rounded-full flex items-center gap-1`}>
+                        {w}
+                        <button onClick={() => removeWord(key, w)} className={`text-${color}-400 hover:text-${color}-700`}>x</button>
+                      </span>
+                    ))}
+                    {defaults.map(w => (
+                      <span key={`default-${w}`} className={`px-2 py-0.5 bg-white text-${color}-600 text-[10px] rounded-full border border-${color}-200`}>{w}</span>
+                    ))}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -408,6 +409,7 @@ export const AnalizarComentario = () => {
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Comentario</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Categoria</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Confianza</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Sentimiento</th>
                 </tr>
               </thead>
               <tbody>
@@ -428,6 +430,19 @@ export const AnalizarComentario = () => {
                     <td className="py-3 px-4 font-medium text-slate-700">
                       {r.analisis_nlp?.confianza != null ? `${(r.analisis_nlp.confianza * 100).toFixed(0)}%` : '—'}
                     </td>
+                    <td className="py-3 px-4">
+                      {(r.analisis_nlp as any)?.sentimiento === 'positivo' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-600 text-xs rounded-full font-medium">
+                          <ThumbsUp size={12} /> Positivo
+                        </span>
+                      ) : (r.analisis_nlp as any)?.sentimiento === 'negativo' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 text-xs rounded-full font-medium">
+                          <ThumbsDown size={12} /> Negativo
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 bg-slate-100 text-slate-500 text-xs rounded-full">Neutro</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -438,5 +453,3 @@ export const AnalizarComentario = () => {
     </div>
   );
 };
-
-export default AnalizarComentario;

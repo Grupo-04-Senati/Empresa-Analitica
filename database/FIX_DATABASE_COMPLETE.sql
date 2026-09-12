@@ -153,7 +153,14 @@ SET auth_user_id = au.id
 FROM auth.users au
 WHERE u.email = au.email AND u.auth_user_id IS NULL;
 
--- 8. Verificar
+-- 8. ANALISIS_NLP: Columna sentimiento
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='analisis_nlp' AND column_name='sentimiento') THEN
+    ALTER TABLE public.analisis_nlp ADD COLUMN sentimiento VARCHAR(20) DEFAULT 'neutro';
+  END IF;
+END $$;
+
+-- 9. Verificar
 SELECT 'MIGRATION COMPLETADA' as status;
 SELECT column_name, data_type 
 FROM information_schema.columns 

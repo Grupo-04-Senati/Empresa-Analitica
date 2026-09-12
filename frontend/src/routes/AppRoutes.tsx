@@ -9,7 +9,7 @@ import DashboardInicio from '../pages/dashboard';
 import Clientes from '../pages/Clientes';
 import ClientesNuevo from '../pages/ClientesNuevo';
 import Auditoria from '../pages/Auditoria';
-import AnalizarComentario from '../pages/AnalizarComentario';
+import { AnalizarComentario } from '../pages/AnalizarComentario';
 import Categorias from '../pages/Categorias';
 import Clasificacion from '../pages/Clasificacion';
 import Estadisticas from '../pages/Estadisticas';
