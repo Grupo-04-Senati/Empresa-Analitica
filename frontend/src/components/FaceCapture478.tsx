@@ -543,90 +543,10 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
             return;
           }
 
-          // Login automatico: barra de progreso por pose individual.
-          // Cada pose tiene 4 segundos. Cuando se captura, la barra se reinicia
-          // para la siguiente pose.
-          const POSE_TIME_MS = 4000;
-          const currentScanPose = !capturedRef.current.frontal
-            ? 'frontal'
-            : !capturedRef.current.izquierda
-              ? 'izquierda'
-              : !capturedRef.current.derecha
-                ? 'derecha'
-                : null;
-
-          // Calcular progreso basado en el tiempo de la pose actual
-          if (currentScanPose) {
-            const poseIndex = currentScanPose === 'frontal' ? 0 : currentScanPose === 'izquierda' ? 1 : 2;
-            const poseStartTime = poseIndex * POSE_TIME_MS;
-            const poseElapsed = elapsed - poseStartTime;
-            const poseProgress = Math.min(1, Math.max(0, poseElapsed / POSE_TIME_MS));
-            setScanProgress(poseProgress);
-          } else {
-            setScanProgress(1);
-          }
-
-          // Auto-capturar frontal cuando se completa su tiempo
-          if (elapsed >= POSE_TIME_MS && !capturedRef.current.frontal && counts.frontal >= POSE_TARGET.frontal) {
-            const ahora = performance.now();
-            const recientes = framesRef.current.filter(
-              f => f.pose === 'frontal' && ahora - f.timestamp <= CAPTURE_WINDOW_MS
-            );
-            if (recientes.length >= POSE_TARGET.frontal) {
-              const resultado = buildPoseTemplates(recientes);
-              if (resultado.templates.frontal) {
-                capturedRef.current = { ...capturedRef.current, frontal: resultado.templates.frontal };
-                setCaptured({ ...capturedRef.current });
-                frozenRef.current = true;
-                setFrozen(true);
-                setTimeout(() => { frozenRef.current = false; setFrozen(false); }, 600);
-              }
-            }
-          }
-
-          // Auto-capturar izquierda cuando se completa su tiempo
-          if (elapsed >= POSE_TIME_MS * 2 && capturedRef.current.frontal && !capturedRef.current.izquierda && counts.izquierda >= POSE_TARGET.izquierda) {
-            const ahora = performance.now();
-            const recientes = framesRef.current.filter(
-              f => f.pose === 'izquierda' && ahora - f.timestamp <= CAPTURE_WINDOW_MS
-            );
-            if (recientes.length >= POSE_TARGET.izquierda) {
-              const resultado = buildPoseTemplates(recientes);
-              if (resultado.templates.izquierda) {
-                capturedRef.current = { ...capturedRef.current, izquierda: resultado.templates.izquierda };
-                setCaptured({ ...capturedRef.current });
-                frozenRef.current = true;
-                setFrozen(true);
-                setTimeout(() => { frozenRef.current = false; setFrozen(false); }, 600);
-              }
-            }
-          }
-
-          // Auto-capturar derecha cuando se completa su tiempo
-          if (elapsed >= POSE_TIME_MS * 3 && capturedRef.current.frontal && capturedRef.current.izquierda && !capturedRef.current.derecha && counts.derecha >= POSE_TARGET.derecha) {
-            const ahora = performance.now();
-            const recientes = framesRef.current.filter(
-              f => f.pose === 'derecha' && ahora - f.timestamp <= CAPTURE_WINDOW_MS
-            );
-            if (recientes.length >= POSE_TARGET.derecha) {
-              const resultado = buildPoseTemplates(recientes);
-              if (resultado.templates.derecha) {
-                capturedRef.current = { ...capturedRef.current, derecha: resultado.templates.derecha };
-                setCaptured({ ...capturedRef.current });
-                frozenRef.current = true;
-                setFrozen(true);
-                setTimeout(() => { frozenRef.current = false; setFrozen(false); }, 600);
-              }
-            }
-          }
-
-          // Si las 3 poses estan capturadas, completar
+          // Login manual: el usuario captura cada pose con los botones.
+          // La barra de progreso refleja las poses ya capturadas.
           const hechas = FACE_POSES.filter(pose => capturedRef.current[pose]).length;
-          if (hechas >= 3) {
-            finishedRef.current = true;
-            handleFinishLogin();
-            return;
-          }
+          setScanProgress(hechas / 3);
 
           // Timeout si no se detecta ningun rostro
           if (!sawFaceRef.current && elapsed >= hardTimeout) {
@@ -642,13 +562,6 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
                 'Centra tu cara en el encuadre, acercate un poco y mejora la iluminacion.'
               );
             }
-          }
-
-          // Timeout general: si paso el tiempo y tiene al menos frontal
-          if (elapsed >= hardTimeout && capturedRef.current.frontal) {
-            finishedRef.current = true;
-            handleFinishLogin();
-            return;
           }
         };
 
@@ -996,11 +909,11 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
     if (frozen) return 'Captura tomada';
 
     if (!isRegister) {
-      // Login automatico: guiar por pose
-      if (!captured.frontal) return 'Mira de frente a la camara...';
-      if (!captured.izquierda) return 'Gira la cabeza a la izquierda...';
-      if (!captured.derecha) return 'Gira la cabeza a la derecha...';
-      return 'Verificando identidad...';
+      const hechas = FACE_POSES.filter(p => captured[p]).length;
+      if (hechas >= 3) return 'Verificando identidad...';
+      if (!captured.frontal) return 'Mira de frente y pulsa Capturar';
+      if (!captured.izquierda) return 'Gira a la izquierda y pulsa Capturar';
+      if (!captured.derecha) return 'Gira a la derecha y pulsa Capturar';
     }
 
     // Registro
@@ -1012,12 +925,13 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
 
   const subGuidance = (() => {
     if (multiFaceWarning) return 'Retira a las demas personas del encuadre';
+    const hechas = FACE_POSES.filter(p => captured[p]).length;
     if (!isRegister) {
-      const hechas = FACE_POSES.filter(p => captured[p]).length;
-      if (hechas >= 3) return 'Todas las poses capturadas';
+      if (hechas >= 3) return 'Todas las poses capturadas — pulsa Verificar identidad';
       const currentPoseLabel = !captured.frontal ? 'Frontal' : !captured.izquierda ? 'Lado A' : 'Lado B';
       return `${hechas}/3 — Escaneando ${currentPoseLabel}`;
     }
+    if (hechas >= 3) return 'Todas las poses listas';
     return currentPose
       ? `Posicion detectada: ${POSE_LABEL[currentPose]}`
       : 'Cabeza entre dos posiciones: quedate quieto un momento';
@@ -1205,25 +1119,33 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
                 })}
               </div>
 
-              {/* Botones: solo en registro */}
-              {isRegister && (
-                <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                  <button
-                    onClick={handleCapturePose}
-                    disabled={!puedeCapturar}
-                    className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {currentPose ? `Capturar ${POSE_LABEL[currentPose]}` : 'Capturar'}
-                  </button>
-                  <button
-                    onClick={handleFinishRegister}
-                    disabled={!captured.frontal || !captured.izquierda || !captured.derecha}
-                    className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Guardar rostro
-                  </button>
-                </div>
-              )}
+               {/* Botones: registro y login */}
+               <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                 <button
+                   onClick={handleCapturePose}
+                   disabled={!puedeCapturar}
+                   className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                 >
+                   {currentPose ? `Capturar ${POSE_LABEL[currentPose]}` : 'Capturar'}
+                 </button>
+                 {isRegister ? (
+                   <button
+                     onClick={handleFinishRegister}
+                     disabled={!captured.frontal || !captured.izquierda || !captured.derecha}
+                     className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                   >
+                     Guardar rostro
+                   </button>
+                 ) : (
+                   <button
+                     onClick={handleFinishLogin}
+                     disabled={!captured.frontal || !captured.izquierda || !captured.derecha}
+                     className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                   >
+                     Verificar identidad
+                   </button>
+                 )}
+               </div>
 
               {captureMsg && (
                 <p className="mt-2 text-xs text-center text-slate-600">{captureMsg}</p>
