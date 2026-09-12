@@ -313,9 +313,90 @@ export function compareNormalizedLandmarks(stored: Point2D[], captured: Point2D[
   return Math.sqrt(weightedSum / totalWeight);
 }
 
-// ── COMPARACIÓN COMBINADA (ratios + puntos) ────────────────
+// ── COMPARACIÓN POR ZONAS (cajas de ojos, nariz, boca) ───
 //
-// Método principal de comparación. Usa ratios como prioridad.
+// Divide el rostro en3 zonas principales y compara cada una.
+// Esto es más robusto que comparar68 puntos individuales.
+
+export interface FaceZone {
+  cx: number; cy: number;  // centro
+  w: number; h: number;    // ancho, alto
+}
+
+export function extractZones(pts: Point2D[]): FaceZone[] {
+  if (pts.length < 68) return [];
+
+  // Zona OJOS: cejas + ojos (puntos 17-47)
+  const eyePts = pts.slice(17, 48);
+  const eyeCx = eyePts.reduce((s, p) => s + p.x, 0) / eyePts.length;
+  const eyeCy = eyePts.reduce((s, p) => s + p.y, 0) / eyePts.length;
+  const eyeW = Math.max(...eyePts.map(p => p.x)) - Math.min(...eyePts.map(p => p.x));
+  const eyeH = Math.max(...eyePts.map(p => p.y)) - Math.min(...eyePts.map(p => p.y));
+
+  // Zona NARIZ: nariz (puntos 27-35)
+  const nosePts = pts.slice(27, 36);
+  const noseCx = nosePts.reduce((s, p) => s + p.x, 0) / nosePts.length;
+  const noseCy = nosePts.reduce((s, p) => s + p.y, 0) / nosePts.length;
+  const noseW = Math.max(...nosePts.map(p => p.x)) - Math.min(...nosePts.map(p => p.x));
+  const noseH = Math.max(...nosePts.map(p => p.y)) - Math.min(...nosePts.map(p => p.y));
+
+  // Zona BOCA: boca + mandíbula superior (puntos 48-67)
+  const mouthPts = pts.slice(48, 68);
+  const mouthCx = mouthPts.reduce((s, p) => s + p.x, 0) / mouthPts.length;
+  const mouthCy = mouthPts.reduce((s, p) => s + p.y, 0) / mouthPts.length;
+  const mouthW = Math.max(...mouthPts.map(p => p.x)) - Math.min(...mouthPts.map(p => p.x));
+  const mouthH = Math.max(...mouthPts.map(p => p.y)) - Math.min(...mouthPts.map(p => p.y));
+
+  // Zona MANDÍBULA: contorno (puntos 0-16)
+  const jawPts = pts.slice(0, 17);
+  const jawCx = jawPts.reduce((s, p) => s + p.x, 0) / jawPts.length;
+  const jawCy = jawPts.reduce((s, p) => s + p.y, 0) / jawPts.length;
+  const jawW = Math.max(...jawPts.map(p => p.x)) - Math.min(...jawPts.map(p => p.x));
+  const jawH = Math.max(...jawPts.map(p => p.y)) - Math.min(...jawPts.map(p => p.y));
+
+  return [
+    { cx: eyeCx, cy: eyeCy, w: eyeW, h: eyeH },
+    { cx: noseCx, cy: noseCy, w: noseW, h: noseH },
+    { cx: mouthCx, cy: mouthCy, w: mouthW, h: mouthH },
+    { cx: jawCx, cy: jawCy, w: jawW, h: jawH },
+  ];
+}
+
+// Distancia entre dos zonas (normalizada)
+function zoneDistance(a: FaceZone, b: FaceZone, ref: number): number {
+  if (ref === 0) return 0;
+  const dcx = (a.cx - b.cx) / ref;
+  const dcy = (a.cy - b.cy) / ref;
+  const dw = Math.abs(a.w - b.w) / ref;
+  const dh = Math.abs(a.h - b.h) / ref;
+  return Math.sqrt(dcx * dcx + dcy * dcy + dw * dw + dh * dh);
+}
+
+// Comparar zonas entre dos rostros
+export function compareZones(stored: Point2D[], captured: Point2D[]): number {
+  const sz = extractZones(stored);
+  const cz = extractZones(captured);
+  if (sz.length === 0 || cz.length === 0) return 0;
+
+  // Referencia: distancia centro nariz-ojos del stored
+  const ref = Math.sqrt((sz[0].cx - sz[1].cx) ** 2 + (sz[0].cy - sz[1].cy) ** 2) || 1;
+
+  let totalDist = 0;
+  for (let i = 0; i < Math.min(sz.length, cz.length); i++) {
+    totalDist += zoneDistance(sz[i], cz[i], ref);
+  }
+  const avgDist = totalDist / Math.min(sz.length, cz.length);
+
+  // Convertir a similitud [0,1]
+  return Math.max(0, Math.min(1, 1 - avgDist * 2));
+}
+
+// ── COMPARACIÓN COMBINADA (ratios + zonas + puntos) ────────
+//
+// Método principal de comparación. Tres capas:
+// 1. RATIOS entre distancias (invariante a distancia cámara)
+// 2. ZONAS del rostro (cajas de ojos/nariz/boca)
+// 3. PUNTOS normalizados (auxiliar)
 
 export function compareFaces(
   storedLandmarks: Point2D[],
@@ -325,44 +406,43 @@ export function compareFaces(
   // 1. Calcular ratios del rostro capturado
   const capturedRatios = generateRatioSignature(capturedLandmarks);
 
-  // 2. Si tenemos ratios almacenados, comparar ratios (MÉTODO PRINCIPAL)
-  if (storedRatios && storedRatios.length > 0 && capturedRatios.length > 0) {
-    const ratioScore = compareRatioSignaturesWeighted(storedRatios, capturedRatios);
+  // 2. Calcular ratios del rostro almacenado (siempre on-the-fly)
+  const storedRatiosComputed = generateRatioSignature(storedLandmarks);
 
-    // 3. También calcular ratios de los landmarks almacenados para comparar apples-to-apples
-    const storedRatiosFromLm = generateRatioSignature(storedLandmarks);
-    let ratioScore2 = ratioScore;
-    if (storedRatiosFromLm.length > 0) {
-      ratioScore2 = compareRatioSignaturesWeighted(storedRatiosFromLm, capturedRatios);
+  let ratioScore = 0;
+  let ratioMethod = 'none';
+
+  // Comparar ratios si ambos tienen datos
+  if (capturedRatios.length > 0 && storedRatiosComputed.length > 0) {
+    // Score con ratios calculados on-the-fly
+    ratioScore = compareRatioSignaturesWeighted(storedRatiosComputed, capturedRatios);
+    ratioMethod = `ratio_lm(${ratioScore.toFixed(3)})`;
+
+    // Si también hay ratios pre-guardados, promediar
+    if (storedRatios && storedRatios.length > 0 && storedRatios.length === capturedRatios.length) {
+      const storedScore = compareRatioSignaturesWeighted(storedRatios, capturedRatios);
+      ratioScore = (ratioScore + storedScore) / 2;
+      ratioMethod = `ratio_both(${ratioScore.toFixed(3)})`;
     }
-
-    // Promediar ambos scores de ratios
-    const finalRatioScore = (ratioScore + ratioScore2) / 2;
-
-    // 4. Score auxiliar de puntos normalizados
-    const normStored = normalizeLandmarksByNose(storedLandmarks);
-    const normCaptured = normalizeLandmarksByNose(capturedLandmarks);
-    const pointDist = compareNormalizedLandmarks(normStored, normCaptured);
-    const pointScore = Math.max(0, 1 - pointDist * 2);
-
-    // 5. Combinar: 80% ratios + 20% puntos
-    const combined = finalRatioScore * 0.8 + pointScore * 0.2;
-
-    return {
-      score: Math.round(combined * 1000) / 1000,
-      method: `ratios(${finalRatioScore.toFixed(3)}) + points(${pointScore.toFixed(3)})`,
-    };
   }
 
-  // Fallback: solo puntos normalizados
+  // 3. Comparar zonas (cajas de ojos, nariz, boca)
+  const zoneScore = compareZones(storedLandmarks, capturedLandmarks);
+
+  // 4. Puntos normalizados (auxiliar)
   const normStored = normalizeLandmarksByNose(storedLandmarks);
   const normCaptured = normalizeLandmarksByNose(capturedLandmarks);
   const pointDist = compareNormalizedLandmarks(normStored, normCaptured);
   const pointScore = Math.max(0, 1 - pointDist * 2);
 
+  // 5. Combinar: 50% ratios + 30% zonas + 20% puntos
+  const combined = ratioScore * 0.5 + zoneScore * 0.3 + pointScore * 0.2;
+
+  const method = `r=${ratioScore.toFixed(2)} z=${zoneScore.toFixed(2)} p=${pointScore.toFixed(2)}`;
+
   return {
-    score: Math.round(pointScore * 1000) / 1000,
-    method: `points_only(${pointScore.toFixed(3)})`,
+    score: Math.round(combined * 1000) / 1000,
+    method,
   };
 }
 

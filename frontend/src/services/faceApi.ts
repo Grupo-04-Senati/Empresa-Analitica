@@ -386,20 +386,27 @@ export async function faceApiLogin(
         return { ok: false, error: 'No hay usuarios con rostro registrado. Primero debes registrarte desde "Crear Cuenta".' };
       }
 
-      const UMBRAL_GEO = 0.45;
+      const UMBRAL_GEO = 0.30;
       const geoScores: { userId: number; dist: number; method: string }[] = [];
+
+      console.log(`[faceApi] Login: ${rostros.length} rostros registrados, umbral=${UMBRAL_GEO}`);
 
       for (const r of rostros) {
         const storedLm = r.landmarks_68;
-        if (!storedLm || storedLm.length < 68) continue;
+        if (!storedLm || storedLm.length < 68) {
+          console.log(`[faceApi] user ${r.usuario_id}: sin landmarks68, saltando`);
+          continue;
+        }
 
-        // Obtener ratios almacenados
+        // Obtener ratios almacenados (puede no existir para registros viejos)
         let storedRatios: number[] | undefined;
         if (r.proporciones) {
-          const prop = typeof r.proporciones === 'string' ? JSON.parse(r.proporciones) : r.proporciones;
-          if (prop.ratios && Array.isArray(prop.ratios) && prop.ratios.length > 0) {
-            storedRatios = prop.ratios.map(Number);
-          }
+          try {
+            const prop = typeof r.proporciones === 'string' ? JSON.parse(r.proporciones) : r.proporciones;
+            if (prop.ratios && Array.isArray(prop.ratios) && prop.ratios.length > 0) {
+              storedRatios = prop.ratios.map(Number);
+            }
+          } catch {}
         }
 
         let bestScore = 0;
@@ -434,7 +441,7 @@ export async function faceApiLogin(
           } catch {}
         }
 
-        console.log(`[faceApi] vs user ${r.usuario_id}: score=${bestScore.toFixed(3)} method=${bestMethod}`);
+        console.log(`[faceApi] vs user ${r.usuario_id}: score=${bestScore.toFixed(3)} ${bestMethod} ${bestScore >= UMBRAL_GEO ? '✓' : '✗'}`);
 
         if (bestScore >= UMBRAL_GEO) {
           geoScores.push({ userId: r.usuario_id, dist: bestScore, method: bestMethod });
