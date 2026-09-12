@@ -7,6 +7,7 @@ export default function ComentariosPublico() {
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [contenido, setContenido] = useState('');
+  const [canal, setCanal] = useState('web');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -22,7 +23,7 @@ export default function ComentariosPublico() {
     try {
       const { error: insertError } = await supabase.from('comentarios').insert({
         contenido: contenido.trim(),
-        canal: 'web',
+        canal,
         estado: 'pendiente',
         categoria: 'SUGERENCIA',
       });
@@ -92,6 +93,19 @@ export default function ComentariosPublico() {
                 <label className="block text-sm font-medium text-slate-300 mb-2">Correo electronico *</label>
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@empresa.com"
                   className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-sm" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Canal de origen *</label>
+                <select value={canal} onChange={e => setCanal(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-sm">
+                  <option value="web">Web</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="email">Email</option>
+                  <option value="redes sociales">Redes Sociales</option>
+                  <option value="presencial">Presencial</option>
+                  <option value="telefono">Telefono</option>
+                </select>
               </div>
 
               <div>

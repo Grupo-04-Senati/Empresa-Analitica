@@ -41,7 +41,7 @@ const DEFAULT_NEGATIVAS = ['malo','mala','terrible','pésimo','pesimo','horrible
 
 const STORAGE_KEY = 'badi_custom_words';
 
-function loadCustomWords(): { positivas: string[]; negativas: string[]; neutras: string[] } {
+function loadCustomWords(): Record<string, string[]> {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) return JSON.parse(saved);
@@ -49,11 +49,11 @@ function loadCustomWords(): { positivas: string[]; negativas: string[]; neutras:
   return { positivas: [], negativas: [], neutras: [] };
 }
 
-function saveCustomWords(words: { positivas: string[]; negativas: string[]; neutras: string[] }) {
+function saveCustomWords(words: Record<string, string[]>) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(words)); } catch { /* empty */ }
 }
 
-function analizarConCategorias(texto: string, categorias: CategoriaDB[], customWords: { positivas: string[]; negativas: string[]; neutras: string[] }): ResultadoLocal {
+function analizarConCategorias(texto: string, categorias: CategoriaDB[], customWords: Record<string, string[]>): ResultadoLocal {
   const limpio = texto.toLowerCase().replace(/[^\w\sáéíóúñ]/g, ' ');
   const tokens = limpio.split(/\s+/).filter((t) => t.length > 2 && !STOPWORDS_ES.has(t));
   const freq: Record<string, number> = {};
@@ -107,9 +107,10 @@ export const AnalizarComentario = () => {
   const [guardando, setGuardando] = useState(false);
   const [recientes, setRecientes] = useState<AnalisisReciente[]>([]);
   const [categorias, setCategorias] = useState<CategoriaDB[]>([]);
-  const [customWords, setCustomWords] = useState<{ positivas: string[]; negativas: string[]; neutras: string[] }>(loadCustomWords);
+  const [customWords, setCustomWords] = useState<Record<string, string[]>>(loadCustomWords);
   const [newWord, setNewWord] = useState('');
-  const [newWordType, setNewWordType] = useState<'positivas' | 'negativas' | 'neutras'>('positivas');
+  const [newWordType, setNewWordType] = useState('positivas');
+  const [newCategoryName, setNewCategoryName] = useState('');
   const [showWordEditor, setShowWordEditor] = useState(false);
 
   useEffect(() => {
@@ -157,16 +158,33 @@ export const AnalizarComentario = () => {
     if (!newWord.trim()) return;
     setCustomWords(prev => ({
       ...prev,
-      [newWordType]: [...new Set([...prev[newWordType], newWord.trim().toLowerCase()])],
+      [newWordType]: [...new Set([...(prev[newWordType] || []), newWord.trim().toLowerCase()])],
     }));
     setNewWord('');
   };
 
-  const removeWord = (type: 'positivas' | 'negativas' | 'neutras', word: string) => {
+  const removeWord = (type: string, word: string) => {
     setCustomWords(prev => ({
       ...prev,
-      [type]: prev[type].filter(w => w !== word),
+      [type]: (prev[type] || []).filter(w => w !== word),
     }));
+  };
+
+  const addCategory = () => {
+    const name = newCategoryName.trim().toLowerCase().replace(/\s+/g, '_');
+    if (!name || customWords[name]) return;
+    setCustomWords(prev => ({ ...prev, [name]: [] }));
+    setNewWordType(name);
+    setNewCategoryName('');
+  };
+
+  const removeCategory = (type: string) => {
+    setCustomWords(prev => {
+      const next = { ...prev };
+      delete next[type];
+      return next;
+    });
+    if (newWordType === type) setNewWordType('positivas');
   };
 
   const guardarEnBD = async () => {
@@ -367,39 +385,56 @@ export const AnalizarComentario = () => {
         </button>
         {showWordEditor && (
           <div className="mt-4 space-y-4">
-            <p className="text-xs text-slate-500">Edita las palabras que el sistema usa para clasificar sentimientos. Las palabras personalizadas se guardan localmente.</p>
+            <p className="text-xs text-slate-500">Administra las palabras y categorias de analisis. Crea nuevos tipos, agrega o elimina palabras personalizadas.</p>
+            
             <div className="flex gap-2">
-              <select value={newWordType} onChange={e => setNewWordType(e.target.value as any)}
+              <select value={newWordType} onChange={e => setNewWordType(e.target.value)}
                 className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
-                <option value="positivas">Positivas</option>
-                <option value="negativas">Negativas</option>
-                <option value="neutras">Neutras</option>
+                {Object.keys(customWords).map(k => (
+                  <option key={k} value={k}>{k.charAt(0).toUpperCase() + k.slice(1)}</option>
+                ))}
               </select>
               <input value={newWord} onChange={e => setNewWord(e.target.value)} onKeyDown={e => e.key === 'Enter' && addWord()}
                 placeholder="Nueva palabra..." className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
               <button onClick={addWord} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">Agregar</button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {([
-                { key: 'positivas' as const, label: 'Positivas', color: 'emerald', defaults: DEFAULT_POSITIVAS },
-                { key: 'negativas' as const, label: 'Negativas', color: 'red', defaults: DEFAULT_NEGATIVAS },
-                { key: 'neutras' as const, label: 'Neutras', color: 'slate', defaults: ['informacion','consulta','datos','estado','proceso','tiempo','fecha','numero','detalle','general'] },
-              ]).map(({ key, label, color, defaults }) => (
-                <div key={key} className={`bg-${color}-50 rounded-lg p-3`}>
-                  <p className={`text-xs font-medium text-${color}-700 mb-2 uppercase`}>{label} ({customWords[key].length} custom + {defaults.length} default)</p>
-                  <div className="flex flex-wrap gap-1">
-                    {customWords[key].map(w => (
-                      <span key={`custom-${w}`} className={`px-2 py-0.5 bg-${color}-100 text-${color}-700 text-[10px] rounded-full flex items-center gap-1`}>
-                        {w}
-                        <button onClick={() => removeWord(key, w)} className={`text-${color}-400 hover:text-${color}-700`}>x</button>
-                      </span>
-                    ))}
-                    {defaults.map(w => (
-                      <span key={`default-${w}`} className={`px-2 py-0.5 bg-white text-${color}-600 text-[10px] rounded-full border border-${color}-200`}>{w}</span>
-                    ))}
+
+            <div className="flex gap-2 items-end">
+              <div className="flex-1">
+                <label className="text-xs font-medium text-slate-500 mb-1 block">Nueva categoria</label>
+                <input value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCategory()}
+                  placeholder=" Nombre de la categoria..." className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+              </div>
+              <button onClick={addCategory} className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition">Crear Categoria</button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Object.entries(customWords).map(([key, words]) => {
+                const isDefault = ['positivas', 'negativas', 'neutras'].includes(key);
+                const color = key === 'positivas' ? 'emerald' : key === 'negativas' ? 'red' : key === 'neutras' ? 'slate' : 'blue';
+                const defaults = key === 'positivas' ? DEFAULT_POSITIVAS : key === 'negativas' ? DEFAULT_NEGATIVAS : key === 'neutras' ? ['informacion','consulta','datos','estado','proceso','tiempo','fecha','numero','detalle','general'] : [];
+                return (
+                  <div key={key} className={`bg-${color}-50 rounded-lg p-3`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className={`text-xs font-medium text-${color}-700 uppercase`}>{key} ({words.length} custom + {defaults.length} default)</p>
+                      {!isDefault && (
+                        <button onClick={() => removeCategory(key)} className="text-red-400 hover:text-red-600 text-xs" title="Eliminar categoria">x</button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {words.map(w => (
+                        <span key={`custom-${w}`} className={`px-2 py-0.5 bg-${color}-100 text-${color}-700 text-[10px] rounded-full flex items-center gap-1`}>
+                          {w}
+                          <button onClick={() => removeWord(key, w)} className={`text-${color}-400 hover:text-${color}-700`}>x</button>
+                        </span>
+                      ))}
+                      {defaults.map(w => (
+                        <span key={`default-${w}`} className={`px-2 py-0.5 bg-white text-${color}-600 text-[10px] rounded-full border border-${color}-200`}>{w}</span>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
