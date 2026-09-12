@@ -159,12 +159,28 @@ export async function faceApiRegister(
       console.log('[faceApi] Fallback: saving directly to Supabase...');
       const { supabase } = await import('./supabase');
 
-      const existing = await supabase.from('rostros').select('id').eq('usuario_id', usuarioId).maybeSingle();
+      // Verificar que el usuario existe en la tabla usuarios antes de insertar
+      const numericUserId = Number(usuarioId);
+      if (!numericUserId || isNaN(numericUserId)) {
+        return { ok: false, error: 'ID de usuario invalido: ' + usuarioId };
+      }
+
+      const { data: userCheck } = await supabase
+        .from('usuarios')
+        .select('id')
+        .eq('id', numericUserId)
+        .maybeSingle();
+
+      if (!userCheck) {
+        return { ok: false, error: 'Usuario no encontrado en la base de datos. Crea tu cuenta primero.' };
+      }
+
+      const existing = await supabase.from('rostros').select('id').eq('usuario_id', numericUserId).maybeSingle();
 
       const pgVectorStr = (arr: number[]): string => '[' + arr.map(v => v.toFixed(6)).join(',') + ']';
 
       const fullData: Record<string, any> = {
-        usuario_id: usuarioId,
+        usuario_id: numericUserId,
         embedding_frontal: pgVectorStr(frontalArr),
         embedding_izquierda: pgVectorStr(izqArr),
         embedding_derecha: pgVectorStr(derArr),
@@ -182,7 +198,7 @@ export async function faceApiRegister(
       };
 
       const minimalData: Record<string, any> = {
-        usuario_id: usuarioId,
+        usuario_id: numericUserId,
         embedding_frontal: pgVectorStr(frontalArr),
         embedding_izquierda: pgVectorStr(izqArr),
         embedding_derecha: pgVectorStr(derArr),
@@ -198,7 +214,7 @@ export async function faceApiRegister(
 
       const doSave = async (data: Record<string, any>) => {
         if (existing.data) {
-          return await supabase.from('rostros').update(data).eq('usuario_id', usuarioId);
+          return await supabase.from('rostros').update(data).eq('usuario_id', numericUserId);
         } else {
           return await supabase.from('rostros').insert(data);
         }

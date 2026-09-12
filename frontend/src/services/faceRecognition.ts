@@ -689,6 +689,21 @@ export async function registerFace(
   photos: Record<string, string>
 ): Promise<{ ok: boolean; error?: string }> {
   try {
+    const numericUserId = Number(userId);
+    if (!numericUserId || isNaN(numericUserId)) {
+      return { ok: false, error: 'ID de usuario invalido' };
+    }
+
+    const { data: userCheck } = await supabase
+      .from('usuarios')
+      .select('id')
+      .eq('id', numericUserId)
+      .maybeSingle();
+
+    if (!userCheck) {
+      return { ok: false, error: 'Usuario no encontrado. Crea tu cuenta primero.' };
+    }
+
     const result = await extractEmbeddingsAndShape(photos);
     const embeddings = result.embeddings;
     const faceShape = result.faceShape;
