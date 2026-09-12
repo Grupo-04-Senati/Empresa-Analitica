@@ -543,14 +543,30 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
             return;
           }
 
-          // Login automatico: barra de progreso basada en tiempo (velocidad constante).
-          // 4 segundos por pose = 12 segundos totales para las 3 poses.
+          // Login automatico: barra de progreso por pose individual.
+          // Cada pose tiene 4 segundos. Cuando se captura, la barra se reinicia
+          // para la siguiente pose.
           const POSE_TIME_MS = 4000;
-          const totalTime = POSE_TIME_MS * 3;
-          const timeProgress = Math.min(1, elapsed / totalTime);
-          setScanProgress(timeProgress);
+          const currentScanPose = !capturedRef.current.frontal
+            ? 'frontal'
+            : !capturedRef.current.izquierda
+              ? 'izquierda'
+              : !capturedRef.current.derecha
+                ? 'derecha'
+                : null;
 
-          // Auto-capturar cada pose cuando su tiempo se complete
+          // Calcular progreso basado en el tiempo de la pose actual
+          if (currentScanPose) {
+            const poseIndex = currentScanPose === 'frontal' ? 0 : currentScanPose === 'izquierda' ? 1 : 2;
+            const poseStartTime = poseIndex * POSE_TIME_MS;
+            const poseElapsed = elapsed - poseStartTime;
+            const poseProgress = Math.min(1, Math.max(0, poseElapsed / POSE_TIME_MS));
+            setScanProgress(poseProgress);
+          } else {
+            setScanProgress(1);
+          }
+
+          // Auto-capturar frontal cuando se completa su tiempo
           if (elapsed >= POSE_TIME_MS && !capturedRef.current.frontal && counts.frontal >= POSE_TARGET.frontal) {
             const ahora = performance.now();
             const recientes = framesRef.current.filter(
@@ -568,6 +584,7 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
             }
           }
 
+          // Auto-capturar izquierda cuando se completa su tiempo
           if (elapsed >= POSE_TIME_MS * 2 && capturedRef.current.frontal && !capturedRef.current.izquierda && counts.izquierda >= POSE_TARGET.izquierda) {
             const ahora = performance.now();
             const recientes = framesRef.current.filter(
@@ -585,6 +602,7 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
             }
           }
 
+          // Auto-capturar derecha cuando se completa su tiempo
           if (elapsed >= POSE_TIME_MS * 3 && capturedRef.current.frontal && capturedRef.current.izquierda && !capturedRef.current.derecha && counts.derecha >= POSE_TARGET.derecha) {
             const ahora = performance.now();
             const recientes = framesRef.current.filter(
@@ -978,11 +996,10 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
     if (frozen) return 'Captura tomada';
 
     if (!isRegister) {
-      // Login automatico: guiar al usuario para que mueva la cabeza
+      // Login automatico: guiar por pose
       if (!captured.frontal) return 'Mira de frente a la camara...';
-      if (!captured.izquierda && !captured.derecha) return 'Gira la cabeza despacio de un lado al otro...';
-      if (!captured.izquierda) return 'Gira a la izquierda...';
-      if (!captured.derecha) return 'Gira a la derecha...';
+      if (!captured.izquierda) return 'Gira la cabeza a la izquierda...';
+      if (!captured.derecha) return 'Gira la cabeza a la derecha...';
       return 'Verificando identidad...';
     }
 
@@ -997,9 +1014,9 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
     if (multiFaceWarning) return 'Retira a las demas personas del encuadre';
     if (!isRegister) {
       const hechas = FACE_POSES.filter(p => captured[p]).length;
-      return hechas < 3
-        ? `${hechas}/3 poses capturadas — sigue moviendo la cabeza`
-        : 'Todas las poses capturadas';
+      if (hechas >= 3) return 'Todas las poses capturadas';
+      const currentPoseLabel = !captured.frontal ? 'Frontal' : !captured.izquierda ? 'Lado A' : 'Lado B';
+      return `${hechas}/3 — Escaneando ${currentPoseLabel}`;
     }
     return currentPose
       ? `Posicion detectada: ${POSE_LABEL[currentPose]}`
