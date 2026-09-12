@@ -128,7 +128,7 @@ export const AnalizarComentario = () => {
         const [comentariosRes, catsRes] = await Promise.all([
           supabase
             .from('comentarios')
-            .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes)')
+            .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes, sentimiento)')
             .eq('procesado', true)
             .order('fecha', { ascending: false })
             .limit(10),
@@ -199,7 +199,7 @@ export const AnalizarComentario = () => {
       setResultado(null);
       const { data } = await supabase
         .from('comentarios')
-        .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes)')
+        .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes, sentimiento)')
         .eq('procesado', true)
         .order('fecha', { ascending: false })
         .limit(10);

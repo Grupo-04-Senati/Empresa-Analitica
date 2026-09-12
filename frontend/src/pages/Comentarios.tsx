@@ -93,7 +93,7 @@ export const Comentarios = () => {
     const [comRes, cliRes, anRes] = await Promise.all([
       supabase.from('comentarios').select('*, clientes(nombre, empresa, usuario_id)').eq('tipo', 'comentario').order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre, empresa, usuario_id').eq('activo', true),
-      supabase.from('analisis_nlp').select('id, comentario_id, categoria_detectada, confianza'),
+      supabase.from('analisis_nlp').select('id, comentario_id, categoria_detectada, confianza, sentimiento'),
     ]);
     if (comRes.error) { setError(comRes.error.message); setLoading(false); return; }
     setComentarios((comRes.data || []) as unknown as ComentarioDB[]);
