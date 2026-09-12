@@ -85,7 +85,7 @@ export function detectFrame(
     if (!result.faceLandmarks || result.faceLandmarks.length === 0) return null;
 
     const faceLandmarks = result.faceLandmarks[0];
-    const blendshapes = result.faceBlendshapes?.[0]?.blendshapes?.map(bs => ({
+    const blendshapes = (result.faceBlendshapes as any)?.[0]?.categories?.map((bs: any) => ({
       name: bs.categoryName,
       score: bs.score,
     })) || [];
