@@ -138,121 +138,169 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     const mapped = pts.map(map);
     const depths = estimateDepth(pts, noseCenter, eyeDist);
 
-    const jawLine = pts.slice(0, 17).map(map);
-    const leftBrow = pts.slice(17, 22).map(map);
-    const rightBrow = pts.slice(22, 27).map(map);
-    const noseBridge = pts.slice(27, 31).map(map);
-    const noseBottom = pts.slice(31, 36).map(map);
-    const leftEyeContour = [...pts.slice(36, 42).map(map), map(pts[36])];
-    const rightEyeContour = [...pts.slice(42, 48).map(map), map(pts[42])];
-    const mouthOuter = [...pts.slice(48, 60).map(map), map(pts[48])];
-    const mouthInner = [...pts.slice(60, 68).map(map), map(pts[60])];
+    // === FACE CONTOUR LINES ===
+    const jawLine = pts.slice(0, 17);
+    const leftBrow = pts.slice(17, 22);
+    const rightBrow = pts.slice(22, 27);
+    const noseBridge = pts.slice(27, 31);
+    const noseBottom = pts.slice(31, 36);
+    const leftEyeContour = pts.slice(36, 42);
+    const rightEyeContour = pts.slice(42, 48);
+    const mouthOuter = pts.slice(48, 60);
+    const mouthInner = pts.slice(60, 68);
 
-    const jawInterp = interpolatePoints(jawLine, 34);
-    const leftCheek = interpolatePoints([jawLine[3], leftEyeContour[0], leftBrow[0]], 20);
-    const rightCheek = interpolatePoints([jawLine[13], rightEyeContour[0], rightBrow[4]], 20);
-    const forehead = interpolatePoints([leftBrow[0], { x: noseCenter.x, y: leftBrow[0].y - eyeDist * 0.5 }, rightBrow[4]], 20);
-    const chinLine = interpolatePoints([jawLine[6], jawLine[8], jawLine[10]], 16);
-    const leftJawline = interpolatePoints([jawLine[0], jawLine[3], jawLine[6]], 16);
-    const rightJawline = interpolatePoints([jawLine[10], jawLine[13], jawLine[16]], 16);
+    // Dense interpolation for each contour
+    const jawDense = interpolatePoints(jawLine, 50);
+    const leftCheekDense = interpolatePoints([jawLine[2], jawLine[3], jawLine[4], leftEyeContour[0], leftBrow[0]], 30);
+    const rightCheekDense = interpolatePoints([jawLine[12], jawLine[13], jawLine[14], rightEyeContour[0], rightBrow[4]], 30);
+    const foreheadDense = interpolatePoints([leftBrow[0], leftBrow[1], leftBrow[2], { x: noseCenter.x, y: leftBrow[0].y - eyeDist * 0.4 }, rightBrow[2], rightBrow[3], rightBrow[4]], 30);
+    const chinDense = interpolatePoints([jawLine[5], jawLine[6], jawLine[7], jawLine[8], jawLine[9], jawLine[10], jawLine[11]], 24);
+    const leftJawDense = interpolatePoints([jawLine[0], jawLine[1], jawLine[2], jawLine[3], jawLine[4], jawLine[5], jawLine[6]], 20);
+    const rightJawDense = interpolatePoints([jawLine[10], jawLine[11], jawLine[12], jawLine[13], jawLine[14], jawLine[15], jawLine[16]], 20);
+    const noseLeft = interpolatePoints([noseBridge[0], noseBottom[0], noseBottom[1], noseBottom[2]], 16);
+    const noseRight = interpolatePoints([noseBridge[0], noseBottom[4], noseBottom[3], noseBottom[2]], 16);
+    const noseTipDense = interpolatePoints(noseBottom, 14);
+    const lipUpper = interpolatePoints([mouthOuter[0], mouthOuter[1], mouthOuter[2], mouthOuter[3], mouthOuter[4], mouthOuter[5], mouthOuter[6], mouthOuter[7], mouthOuter[8], mouthOuter[9], mouthOuter[10], mouthOuter[11]], 24);
+    const lipLower = interpolatePoints([mouthOuter[12], mouthOuter[13], mouthOuter[14], mouthOuter[15], mouthOuter[16], mouthOuter[17], mouthOuter[18], mouthOuter[19], mouthOuter[20], mouthOuter[21], mouthOuter[22], mouthOuter[23]], 24);
+    const innerLipUpper = interpolatePoints(mouthInner.slice(0, 7), 14);
+    const innerLipLower = interpolatePoints([...mouthInner.slice(7), mouthInner[0]], 14);
+    const leftEyeDense = interpolatePoints([...leftEyeContour, leftEyeContour[0]], 20);
+    const rightEyeDense = interpolatePoints([...rightEyeContour, rightEyeContour[0]], 20);
+    const leftBrowDense = interpolatePoints(leftBrow, 16);
+    const rightBrowDense = interpolatePoints(rightBrow, 16);
 
-    const allMeshLines = [jawInterp, leftCheek, rightCheek, forehead, chinLine, leftJawline, rightJawline, leftEyeContour, rightEyeContour, mouthOuter, mouthInner, noseBridge, noseBottom];
+    // Draw all contour lines
+    const allContours = [
+      { pts: jawDense, color: '0, 200, 255', w: 0.8 },
+      { pts: leftCheekDense, color: '0, 200, 255', w: 0.6 },
+      { pts: rightCheekDense, color: '0, 200, 255', w: 0.6 },
+      { pts: foreheadDense, color: '0, 200, 255', w: 0.6 },
+      { pts: chinDense, color: '0, 200, 255', w: 0.7 },
+      { pts: leftJawDense, color: '0, 200, 255', w: 0.6 },
+      { pts: rightJawDense, color: '0, 200, 255', w: 0.6 },
+      { pts: noseLeft, color: '0, 255, 150', w: 0.7 },
+      { pts: noseRight, color: '0, 255, 150', w: 0.7 },
+      { pts: noseTipDense, color: '0, 255, 150', w: 0.8 },
+      { pts: lipUpper, color: '255, 180, 50', w: 0.8 },
+      { pts: lipLower, color: '255, 180, 50', w: 0.8 },
+      { pts: innerLipUpper, color: '255, 140, 30', w: 0.5 },
+      { pts: innerLipLower, color: '255, 140, 30', w: 0.5 },
+      { pts: leftEyeDense, color: '255, 80, 80', w: 1.0 },
+      { pts: rightEyeDense, color: '255, 80, 80', w: 1.0 },
+      { pts: leftBrowDense, color: '255, 100, 100', w: 0.6 },
+      { pts: rightBrowDense, color: '255, 100, 100', w: 0.6 },
+    ];
 
-    ctx.strokeStyle = 'rgba(0, 255, 200, 0.35)';
-    ctx.lineWidth = 1.2;
-    ctx.shadowColor = 'rgba(0, 255, 200, 0.3)';
-    ctx.shadowBlur = 4;
-    for (const line of allMeshLines) {
+    for (const { pts: line, color, w } of allContours) {
       if (line.length < 2) continue;
+      ctx.strokeStyle = `rgba(${color}, 0.4)`;
+      ctx.lineWidth = w;
       ctx.beginPath();
       ctx.moveTo(line[0].x, line[0].y);
       for (let i = 1; i < line.length; i++) ctx.lineTo(line[i].x, line[i].y);
       ctx.stroke();
     }
-    ctx.shadowBlur = 0;
 
-    ctx.strokeStyle = 'rgba(0, 255, 200, 0.18)';
-    ctx.lineWidth = 0.6;
-    const hLines = 12;
+    // === 3D MESH GRID ===
+    ctx.strokeStyle = 'rgba(0, 200, 255, 0.1)';
+    ctx.lineWidth = 0.4;
+    const hLines = 16;
     for (let i = 1; i < hLines; i++) {
       const t = i / hLines;
-      const leftP = { x: leftJawline[Math.floor(leftJawline.length * t)]?.x || jawLine[0].x, y: leftJawline[Math.floor(leftJawline.length * t)]?.y || jawLine[0].y };
-      const rightP = { x: rightJawline[Math.floor(rightJawline.length * t)]?.x || jawLine[16].x, y: rightJawline[Math.floor(rightJawline.length * t)]?.y || jawLine[16].y };
-      if (leftP && rightP) {
+      const li = Math.min(Math.floor(leftJawDense.length * t), leftJawDense.length - 1);
+      const ri = Math.min(Math.floor(rightJawDense.length * t), rightJawDense.length - 1);
+      const lp = leftJawDense[li];
+      const rp = rightJawDense[ri];
+      if (lp && rp) {
         ctx.beginPath();
-        ctx.moveTo(leftP.x, leftP.y);
-        ctx.lineTo(rightP.x, rightP.y);
+        ctx.moveTo(lp.x, lp.y);
+        ctx.lineTo(rp.x, rp.y);
         ctx.stroke();
       }
     }
-
-    const vLines = 8;
+    const vLines = 10;
     for (let i = 1; i < vLines; i++) {
       const t = i / vLines;
-      const topP = forehead[Math.floor(forehead.length * t)];
-      const botP = chinLine[Math.floor(chinLine.length * t)];
-      if (topP && botP) {
+      const ti = Math.min(Math.floor(foreheadDense.length * t), foreheadDense.length - 1);
+      const bi = Math.min(Math.floor(chinDense.length * t), chinDense.length - 1);
+      const tp = foreheadDense[ti];
+      const bp = chinDense[bi];
+      if (tp && bp) {
         ctx.beginPath();
-        ctx.moveTo(topP.x, topP.y);
-        ctx.lineTo(botP.x, botP.y);
+        ctx.moveTo(tp.x, tp.y);
+        ctx.lineTo(bp.x, bp.y);
         ctx.stroke();
       }
     }
 
-    const glowIntensity = phase === 'countdown' ? 1.2 : 0.7;
+    // === DRAW ALL 68 LANDMARK DOTS (small, 3D-depth colored) ===
+    const glowIntensity = phase === 'countdown' ? 1.0 : 0.5;
     for (let i = 0; i < mapped.length; i++) {
       const p = mapped[i];
       const d = depths[i];
-      const baseSize = 2.5 + d * 3;
-      const alpha = 0.5 + d * 0.5;
+      const baseSize = 1.2 + d * 1.8;
+      const alpha = 0.6 + d * 0.4;
 
       let color: string;
       if (i >= 36 && i <= 47) color = `rgba(255, 80, 80, ${alpha})`;
-      else if (i >= 27 && i <= 35) color = `rgba(80, 255, 80, ${alpha})`;
-      else if (i >= 48 && i <= 67) color = `rgba(255, 160, 40, ${alpha})`;
-      else if (i <= 16) color = `rgba(40, 200, 255, ${alpha})`;
-      else color = `rgba(255, 255, 255, ${alpha})`;
+      else if (i >= 27 && i <= 35) color = `rgba(0, 255, 150, ${alpha})`;
+      else if (i >= 48 && i <= 67) color = `rgba(255, 180, 50, ${alpha})`;
+      else if (i <= 16) color = `rgba(0, 200, 255, ${alpha})`;
+      else color = `rgba(200, 220, 255, ${alpha})`;
 
+      // Main dot
       ctx.beginPath();
       ctx.arc(p.x, p.y, baseSize, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
 
-      if (d > 0.5) {
+      // 3D glow ring for protruding features
+      if (d > 0.6) {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, baseSize + 5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(0, 255, 200, ${glowIntensity * 0.25 * d})`;
+        ctx.arc(p.x, p.y, baseSize + 3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 255, 200, ${glowIntensity * 0.2 * d})`;
         ctx.fill();
       }
     }
 
-    ctx.strokeStyle = 'rgba(0, 255, 200, 0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.shadowColor = 'rgba(0, 255, 200, 0.4)';
-    ctx.shadowBlur = 6;
-    const crosshair = [leftEyeContour, rightEyeContour, mouthOuter, noseBridge];
-    for (const contour of crosshair) {
-      if (contour.length < 2) continue;
-      ctx.beginPath();
-      ctx.moveTo(contour[0].x, contour[0].y);
-      for (let i = 1; i < contour.length; i++) ctx.lineTo(contour[i].x, contour[i].y);
-      ctx.stroke();
-    }
-    ctx.shadowBlur = 0;
+    // === INTERPOLATED CONTOUR DOTS (tiny, dense) ===
+    const drawDenseDots = (line: { x: number; y: number }[], color: string, size: number) => {
+      for (const p of line) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
+    };
 
+    drawDenseDots(jawDense.map(map), 'rgba(0, 200, 255, 0.5)', 0.8);
+    drawDenseDots(leftCheekDense.map(map), 'rgba(0, 200, 255, 0.35)', 0.6);
+    drawDenseDots(rightCheekDense.map(map), 'rgba(0, 200, 255, 0.35)', 0.6);
+    drawDenseDots(foreheadDense.map(map), 'rgba(0, 200, 255, 0.35)', 0.6);
+    drawDenseDots(chinDense.map(map), 'rgba(0, 200, 255, 0.45)', 0.7);
+    drawDenseDots(leftEyeDense.map(map), 'rgba(255, 80, 80, 0.6)', 0.9);
+    drawDenseDots(rightEyeDense.map(map), 'rgba(255, 80, 80, 0.6)', 0.9);
+    drawDenseDots(leftBrowDense.map(map), 'rgba(255, 100, 100, 0.4)', 0.6);
+    drawDenseDots(rightBrowDense.map(map), 'rgba(255, 100, 100, 0.4)', 0.6);
+    drawDenseDots(noseLeft.map(map), 'rgba(0, 255, 150, 0.5)', 0.7);
+    drawDenseDots(noseRight.map(map), 'rgba(0, 255, 150, 0.5)', 0.7);
+    drawDenseDots(noseTipDense.map(map), 'rgba(0, 255, 150, 0.6)', 0.8);
+    drawDenseDots(lipUpper.map(map), 'rgba(255, 180, 50, 0.5)', 0.7);
+    drawDenseDots(lipLower.map(map), 'rgba(255, 180, 50, 0.5)', 0.7);
+    drawDenseDots(innerLipUpper.map(map), 'rgba(255, 140, 30, 0.35)', 0.5);
+    drawDenseDots(innerLipLower.map(map), 'rgba(255, 140, 30, 0.35)', 0.5);
+
+    // === CROSSHAIR LINES (nose-eyes-chin reference) ===
     const le = map({ x: pts.slice(36, 42).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(36, 42).reduce((s, p) => s + p.y, 0) / 6 });
     const re = map({ x: pts.slice(42, 48).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(42, 48).reduce((s, p) => s + p.y, 0) / 6 });
     const nt = map(pts[30]);
     const ch = map(pts[8]);
-    const mc = map({ x: pts.slice(48, 68).reduce((s, p) => s + p.x, 0) / 20, y: pts.slice(48, 68).reduce((s, p) => s + p.y, 0) / 20 });
 
-    ctx.strokeStyle = 'rgba(255, 255, 0, 0.3)';
-    ctx.lineWidth = 0.8;
-    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = 'rgba(255, 255, 0, 0.2)';
+    ctx.lineWidth = 0.6;
+    ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.moveTo(le.x, le.y); ctx.lineTo(re.x, re.y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(nt.x, nt.y); ctx.lineTo(mc.x, mc.y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(le.x, le.y); ctx.lineTo(ch.x, ch.y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(re.x, re.y); ctx.lineTo(ch.x, ch.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(nt.x, nt.y); ctx.lineTo(ch.x, ch.y); ctx.stroke();
     ctx.setLineDash([]);
 
     ctx.restore();
