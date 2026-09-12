@@ -514,37 +514,6 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
           const counts = poseCountsRef.current;
           const frontalDone = counts.frontal >= POSE_TARGET.frontal;
 
-          // Login automatico: auto-capturar poses cuando tengan suficientes frames
-          if (!isRegister && !frozenRef.current) {
-            const ahora = performance.now();
-            for (const pose of FACE_POSES) {
-              if (capturedRef.current[pose]) continue; // ya capturada
-              if (counts[pose] < POSE_TARGET[pose]) continue; // no hay suficientes frames
-
-              const recientes = framesRef.current.filter(
-                f => f.pose === pose && ahora - f.timestamp <= CAPTURE_WINDOW_MS
-              );
-              if (recientes.length < POSE_TARGET[pose]) continue;
-
-              const resultado = buildPoseTemplates(recientes);
-              const plantilla = resultado.templates[pose];
-              if (!plantilla) continue;
-
-              capturedRef.current = { ...capturedRef.current, [pose]: plantilla };
-              setCaptured({ ...capturedRef.current });
-
-              // Congela la malla como confirmacion visual
-              frozenRef.current = true;
-              setFrozen(true);
-              setTimeout(() => {
-                frozenRef.current = false;
-                setFrozen(false);
-              }, 800);
-
-              break; // capturar una pose por ciclo
-            }
-          }
-
           if (mode === 'register') {
             /*
              * En registro NO se completa por tiempo: cada pose la captura el
@@ -574,12 +543,67 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
             return;
           }
 
-          // Login automatico: captura las 3 poses (frontal + A + B).
-          // Cuando las 3 estan listas, completa automaticamente.
-          const hechas = FACE_POSES.filter(pose => capturedRef.current[pose]).length;
-          setScanProgress(hechas / 3);
+          // Login automatico: barra de progreso basada en tiempo (velocidad constante).
+          // 4 segundos por pose = 12 segundos totales para las 3 poses.
+          const POSE_TIME_MS = 4000;
+          const totalTime = POSE_TIME_MS * 3;
+          const timeProgress = Math.min(1, elapsed / totalTime);
+          setScanProgress(timeProgress);
+
+          // Auto-capturar cada pose cuando su tiempo se complete
+          if (elapsed >= POSE_TIME_MS && !capturedRef.current.frontal && counts.frontal >= POSE_TARGET.frontal) {
+            const ahora = performance.now();
+            const recientes = framesRef.current.filter(
+              f => f.pose === 'frontal' && ahora - f.timestamp <= CAPTURE_WINDOW_MS
+            );
+            if (recientes.length >= POSE_TARGET.frontal) {
+              const resultado = buildPoseTemplates(recientes);
+              if (resultado.templates.frontal) {
+                capturedRef.current = { ...capturedRef.current, frontal: resultado.templates.frontal };
+                setCaptured({ ...capturedRef.current });
+                frozenRef.current = true;
+                setFrozen(true);
+                setTimeout(() => { frozenRef.current = false; setFrozen(false); }, 600);
+              }
+            }
+          }
+
+          if (elapsed >= POSE_TIME_MS * 2 && capturedRef.current.frontal && !capturedRef.current.izquierda && counts.izquierda >= POSE_TARGET.izquierda) {
+            const ahora = performance.now();
+            const recientes = framesRef.current.filter(
+              f => f.pose === 'izquierda' && ahora - f.timestamp <= CAPTURE_WINDOW_MS
+            );
+            if (recientes.length >= POSE_TARGET.izquierda) {
+              const resultado = buildPoseTemplates(recientes);
+              if (resultado.templates.izquierda) {
+                capturedRef.current = { ...capturedRef.current, izquierda: resultado.templates.izquierda };
+                setCaptured({ ...capturedRef.current });
+                frozenRef.current = true;
+                setFrozen(true);
+                setTimeout(() => { frozenRef.current = false; setFrozen(false); }, 600);
+              }
+            }
+          }
+
+          if (elapsed >= POSE_TIME_MS * 3 && capturedRef.current.frontal && capturedRef.current.izquierda && !capturedRef.current.derecha && counts.derecha >= POSE_TARGET.derecha) {
+            const ahora = performance.now();
+            const recientes = framesRef.current.filter(
+              f => f.pose === 'derecha' && ahora - f.timestamp <= CAPTURE_WINDOW_MS
+            );
+            if (recientes.length >= POSE_TARGET.derecha) {
+              const resultado = buildPoseTemplates(recientes);
+              if (resultado.templates.derecha) {
+                capturedRef.current = { ...capturedRef.current, derecha: resultado.templates.derecha };
+                setCaptured({ ...capturedRef.current });
+                frozenRef.current = true;
+                setFrozen(true);
+                setTimeout(() => { frozenRef.current = false; setFrozen(false); }, 600);
+              }
+            }
+          }
 
           // Si las 3 poses estan capturadas, completar
+          const hechas = FACE_POSES.filter(pose => capturedRef.current[pose]).length;
           if (hechas >= 3) {
             finishedRef.current = true;
             handleFinishLogin();
