@@ -12,7 +12,7 @@
 
 import { FaceLandmarker, FilesetResolver, FaceLandmarkerResult } from '@mediapipe/tasks-vision';
 
-const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
+const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 let faceLandmarker: FaceLandmarker | null = null;
@@ -48,17 +48,29 @@ export async function loadFaceLandmarker(): Promise<FaceLandmarker> {
   loadingPromise = (async () => {
     console.log('[MediaPipe] Loading FaceLandmarker...');
     const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
-    const landmarker = await FaceLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: MODEL_URL,
-        delegate: 'GPU',
-      },
-      runningMode: 'VIDEO',
-      numFaces: 1,
-      minFaceDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-      outputFaceBlendshapes: true,
-    });
+
+    let landmarker: FaceLandmarker;
+    try {
+      landmarker = await FaceLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+        runningMode: 'VIDEO',
+        numFaces: 1,
+        minFaceDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+        outputFaceBlendshapes: true,
+      });
+    } catch {
+      console.warn('[MediaPipe] GPU failed, falling back to CPU...');
+      landmarker = await FaceLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
+        runningMode: 'VIDEO',
+        numFaces: 1,
+        minFaceDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+        outputFaceBlendshapes: true,
+      });
+    }
+
     console.log('[MediaPipe] FaceLandmarker loaded');
     faceLandmarker = landmarker;
     return landmarker;

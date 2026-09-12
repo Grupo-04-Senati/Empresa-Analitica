@@ -114,10 +114,17 @@ export const FaceCapture478: React.FC<FaceCapture478Props> = ({
       } catch (err: any) {
         if (!alive) return;
         console.error('[FaceCapture478] Init error:', err);
-        if (err?.name === 'NotAllowedError') {
-          setErrorMsg('Permiso de camara denegado.');
+        const msg = String(err?.message || err || '');
+        if (err?.name === 'NotAllowedError' || msg.includes('NotAllowedError')) {
+          setErrorMsg('Permiso de camara denegado. Habilita el permiso en tu navegador.');
+        } else if (msg.includes('CSP') || msg.includes('Content Security Policy') || msg.includes('script-src') || msg.includes('blocked')) {
+          setErrorMsg('Error de seguridad (CSP): CDN de MediaPipe bloqueado. Contacta al administrador.');
+        } else if (msg.includes('Failed to fetch') || msg.includes('network') || msg.includes('TypeError')) {
+          setErrorMsg('Error de red cargando el modelo de IA. Verifica tu conexion a internet.');
+        } else if (msg.includes('WASM') || msg.includes('wasm') || msg.includes('WebAssembly')) {
+          setErrorMsg('Error cargando WebAssembly. Tu navegador podria no ser compatible.');
         } else {
-          setErrorMsg(`Error: ${err?.message || String(err)}`);
+          setErrorMsg(`Error al iniciar: ${msg.substring(0, 120)}`);
         }
         setPhase('error');
       }
