@@ -1,5 +1,6 @@
+import * as faceapi from 'face-api.js';
 import { extractEmbeddings, extractEmbeddingsAndShape, detectMultipleFaces, extractFrontalShape } from './faceRecognition';
-import { generateFaceSignature, Point2D } from './faceGeometry';
+import { generateFaceSignature, normalizeLandmarksByNose, compareNormalizedLandmarks, Point2D } from './faceGeometry';
 
 const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || 'https://empresa-analitica-face.onrender.com';
 
@@ -112,13 +113,19 @@ export async function faceApiRegister(
     };
 
     const landmarksData = landmarks ? landmarks.map((p: any) => ({ x: Number(p.x), y: Number(p.y) })) : [];
+    const normalizedLandmarks = landmarksData.length >= 68 ? normalizeLandmarksByNose(landmarksData) : landmarksData;
+
+    const interEyeDist = landmarksData.length >= 68
+      ? Math.sqrt((landmarksData[45].x - landmarksData[36].x) ** 2 + (landmarksData[45].y - landmarksData[36].y) ** 2)
+      : 0;
 
     const serverBody = {
       usuario_id: usuarioId,
       embeddings: { frontal: frontalArr, izquierda: izqArr, derecha: derArr },
       face_shape: faceShape || '',
       proporciones: proporcionesData,
-      landmarks_68: landmarksData,
+      landmarks_68: normalizedLandmarks,
+      interocular_distance: interEyeDist,
     };
 
     console.log('[faceApi] Sending to face server:', { usuario_id: usuarioId, frontalDims: frontalArr.length, ratios: geometryRatios.length });
@@ -163,7 +170,8 @@ export async function faceApiRegister(
         embedding_derecha: pgVectorStr(derArr),
         forma_rostro: faceShape || '',
         proporciones: proporcionesData,
-        landmarks_68: landmarksData,
+        landmarks_68: normalizedLandmarks,
+        interocular_distance: interEyeDist,
         metadata: {
           engine: 'face-api.js+fallback',
           embedding_dims: 128,
@@ -178,6 +186,8 @@ export async function faceApiRegister(
         embedding_frontal: pgVectorStr(frontalArr),
         embedding_izquierda: pgVectorStr(izqArr),
         embedding_derecha: pgVectorStr(derArr),
+        landmarks_68: normalizedLandmarks,
+        interocular_distance: interEyeDist,
         metadata: {
           engine: 'face-api.js+fallback',
           embedding_dims: 128,
@@ -344,12 +354,12 @@ export async function faceApiLogin(
     }
 
     if (!serverOk) {
-      console.log('[faceApi] Login fallback: comparing embeddings client-side...');
+      console.log('[faceApi] Login fallback: comparing normalized landmarks geometrically...');
       const { supabase } = await import('./supabase');
 
       const { data: rostros, error } = await supabase
         .from('rostros')
-        .select('usuario_id, embedding_frontal, embedding_izquierda, embedding_derecha, proporciones, landmarks_68');
+        .select('usuario_id, landmarks_68, embedding_frontal, embedding_izquierda, embedding_derecha');
 
       if (error) {
         console.error('[faceApi] Fallback query error:', error);
@@ -360,78 +370,59 @@ export async function faceApiLogin(
         return { ok: false, error: 'No hay usuarios con rostro registrado. Primero debes registrarte desde "Crear Cuenta".' };
       }
 
-      function cosineDistance(a: number[], b: number[]): number {
-        if (a.length !== b.length) return 1;
-        let dot = 0, normA = 0, normB = 0;
-        for (let i = 0; i < a.length; i++) {
-          dot += a[i] * b[i];
-          normA += a[i] * a[i];
-          normB += b[i] * b[i];
-        }
-        return 1 - (dot / (Math.sqrt(normA) * Math.sqrt(normB)));
-      }
-
-      function parseVector(v: any): number[] | null {
-        if (!v) return null;
-        if (Array.isArray(v)) return v.map(Number);
-        if (typeof v === 'string') {
-          try {
-            const parsed = JSON.parse(v.replace('[', '[').replace(']', ']'));
-            return Array.isArray(parsed) ? parsed.map(Number) : null;
-          } catch { return null; }
-        }
-        return null;
-      }
-
-      const UMBRAL = 0.45;
-      const MIN_MATCHES = 2;
-      const userScores: { userId: number; bestDist: number; matchCount: number }[] = [];
+      const UMBRAL_GEO = 0.25;
+      const geoScores: { userId: number; dist: number }[] = [];
 
       for (const r of rostros) {
-        const uid = r.usuario_id;
-        const storedEmbeds: number[][] = [];
-        const fe = parseVector(r.embedding_frontal);
-        const fi = parseVector(r.embedding_izquierda);
-        const fd = parseVector(r.embedding_derecha);
-        if (fe && fe.length === 128) storedEmbeds.push(fe);
-        if (fi && fi.length === 128) storedEmbeds.push(fi);
-        if (fd && fd.length === 128) storedEmbeds.push(fd);
+        const storedLm = r.landmarks_68;
+        if (!storedLm || storedLm.length < 68) continue;
 
-        if (storedEmbeds.length < 2) continue;
+        let bestAngleDist = Infinity;
 
-        let matchCount = 0;
-        let totalDist = 0;
+        for (const angle of presentAngles) {
+          const anglePhotos = angle === 'frontal' ? photos['frontal'] : angle === 'izquierda' ? photos['izquierda'] : photos['derecha'];
+          if (!anglePhotos) continue;
 
-        for (const loginEmb of embList) {
-          let bestDist = Infinity;
-          for (const stored of storedEmbeds) {
-            const dist = cosineDistance(loginEmb, stored);
-            if (dist < bestDist) bestDist = dist;
-          }
-          if (bestDist <= UMBRAL) {
-            matchCount++;
-            totalDist += bestDist;
-          }
+          const img2 = new Image();
+          img2.src = anglePhotos;
+          await new Promise<void>((res) => { img2.onload = () => res(); });
+
+          try {
+            const det = await (faceapi as any)
+              .detectSingleFace(img2, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
+              .withFaceLandmarks();
+
+            if (!det || !det.landmarks) continue;
+
+            const capPts = det.landmarks.positions.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+            if (capPts.length < 68) continue;
+
+            const capNorm = normalizeLandmarksByNose(capPts);
+            const storedNorm = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+
+            const dist = compareNormalizedLandmarks(storedNorm, capNorm);
+            if (dist < bestAngleDist) bestAngleDist = dist;
+          } catch {}
         }
 
-        console.log(`[faceApi] Fallback login vs user ${uid}: matchCount=${matchCount}, avgDist=${(matchCount > 0 ? totalDist / matchCount : 999).toFixed(4)}`);
+        console.log(`[faceApi] Geometric vs user ${r.usuario_id}: dist=${bestAngleDist.toFixed(4)}`);
 
-        if (matchCount >= MIN_MATCHES) {
-          userScores.push({ userId: uid, bestDist: totalDist / matchCount, matchCount });
+        if (bestAngleDist <= UMBRAL_GEO) {
+          geoScores.push({ userId: r.usuario_id, dist: bestAngleDist });
         }
       }
 
-      if (userScores.length === 0) {
+      if (geoScores.length === 0) {
         return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
       }
 
-      userScores.sort((a, b) => a.bestDist - b.bestDist);
+      geoScores.sort((a, b) => a.dist - b.dist);
 
-      if (userScores.length > 1 && (userScores[1].bestDist - userScores[0].bestDist) < 0.05) {
+      if (geoScores.length > 1 && (geoScores[1].dist - geoScores[0].dist) < 0.03) {
         return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
       }
 
-      const winner = userScores[0];
+      const winner = geoScores[0];
       const { data: usuario } = await supabase
         .from('usuarios')
         .select('id, nombre, email')
@@ -442,7 +433,7 @@ export async function faceApiLogin(
         return { ok: false, error: 'Usuario no encontrado' };
       }
 
-      console.log(`[faceApi] Fallback LOGIN OK: user ${winner.userId} dist=${winner.bestDist.toFixed(4)}`);
+      console.log(`[faceApi] Geometric LOGIN OK: user ${winner.userId} dist=${winner.dist.toFixed(4)}`);
       return {
         ok: true,
         usuario_id: usuario.id,

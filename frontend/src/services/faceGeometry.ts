@@ -229,3 +229,75 @@ export function compareSignatures(a: FaceSignature, b: FaceSignature): number {
 
   return Math.max(0, 1 - totalDist * 5);
 }
+
+// ── NORMALIZACIÓN UNIVERSAL (invariante a distancia) ─────────
+//
+// D_io = distancia interocular (puntos 36 y 45)
+// Para cada punto i:  x' = (x_i - x_nariz) / D_io
+//                     y' = (y_i - y_nariz) / D_io
+//
+// Resultado: coordenadas relativas al plano facial.
+// Si te alejas 2x, todos los valores se mantienen iguales.
+
+export function normalizeLandmarksByNose(pts: Point2D[]): Point2D[] {
+  if (pts.length < 68) return pts;
+
+  const noseTip = pts[30];
+  const leftEye = pts[36];
+  const rightEye = pts[45];
+
+  const dIo = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
+  if (dIo === 0) return pts;
+
+  return pts.map(p => ({
+    x: (p.x - noseTip.x) / dIo,
+    y: (p.y - noseTip.y) / dIo,
+  }));
+}
+
+// ── COMPARACIÓN PONDERADA POR REGIONES ──────────────────────
+//
+// Pesos según estabilidad de la zona facial:
+//   Nariz + Pómulos (27-35):  1.5  (estructura ósea rígida)
+//   Contorno (0-16):          1.0  (morfología del rostro)
+//   Ojos (36-47):             1.0  (distancia interocular estable)
+//   Cejas (17-26):            0.8  (semi-estable)
+//   Boca (48-67):             0.5  (inestable con expresiones)
+//
+// Distancia = sqrt( sum( w_i * ((x_A - x_B)^2 + (y_A - y_B)^2) ) )
+
+const REGION_WEIGHTS: Record<number, number> = {};
+
+// Contorno facial (mandíbula + pómulos): 0-16
+for (let i = 0; i <= 16; i++) REGION_WEIGHTS[i] = 1.0;
+
+// Cejas: 17-26
+for (let i = 17; i <= 26; i++) REGION_WEIGHTS[i] = 0.8;
+
+// Nariz: 27-35
+for (let i = 27; i <= 35; i++) REGION_WEIGHTS[i] = 1.5;
+
+// Ojos: 36-47
+for (let i = 36; i <= 47; i++) REGION_WEIGHTS[i] = 1.0;
+
+// Boca: 48-67
+for (let i = 48; i <= 67; i++) REGION_WEIGHTS[i] = 0.5;
+
+export function compareNormalizedLandmarks(stored: Point2D[], captured: Point2D[]): number {
+  if (stored.length < 68 || captured.length < 68) return 1;
+
+  let weightedSum = 0;
+  let totalWeight = 0;
+
+  for (let i = 0; i < 68; i++) {
+    const w = REGION_WEIGHTS[i] || 1.0;
+    const dx = stored[i].x - captured[i].x;
+    const dy = stored[i].y - captured[i].y;
+    weightedSum += w * (dx * dx + dy * dy);
+    totalWeight += w;
+  }
+
+  if (totalWeight === 0) return 1;
+
+  return Math.sqrt(weightedSum / totalWeight);
+}
