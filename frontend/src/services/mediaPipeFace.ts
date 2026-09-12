@@ -13,7 +13,7 @@
 import { FaceLandmarker, FilesetResolver, FaceLandmarkerResult } from '@mediapipe/tasks-vision';
 
 const WASM_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
-const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const MODEL_URL = '/models/face_landmarker.task';
 
 let faceLandmarker: FaceLandmarker | null = null;
 let loadingPromise: Promise<FaceLandmarker> | null = null;
@@ -47,7 +47,26 @@ export async function loadFaceLandmarker(): Promise<FaceLandmarker> {
 
   loadingPromise = (async () => {
     console.log('[MediaPipe] Loading FaceLandmarker...');
-    const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
+
+    let vision: any;
+    let lastErr: any;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`[MediaPipe] Attempt ${attempt}/3 loading WASM...`);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        vision = await FilesetResolver.forVisionTasks(WASM_CDN);
+        clearTimeout(timeout);
+        break;
+      } catch (e: any) {
+        lastErr = e;
+        console.warn(`[MediaPipe] Attempt ${attempt} failed:`, e?.message);
+        if (attempt < 3) await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+    if (!vision) {
+      throw new Error(`No se pudo cargar MediaPipe WASM despues de 3 intentos: ${lastErr?.message || lastErr}`);
+    }
 
     let landmarker: FaceLandmarker;
     try {
