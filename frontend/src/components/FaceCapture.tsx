@@ -112,11 +112,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     if (!overlay || canvasW < 10 || canvasH < 10) return;
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
-
     ctx.clearRect(0, 0, canvasW, canvasH);
-    const sx = canvasW / videoW;
-    const sy = canvasH / videoH;
-
+    const sx = canvasW / videoW, sy = canvasH / videoH;
     ctx.save();
     ctx.scale(-1, 1);
     ctx.translate(-canvasW, 0);
@@ -127,318 +124,271 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     const nc = { x: (le36.x + le45.x) / 2, y: (le36.y + le45.y) / 2 };
     const fcx = canvasW / 2, fcy = canvasH / 2;
 
-    const m = (p: { x: number; y: number }) => ({
-      x: (p.x - nc.x) * sx + fcx,
-      y: (p.y - nc.y) * sy + fcy,
-    });
+    const mapP = (p: { x: number; y: number }) => ({ x: (p.x - nc.x) * sx + fcx, y: (p.y - nc.y) * sy + fcy });
 
-    const ip = (pts: { x: number; y: number }[], n: number) => {
-      if (pts.length < 2) return pts.map(m);
+    const ip = (kp: { x: number; y: number }[], n: number): { x: number; y: number }[] => {
+      if (kp.length < 2 || n < 2) return kp.map(mapP);
+      const segs = kp.length - 1;
+      const perSeg = Math.max(1, Math.round(n / segs));
       const r: { x: number; y: number }[] = [];
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = pts[i], b = pts[i + 1];
-        const steps = Math.max(1, Math.floor(n / pts.length));
-        for (let s = 0; s < steps; s++) {
-          const t = s / steps;
-          r.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+      for (let i = 0; i < segs; i++) {
+        for (let s = 0; s < perSeg; s++) {
+          const t = s / perSeg;
+          r.push({ x: kp[i].x + (kp[i + 1].x - kp[i].x) * t, y: kp[i].y + (kp[i + 1].y - kp[i].y) * t });
         }
       }
-      r.push(pts[pts.length - 1]);
-      return r.map(m);
+      r.push(kp[kp.length - 1]);
+      return r.map(mapP);
     };
 
-    const depth = (p: { x: number; y: number }) => {
-      const dx = (p.x - nc.x) / eyeDist, dy = (p.y - nc.y) / eyeDist;
-      return Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) * 0.35);
+    const circ = (cx: number, cy: number, r: number, n: number) => {
+      const a: { x: number; y: number }[] = [];
+      for (let i = 0; i < n; i++) { const ang = (i / n) * Math.PI * 2; a.push(mapP({ x: cx + Math.cos(ang) * r, y: cy + Math.sin(ang) * r })); }
+      return a;
     };
 
-    const jaw = pts.slice(0, 17);
-    const lbrow = pts.slice(17, 22);
-    const rbrow = pts.slice(22, 27);
-    const nBridge = pts.slice(27, 31);
-    const nBottom = pts.slice(31, 36);
-    const lEye = pts.slice(36, 42);
-    const rEye = pts.slice(42, 48);
-    const mOuter = pts.slice(48, 60);
-    const mInner = pts.slice(60, 68);
+    const jaw = pts.slice(0, 17), lbrow = pts.slice(17, 22), rbrow = pts.slice(22, 27);
+    const nBr = pts.slice(27, 31), nBt = pts.slice(31, 36);
+    const lE = pts.slice(36, 42), rE = pts.slice(42, 48);
+    const mO = pts.slice(48, 60), mI = pts.slice(60, 68);
+    const noseTip = pts[30], noseBase = pts[33];
 
-    const noseTip = pts[30], noseBase = pts[33], noseLeft = pts[31], noseRight = pts[35];
-    const lipL = pts[48], lipR = pts[54], lipTop = pts[51], lipBot = pts[57];
+    const faceW = Math.hypot(jaw[16].x - jaw[0].x, jaw[16].y - jaw[0].y);
+    const faceH = Math.hypot(pts[8].x - nBr[0].x, pts[8].y - nBr[0].y);
+    const faceAR = (faceW * faceH) / (videoW * videoH);
+    const distLabel = faceAR < 0.02 ? 'MUY_LEJOS' : faceAR < 0.05 ? 'LEJOS' : faceAR > 0.18 ? 'MUY_CERCA' : faceAR > 0.12 ? 'CERCA' : 'OPTIMO';
 
-    // === CONTOUR DENSITIES (high count for precision) ===
-    const jawD = ip(jaw, 60);
-    const chinD = ip([jaw[5], jaw[6], jaw[7], jaw[8], jaw[9], jaw[10], jaw[11]], 40);
-    const leftJawD = ip([jaw[0], jaw[1], jaw[2], jaw[3], jaw[4], jaw[5]], 30);
-    const rightJawD = ip([jaw[11], jaw[12], jaw[13], jaw[14], jaw[15], jaw[16]], 30);
+    // === FACE OUTLINE (200 pts) ===
+    const jawD = ip(jaw, 200);
+    const chinD = ip([jaw[5], jaw[6], jaw[7], jaw[8], jaw[9], jaw[10], jaw[11]], 120);
+    const lJawD = ip(jaw.slice(0, 8), 100);
+    const rJawD = ip(jaw.slice(9, 17), 100);
 
-    // Cheek contours (jaw to eye area)
-    const lCheekD = ip([jaw[2], jaw[3], jaw[4], lEye[0], lbrow[0]], 24);
-    const rCheekD = ip([jaw[12], jaw[13], jaw[14], rEye[4], rbrow[4]], 24);
+    // === CHEEKBONE CONTOURS ===
+    const lCheekD = ip([jaw[2], jaw[3], jaw[4], lE[0], lbrow[0]], 80);
+    const rCheekD = ip([jaw[12], jaw[13], jaw[14], rE[4], rbrow[4]], 80);
+    const lCheekBone = ip([jaw[1], jaw[3], { x: (lE[0].x + jaw[3].x) / 2, y: (lE[0].y + jaw[3].y) / 2 - eyeDist * 0.08 }, lE[0]], 60);
+    const rCheekBone = ip([jaw[15], jaw[13], { x: (rE[4].x + jaw[13].x) / 2, y: (rE[4].y + jaw[13].y) / 2 - eyeDist * 0.08 }, rE[4]], 60);
 
-    // Forehead
-    const foreheadD = ip([lbrow[0], lbrow[1], lbrow[2], { x: nc.x, y: lbrow[2].y - eyeDist * 0.5 }, rbrow[2], rbrow[3], rbrow[4]], 28);
+    // === NASOLABIAL FOLDS (nose to mouth) ===
+    const lNasoFold = ip([nBt[0], { x: nBt[0].x + eyeDist * 0.05, y: (nBt[0].y + mO[0].y) / 2 }, mO[0]], 50);
+    const rNasoFold = ip([nBt[4], { x: nBt[4].x - eyeDist * 0.05, y: (nBt[4].y + mO[6].y) / 2 }, mO[6]], 50);
 
-    // Inner face vertical lines (cheek to jaw)
-    const lInnerFace = ip([lEye[0], { x: lEye[0].x, y: (lEye[0].y + jaw[3].y) / 2 }, jaw[3]], 16);
-    const rInnerFace = ip([rEye[4], { x: rEye[4].x, y: (rEye[4].y + jaw[13].y) / 2 }, jaw[13]], 16);
+    // === FOREHEAD (100 pts + wrinkle lines) ===
+    const foreheadD = ip([lbrow[0], lbrow[1], lbrow[2], { x: nc.x, y: lbrow[2].y - eyeDist * 0.55 }, rbrow[2], rbrow[3], rbrow[4]], 100);
+    const foreheadTop = ip([{ x: lbrow[0].x - eyeDist * 0.05, y: lbrow[0].y - eyeDist * 0.6 }, { x: nc.x, y: lbrow[2].y - eyeDist * 0.7 }, { x: rbrow[4].x + eyeDist * 0.05, y: rbrow[4].y - eyeDist * 0.6 }], 60);
+    const fWrinkle1 = ip([{ x: lbrow[0].x - eyeDist * 0.03, y: lbrow[0].y - eyeDist * 0.15 }, { x: nc.x, y: lbrow[2].y - eyeDist * 0.18 }, { x: rbrow[4].x + eyeDist * 0.03, y: rbrow[4].y - eyeDist * 0.15 }], 40);
+    const fWrinkle2 = ip([{ x: lbrow[0].x, y: lbrow[0].y - eyeDist * 0.3 }, { x: nc.x, y: lbrow[2].y - eyeDist * 0.35 }, { x: rbrow[4].x, y: rbrow[4].y - eyeDist * 0.3 }], 40);
+    const fWrinkle3 = ip([{ x: lbrow[0].x + eyeDist * 0.02, y: lbrow[0].y - eyeDist * 0.42 }, { x: nc.x, y: lbrow[2].y - eyeDist * 0.47 }, { x: rbrow[4].x - eyeDist * 0.02, y: rbrow[4].y - eyeDist * 0.42 }], 40);
 
-    // === NOSE (detailed) ===
-    const noseBridgeL = ip([nBridge[0], nBridge[1], nBridge[2], nBridge[3], noseTip], 20);
-    const noseBridgeR = ip([nBridge[0], nBridge[1], nBridge[2], nBridge[3], noseTip], 20);
-    const noseLeftSide = ip([nBridge[3], nBottom[0], nBottom[1], noseBase], 16);
-    const noseRightSide = ip([nBridge[3], nBottom[4], nBottom[3], noseBase], 16);
-    const noseNostrilL = ip([nBottom[0], nBottom[1], nBottom[2]], 12);
-    const noseNostrilR = ip([nBottom[4], nBottom[3], nBottom[2]], 12);
-    const noseBottomD = ip(nBottom, 16);
-    const noseTipArc = ip([nBottom[1], nBottom[2], nBottom[3]], 10);
+    // === INNER FACE LINES ===
+    const lInner = ip([lE[0], { x: lE[0].x - eyeDist * 0.02, y: (lE[0].y + jaw[3].y) / 2 }, jaw[3]], 50);
+    const rInner = ip([rE[4], { x: rE[4].x + eyeDist * 0.02, y: (rE[4].y + jaw[13].y) / 2 }, jaw[13]], 50);
+    const lMidCheek = ip([lE[2], { x: lE[2].x - eyeDist * 0.15, y: (lE[2].y + jaw[5].y) / 2 }, jaw[5]], 40);
+    const rMidCheek = ip([rE[2], { x: rE[2].x + eyeDist * 0.15, y: (rE[2].y + jaw[11].y) / 2 }, jaw[11]], 40);
+    const lOuterFace = ip([lbrow[0], { x: lbrow[0].x - eyeDist * 0.15, y: lbrow[0].y }, { x: jaw[0].x + eyeDist * 0.05, y: (jaw[0].y + jaw[2].y) / 2 }, jaw[2]], 50);
+    const rOuterFace = ip([rbrow[4], { x: rbrow[4].x + eyeDist * 0.15, y: rbrow[4].y }, { x: jaw[16].x - eyeDist * 0.05, y: (jaw[16].y + jaw[14].y) / 2 }, jaw[14]], 50);
 
-    // Nose horizontal lines (3D mesh)
-    const noseHLines: { x: number; y: number }[][] = [];
-    for (let i = 1; i <= 4; i++) {
-      const t = i / 5;
-      const li = Math.min(Math.floor(noseLeftSide.length * t), noseLeftSide.length - 1);
-      const ri = Math.min(Math.floor(noseRightSide.length * t), noseRightSide.length - 1);
-      noseHLines.push([noseLeftSide[li], noseRightSide[ri]]);
+    // === TEMPORAL LINES ===
+    const templeL = ip([lbrow[0], { x: lbrow[0].x - eyeDist * 0.2, y: lbrow[0].y - eyeDist * 0.12 }, { x: lbrow[0].x - eyeDist * 0.25, y: nc.y - eyeDist * 0.35 }], 40);
+    const templeR = ip([rbrow[4], { x: rbrow[4].x + eyeDist * 0.2, y: rbrow[4].y - eyeDist * 0.12 }, { x: rbrow[4].x + eyeDist * 0.25, y: nc.y - eyeDist * 0.35 }], 40);
+
+    // === UNDER-EYE BAGS ===
+    const lUnderEye = ip([lE[0], { x: (lE[0].x + lE[3].x) / 2, y: lE[5].y + eyeDist * 0.06 }, lE[3]], 30);
+    const rUnderEye = ip([rE[0], { x: (rE[0].x + rE[3].x) / 2, y: rE[5].y + eyeDist * 0.06 }, rE[3]], 30);
+
+    // === NOSE (ultra detailed) ===
+    const nBridge = ip([nBr[0], nBr[1], nBr[2], nBr[3], noseTip], 60);
+    const nLSide = ip([nBr[3], nBt[0], nBt[1], noseBase], 40);
+    const nRSide = ip([nBr[3], nBt[4], nBt[3], noseBase], 40);
+    const nNostrL = ip([nBt[0], nBt[1], nBt[2]], 30);
+    const nNostrR = ip([nBt[4], nBt[3], nBt[2]], 30);
+    const nBottom = ip(nBt, 40);
+    const nTipArc = ip([nBt[1], nBt[2], nBt[3]], 25);
+    const nNostrCL = ip([nBr[3], nBt[0]], 15);
+    const nNostrCR = ip([nBr[3], nBt[4]], 15);
+    const nSeptum = ip([nBt[2], noseBase], 12);
+    const nSideL2 = ip([{ x: nBr[3].x - eyeDist * 0.04, y: nBr[3].y }, nBt[0], { x: nBt[0].x - eyeDist * 0.02, y: nBt[0].y }], 20);
+    const nSideR2 = ip([{ x: nBr[3].x + eyeDist * 0.04, y: nBr[3].y }, nBt[4], { x: nBt[4].x + eyeDist * 0.02, y: nBt[4].y }], 20);
+    const nHL: { x: number; y: number }[][] = [];
+    for (let i = 1; i <= 8; i++) {
+      const t = i / 9;
+      const li = Math.min(Math.floor(nLSide.length * t), nLSide.length - 1);
+      const ri = Math.min(Math.floor(nRSide.length * t), nRSide.length - 1);
+      nHL.push(ip([nLSide[li], nRSide[ri]], 10));
     }
 
-    // === EYES (detailed contours) ===
-    const lEyeUpper = ip([...lEye.slice(0, 3), lEye[2]], 20);
-    const lEyeLower = ip([lEye[0], ...lEye.slice(4), lEye[3]], 20);
-    const lEyeFull = ip([...lEye, lEye[0]], 30);
-    const rEyeUpper = ip([...rEye.slice(0, 3), rEye[2]], 20);
-    const rEyeLower = ip([rEye[0], ...rEye.slice(4), rEye[3]], 20);
-    const rEyeFull = ip([...rEye, rEye[0]], 30);
+    // === EYES (ultra detailed) ===
+    const lEyeFull = ip([...lE, lE[0]], 120);
+    const lLidU = ip([lE[0], lE[1], lE[2], lE[3]], 60);
+    const lLidL = ip([lE[3], lE[4], lE[5], lE[0]], 60);
+    const rEyeFull = ip([...rE, rE[0]], 120);
+    const rLidU = ip([rE[0], rE[1], rE[2], rE[3]], 60);
+    const rLidL = ip([rE[3], rE[4], rE[5], rE[0]], 60);
+    const lCrease = ip([{ x: lE[0].x, y: lE[0].y - eyeDist * 0.07 }, lE[1], lE[2], { x: lE[3].x, y: lE[3].y - eyeDist * 0.07 }], 40);
+    const rCrease = ip([{ x: rE[0].x, y: rE[0].y - eyeDist * 0.07 }, rE[1], rE[2], { x: rE[3].x, y: rE[3].y - eyeDist * 0.07 }], 40);
 
-    // Eye inner structure (iris estimate from eye center)
-    const lEyeCenter = { x: (lEye[0].x + lEye[3].x) / 2, y: (lEye[1].y + lEye[5].y) / 2 };
-    const rEyeCenter = { x: (rEye[0].x + rEye[3].x) / 2, y: (rEye[1].y + rEye[5].y) / 2 };
-    const lIrisR = eyeDist * 0.12;
-    const rIrisR = eyeDist * 0.12;
-    const irisPts = (cx: number, cy: number, r: number, n: number) => {
-      const pts: { x: number; y: number }[] = [];
-      for (let i = 0; i <= n; i++) {
-        const a = (i / n) * Math.PI * 2;
-        pts.push(m({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }));
+    const lECx = (lE[0].x + lE[3].x) / 2, lECy = (lE[1].y + lE[5].y) / 2;
+    const rECx = (rE[0].x + rE[3].x) / 2, rECy = (rE[1].y + rE[5].y) / 2;
+    const lEW = Math.hypot(lE[3].x - lE[0].x, lE[3].y - lE[0].y);
+    const rEW = Math.hypot(rE[3].x - rE[0].x, rE[3].y - rE[0].y);
+    const lIR = lEW * 0.3, rIR = rEW * 0.3;
+    const lIris = circ(lECx, lECy, lIR, 48);
+    const rIris = circ(rECx, rECy, rIR, 48);
+    const lIrisR1 = circ(lECx, lECy, lIR * 0.55, 36);
+    const rIrisR1 = circ(rECx, rECy, rIR * 0.55, 36);
+    const lIrisR2 = circ(lECx, lECy, lIR * 0.8, 40);
+    const rIrisR2 = circ(rECx, rECy, rIR * 0.8, 40);
+    const lPupil = circ(lECx, lECy, lIR * 0.3, 24);
+    const rPupil = circ(rECx, rECy, rIR * 0.3, 24);
+
+    const mkSpokes = (cx: number, cy: number, r: number) => {
+      const l: { x: number; y: number }[][] = [];
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        l.push([mapP({ x: cx + Math.cos(a) * r * 0.3, y: cy + Math.sin(a) * r * 0.3 }), mapP({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r })]);
       }
-      return pts;
+      return l;
     };
-    const lIrisD = irisPts(lEyeCenter.x, lEyeCenter.y, lIrisR, 16);
-    const rIrisD = irisPts(rEyeCenter.x, rEyeCenter.y, rIrisR, 16);
-    const lPupilD = irisPts(lEyeCenter.x, lEyeCenter.y, lIrisR * 0.4, 10);
-    const rPupilD = irisPts(rEyeCenter.x, rEyeCenter.y, rIrisR * 0.4, 10);
+    const lSpokes = mkSpokes(lECx, lECy, lIR), rSpokes = mkSpokes(rECx, rECy, rIR);
 
-    // Eye cross lines (gaze direction)
-    const lEyeH = [m({ x: lEye[0].x - eyeDist * 0.05, y: lEyeCenter.y }), m({ x: lEye[3].x + eyeDist * 0.05, y: lEyeCenter.y })];
-    const lEyeV = [m({ x: lEyeCenter.x, y: lEye[1].y - eyeDist * 0.03 }), m({ x: lEyeCenter.x, y: lEye[4].y + eyeDist * 0.03 })];
-    const rEyeH = [m({ x: rEye[0].x - eyeDist * 0.05, y: rEyeCenter.y }), m({ x: rEye[3].x + eyeDist * 0.05, y: rEyeCenter.y })];
-    const rEyeV = [m({ x: rEyeCenter.x, y: rEye[1].y - eyeDist * 0.03 }), m({ x: rEyeCenter.x, y: rEye[4].y + eyeDist * 0.03 })];
+    const lECH = { h: [mapP({ x: lE[0].x - eyeDist * 0.07, y: lECy }), mapP({ x: lE[3].x + eyeDist * 0.07, y: lECy })], v: [mapP({ x: lECx, y: lE[1].y - eyeDist * 0.05 }), mapP({ x: lECx, y: lE[5].y + eyeDist * 0.05 })] };
+    const rECH = { h: [mapP({ x: rE[0].x - eyeDist * 0.07, y: rECy }), mapP({ x: rE[3].x + eyeDist * 0.07, y: rECy })], v: [mapP({ x: rECx, y: rE[1].y - eyeDist * 0.05 }), mapP({ x: rECx, y: rE[5].y + eyeDist * 0.05 })] };
 
-    // === EYEBROWS ===
-    const lbrowD = ip(lbrow, 24);
-    const rbrowD = ip(rbrow, 24);
-    const lbrowUpper = ip([lbrow[0], { x: (lbrow[0].x + lbrow[2].x) / 2, y: lbrow[1].y - eyeDist * 0.08 }, lbrow[2], { x: (lbrow[2].x + lbrow[4].x) / 2, y: lbrow[3].y - eyeDist * 0.06 }, lbrow[4]], 20);
-    const rbrowUpper = ip([rbrow[0], { x: (rbrow[0].x + rbrow[2].x) / 2, y: rbrow[1].y - eyeDist * 0.08 }, rbrow[2], { x: (rbrow[2].x + rbrow[4].x) / 2, y: rbrow[3].y - eyeDist * 0.06 }, rbrow[4]], 20);
+    // === EYEBROWS (triple line) ===
+    const lbD = ip(lbrow, 70), rbD = ip(rbrow, 70);
+    const lbU = ip([lbrow[0], { x: (lbrow[0].x + lbrow[2].x) / 2, y: lbrow[1].y - eyeDist * 0.12 }, lbrow[2], { x: (lbrow[2].x + lbrow[4].x) / 2, y: lbrow[3].y - eyeDist * 0.1 }, lbrow[4]], 50);
+    const rbU = ip([rbrow[0], { x: (rbrow[0].x + rbrow[2].x) / 2, y: rbrow[1].y - eyeDist * 0.12 }, rbrow[2], { x: (rbrow[2].x + rbrow[4].x) / 2, y: rbrow[3].y - eyeDist * 0.1 }, rbrow[4]], 50);
+    const lbL = ip([lbrow[0], { x: (lbrow[0].x + lbrow[2].x) / 2, y: lbrow[1].y + eyeDist * 0.025 }, lbrow[2], { x: (lbrow[2].x + lbrow[4].x) / 2, y: lbrow[3].y + eyeDist * 0.025 }, lbrow[4]], 50);
+    const rbL = ip([rbrow[0], { x: (rbrow[0].x + rbrow[2].x) / 2, y: rbrow[1].y + eyeDist * 0.025 }, rbrow[2], { x: (rbrow[2].x + rbrow[4].x) / 2, y: rbrow[3].y + eyeDist * 0.025 }, rbrow[4]], 50);
 
-    // === MOUTH (detailed) ===
-    const mOuterU = ip([mOuter[0], mOuter[1], mOuter[2], mOuter[3], mOuter[4], mOuter[5], mOuter[6]], 24);
-    const mOuterL = ip([mOuter[6], mOuter[7], mOuter[8], mOuter[9], mOuter[10], mOuter[11], mOuter[0]], 24);
-    const mInnerU = ip([mInner[0], mInner[1], mInner[2], mInner[3]], 14);
-    const mInnerL = ip([mInner[4], mInner[5], mInner[6], mInner[7], mInner[0]], 14);
-    const mFull = ip([...mOuter, mOuter[0]], 40);
-
-    // Mouth horizontal lines
-    const mouthHLines: { x: number; y: number }[][] = [];
-    for (let i = 1; i <= 3; i++) {
-      const t = i / 4;
-      const li = Math.min(Math.floor(mOuterU.length * t), mOuterU.length - 1);
-      const ri = Math.min(Math.floor(mOuterL.length * t), mOuterL.length - 1);
-      mouthHLines.push([mOuterU[li], mOuterL[ri]]);
+    // === MOUTH (ultra detailed) ===
+    const mOU = ip([mO[0], mO[1], mO[2], mO[3], mO[4], mO[5], mO[6]], 70);
+    const mOL = ip([mO[6], mO[7], mO[8], mO[9], mO[10], mO[11], mO[0]], 70);
+    const mIU = ip([mI[0], mI[1], mI[2], mI[3]], 40);
+    const mIL = ip([mI[4], mI[5], mI[6], mI[7], mI[0]], 40);
+    const mFull = ip([...mO, mO[0]], 100);
+    const cupidBow = ip([mO[2], mO[3], mO[4], mO[5]], 40);
+    const philtrum = ip([pts[51], noseBase], 25);
+    const mHL: { x: number; y: number }[][] = [];
+    for (let i = 1; i <= 6; i++) {
+      const t = i / 7;
+      const ui = Math.min(Math.floor(mOU.length * t), mOU.length - 1);
+      const li = Math.min(Math.floor(mOL.length * t), mOL.length - 1);
+      mHL.push(ip([mOU[ui], mOL[li]], 12));
     }
 
-    // === 3D FACE MESH GRID ===
-    const meshH = 14, meshV = 12;
-    ctx.strokeStyle = 'rgba(0, 180, 255, 0.07)';
-    ctx.lineWidth = 0.3;
-
-    for (let i = 1; i < meshH; i++) {
-      const t = i / meshH;
-      const topPt = foreheadD[Math.min(Math.floor(foreheadD.length * t), foreheadD.length - 1)];
-      const botPt = chinD[Math.min(Math.floor(chinD.length * t), chinD.length - 1)];
-      if (topPt && botPt) {
-        const leftEdge = leftJawD[Math.min(Math.floor(leftJawD.length * t), leftJawD.length - 1)] || lCheekD[Math.min(Math.floor(lCheekD.length * t), lCheekD.length - 1)];
-        const rightEdge = rightJawD[Math.min(Math.floor(rightJawD.length * t), rightJawD.length - 1)] || rCheekD[Math.min(Math.floor(rCheekD.length * t), rCheekD.length - 1)];
-        if (leftEdge && rightEdge) {
-          for (let j = 1; j < meshV; j++) {
-            const jt = j / meshV;
-            const lx = leftEdge.x + (topPt.x - leftEdge.x) * jt;
-            const ly = leftEdge.y + (topPt.y - leftEdge.y) * jt;
-            const rx = rightEdge.x + (topPt.x - rightEdge.x) * jt;
-            const ry = rightEdge.y + (topPt.y - rightEdge.y) * jt;
-            ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(rx, ry); ctx.stroke();
-          }
-          ctx.beginPath(); ctx.moveTo(leftEdge.x, leftEdge.y); ctx.lineTo(topPt.x, topPt.y); ctx.lineTo(rightEdge.x, rightEdge.y); ctx.stroke();
-        }
+    // === 3D MESH (30 rows x 24 cols) ===
+    ctx.lineWidth = 0.2;
+    for (let i = 1; i < 30; i++) {
+      const t = i / 30;
+      const fI = Math.min(Math.floor(foreheadD.length * t), foreheadD.length - 1);
+      const cI = Math.min(Math.floor(chinD.length * t), chinD.length - 1);
+      const top = foreheadD[fI], bot = chinD[cI];
+      if (!top || !bot) continue;
+      const lI = Math.min(Math.floor(lJawD.length * t), lJawD.length - 1);
+      const rI = Math.min(Math.floor(rJawD.length * t), rJawD.length - 1);
+      const left = lJawD[lI] || lCheekD[lI], right = rJawD[rI] || rCheekD[rI];
+      if (!left || !right) continue;
+      for (let j = 1; j < 24; j++) {
+        const jt = j / 24;
+        const lx = left.x + (top.x - left.x) * jt, ly = left.y + (top.y - left.y) * jt;
+        const rx = right.x + (top.x - right.x) * jt, ry = right.y + (top.y - right.y) * jt;
+        const d = 1 - Math.abs(jt - 0.5) * 2;
+        ctx.strokeStyle = `rgba(0,180,255,${0.03 + d * 0.04})`;
+        ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(rx, ry); ctx.stroke();
       }
     }
-
-    // Vertical mesh lines
-    for (let j = 1; j < meshV; j++) {
-      const t = j / meshV;
-      for (let i = 1; i < meshH; i++) {
-        const ht = i / meshH;
+    for (let j = 1; j < 24; j++) {
+      const t = j / 24;
+      ctx.strokeStyle = 'rgba(0,180,255,0.035)';
+      const col: { x: number; y: number }[] = [];
+      for (let i = 0; i <= 30; i++) {
+        const ht = i / 30;
         const fI = Math.min(Math.floor(foreheadD.length * ht), foreheadD.length - 1);
         const cI = Math.min(Math.floor(chinD.length * ht), chinD.length - 1);
-        const fPt = foreheadD[fI], cPt = chinD[cI];
-        if (fPt && cPt) {
-          const x = fPt.x + (cPt.x - fPt.x) * t;
-          const y = fPt.y + (cPt.y - fPt.y) * t;
-          ctx.beginPath(); ctx.arc(x, y, 0.2, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0, 180, 255, 0.06)'; ctx.fill();
-        }
+        const fp = foreheadD[fI], cp = chinD[cI];
+        if (fp && cp) col.push({ x: fp.x + (cp.x - fp.x) * t, y: fp.y + (cp.y - fp.y) * t });
       }
+      if (col.length > 1) { ctx.beginPath(); ctx.moveTo(col[0].x, col[0].y); for (let k = 1; k < col.length; k++) ctx.lineTo(col[k].x, col[k].y); ctx.stroke(); }
     }
 
-    // === DRAW ALL CONTOUR LINES ===
-    const drawLine = (line: { x: number; y: number }[], color: string, w: number) => {
-      if (line.length < 2) return;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = w;
-      ctx.beginPath();
-      ctx.moveTo(line[0].x, line[0].y);
-      for (let i = 1; i < line.length; i++) ctx.lineTo(line[i].x, line[i].y);
+    // === DRAW LINES ===
+    const L = (l: { x: number; y: number }[], c: string, w: number) => {
+      if (l.length < 2) return;
+      ctx.strokeStyle = c; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(l[0].x, l[0].y);
+      for (let i = 1; i < l.length; i++) ctx.lineTo(l[i].x, l[i].y);
       ctx.stroke();
     };
 
-    // Face outline
-    drawLine(jawD, 'rgba(0, 200, 255, 0.35)', 0.7);
-    drawLine(chinD, 'rgba(0, 200, 255, 0.3)', 0.6);
-    drawLine(leftJawD, 'rgba(0, 200, 255, 0.3)', 0.6);
-    drawLine(rightJawD, 'rgba(0, 200, 255, 0.3)', 0.6);
-    drawLine(lCheekD, 'rgba(0, 200, 255, 0.25)', 0.5);
-    drawLine(rCheekD, 'rgba(0, 200, 255, 0.25)', 0.5);
-    drawLine(foreheadD, 'rgba(0, 200, 255, 0.25)', 0.5);
-    drawLine(lInnerFace, 'rgba(0, 200, 255, 0.15)', 0.3);
-    drawLine(rInnerFace, 'rgba(0, 200, 255, 0.15)', 0.3);
+    L(jawD, 'rgba(0,200,255,0.4)', 0.9); L(chinD, 'rgba(0,200,255,0.35)', 0.8);
+    L(lJawD, 'rgba(0,200,255,0.35)', 0.8); L(rJawD, 'rgba(0,200,255,0.35)', 0.8);
+    L(lCheekD, 'rgba(0,200,255,0.25)', 0.5); L(rCheekD, 'rgba(0,200,255,0.25)', 0.5);
+    L(lCheekBone, 'rgba(100,220,255,0.3)', 0.5); L(rCheekBone, 'rgba(100,220,255,0.3)', 0.5);
+    L(lNasoFold, 'rgba(0,220,200,0.25)', 0.45); L(rNasoFold, 'rgba(0,220,200,0.25)', 0.45);
+    L(foreheadD, 'rgba(0,200,255,0.3)', 0.6); L(foreheadTop, 'rgba(0,200,255,0.2)', 0.45);
+    L(fWrinkle1, 'rgba(0,200,255,0.12)', 0.3); L(fWrinkle2, 'rgba(0,200,255,0.1)', 0.25); L(fWrinkle3, 'rgba(0,200,255,0.08)', 0.2);
+    L(lInner, 'rgba(0,200,255,0.15)', 0.35); L(rInner, 'rgba(0,200,255,0.15)', 0.35);
+    L(lMidCheek, 'rgba(0,200,255,0.12)', 0.3); L(rMidCheek, 'rgba(0,200,255,0.12)', 0.3);
+    L(lOuterFace, 'rgba(0,200,255,0.1)', 0.25); L(rOuterFace, 'rgba(0,200,255,0.1)', 0.25);
+    L(templeL, 'rgba(0,200,255,0.15)', 0.3); L(templeR, 'rgba(0,200,255,0.15)', 0.3);
 
-    // Nose
-    drawLine(noseBridgeL, 'rgba(0, 255, 150, 0.4)', 0.6);
-    drawLine(noseLeftSide, 'rgba(0, 255, 150, 0.35)', 0.5);
-    drawLine(noseRightSide, 'rgba(0, 255, 150, 0.35)', 0.5);
-    drawLine(noseNostrilL, 'rgba(0, 255, 150, 0.4)', 0.5);
-    drawLine(noseNostrilR, 'rgba(0, 255, 150, 0.4)', 0.5);
-    drawLine(noseBottomD, 'rgba(0, 255, 150, 0.35)', 0.5);
-    drawLine(noseTipArc, 'rgba(0, 255, 200, 0.4)', 0.6);
-    for (const hl of noseHLines) drawLine(hl, 'rgba(0, 255, 150, 0.12)', 0.3);
+    L(nBridge, 'rgba(0,255,150,0.5)', 0.8); L(nLSide, 'rgba(0,255,150,0.4)', 0.6); L(nRSide, 'rgba(0,255,150,0.4)', 0.6);
+    L(nNostrL, 'rgba(0,255,150,0.45)', 0.55); L(nNostrR, 'rgba(0,255,150,0.45)', 0.55);
+    L(nBottom, 'rgba(0,255,150,0.35)', 0.5); L(nTipArc, 'rgba(0,255,200,0.5)', 0.7);
+    L(nNostrCL, 'rgba(0,255,150,0.3)', 0.4); L(nNostrCR, 'rgba(0,255,150,0.3)', 0.4);
+    L(nSeptum, 'rgba(0,255,150,0.25)', 0.35); L(nSideL2, 'rgba(0,255,150,0.2)', 0.3); L(nSideR2, 'rgba(0,255,150,0.2)', 0.3);
+    for (const hl of nHL) L(hl, 'rgba(0,255,150,0.08)', 0.25);
 
-    // Eyes
-    drawLine(lEyeFull, 'rgba(255, 80, 80, 0.5)', 0.8);
-    drawLine(lEyeUpper, 'rgba(255, 80, 80, 0.3)', 0.4);
-    drawLine(lEyeLower, 'rgba(255, 80, 80, 0.3)', 0.4);
-    drawLine(rEyeFull, 'rgba(255, 80, 80, 0.5)', 0.8);
-    drawLine(rEyeUpper, 'rgba(255, 80, 80, 0.3)', 0.4);
-    drawLine(rEyeLower, 'rgba(255, 80, 80, 0.3)', 0.4);
+    L(lLidU, 'rgba(255,80,80,0.6)', 1.0); L(lLidL, 'rgba(255,80,80,0.6)', 1.0);
+    L(rLidU, 'rgba(255,80,80,0.6)', 1.0); L(rLidL, 'rgba(255,80,80,0.6)', 1.0);
+    L(lCrease, 'rgba(255,60,60,0.2)', 0.35); L(rCrease, 'rgba(255,60,60,0.2)', 0.35);
+    L(lUnderEye, 'rgba(255,80,80,0.15)', 0.3); L(rUnderEye, 'rgba(255,80,80,0.15)', 0.3);
+    L(lIris, 'rgba(255,120,120,0.5)', 0.7); L(rIris, 'rgba(255,120,120,0.5)', 0.7);
+    L(lIrisR1, 'rgba(255,100,100,0.25)', 0.4); L(rIrisR1, 'rgba(255,100,100,0.25)', 0.4);
+    L(lIrisR2, 'rgba(255,100,100,0.3)', 0.45); L(rIrisR2, 'rgba(255,100,100,0.3)', 0.45);
+    L(lPupil, 'rgba(255,150,150,0.65)', 0.8); L(rPupil, 'rgba(255,150,150,0.65)', 0.8);
+    for (const s of lSpokes) L(s, 'rgba(255,100,100,0.18)', 0.2);
+    for (const s of rSpokes) L(s, 'rgba(255,100,100,0.18)', 0.2);
+    L(lECH.h, 'rgba(255,200,200,0.12)', 0.2); L(lECH.v, 'rgba(255,200,200,0.12)', 0.2);
+    L(rECH.h, 'rgba(255,200,200,0.12)', 0.2); L(rECH.v, 'rgba(255,200,200,0.12)', 0.2);
 
-    // Iris + pupil
-    drawLine(lIrisD, 'rgba(255, 100, 100, 0.35)', 0.5);
-    drawLine(rIrisD, 'rgba(255, 100, 100, 0.35)', 0.5);
-    drawLine(lPupilD, 'rgba(255, 120, 120, 0.5)', 0.6);
-    drawLine(rPupilD, 'rgba(255, 120, 120, 0.5)', 0.6);
+    L(lbD, 'rgba(255,100,100,0.45)', 0.7); L(rbD, 'rgba(255,100,100,0.45)', 0.7);
+    L(lbU, 'rgba(255,100,100,0.25)', 0.4); L(rbU, 'rgba(255,100,100,0.25)', 0.4);
+    L(lbL, 'rgba(255,100,100,0.2)', 0.35); L(rbL, 'rgba(255,100,100,0.2)', 0.35);
 
-    // Eye crosshair
-    drawLine(lEyeH, 'rgba(255, 200, 200, 0.2)', 0.3);
-    drawLine(lEyeV, 'rgba(255, 200, 200, 0.2)', 0.3);
-    drawLine(rEyeH, 'rgba(255, 200, 200, 0.2)', 0.3);
-    drawLine(rEyeV, 'rgba(255, 200, 200, 0.2)', 0.3);
+    L(mOU, 'rgba(255,180,50,0.5)', 0.8); L(mOL, 'rgba(255,180,50,0.5)', 0.8);
+    L(mIU, 'rgba(255,140,30,0.3)', 0.5); L(mIL, 'rgba(255,140,30,0.3)', 0.5);
+    L(mFull, 'rgba(255,180,50,0.15)', 0.3); L(cupidBow, 'rgba(255,200,80,0.4)', 0.55);
+    L(philtrum, 'rgba(255,180,50,0.2)', 0.35);
+    for (const hl of mHL) L(hl, 'rgba(255,180,50,0.06)', 0.2);
 
-    // Eyebrows
-    drawLine(lbrowD, 'rgba(255, 100, 100, 0.35)', 0.5);
-    drawLine(rbrowD, 'rgba(255, 100, 100, 0.35)', 0.5);
-    drawLine(lbrowUpper, 'rgba(255, 100, 100, 0.2)', 0.3);
-    drawLine(rbrowUpper, 'rgba(255, 100, 100, 0.2)', 0.3);
-
-    // Mouth
-    drawLine(mOuterU, 'rgba(255, 180, 50, 0.4)', 0.6);
-    drawLine(mOuterL, 'rgba(255, 180, 50, 0.4)', 0.6);
-    drawLine(mInnerU, 'rgba(255, 140, 30, 0.3)', 0.4);
-    drawLine(mInnerL, 'rgba(255, 140, 30, 0.3)', 0.4);
-    drawLine(mFull, 'rgba(255, 180, 50, 0.2)', 0.3);
-    for (const hl of mouthHLines) drawLine(hl, 'rgba(255, 180, 50, 0.1)', 0.3);
-
-    // === TINY DOTS (high density, depth-colored) ===
-    const dot = (p: { x: number; y: number }, r: number, g: string, a: number) => {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = g.replace('A', String(a));
-      ctx.fill();
-    };
-
-    // Face outline dots
-    for (const p of jawD) dot(p, 0.5, 'rgba(0,220,255,A)', 0.5);
-    for (const p of leftJawD) dot(p, 0.4, 'rgba(0,220,255,A)', 0.4);
-    for (const p of rightJawD) dot(p, 0.4, 'rgba(0,220,255,A)', 0.4);
-    for (const p of chinD) dot(p, 0.4, 'rgba(0,220,255,A)', 0.45);
-    for (const p of lCheekD) dot(p, 0.3, 'rgba(0,200,255,A)', 0.35);
-    for (const p of rCheekD) dot(p, 0.3, 'rgba(0,200,255,A)', 0.35);
-    for (const p of foreheadD) dot(p, 0.3, 'rgba(0,200,255,A)', 0.3);
-
-    // Nose dots
-    for (const p of noseBridgeL) dot(p, 0.4, 'rgba(0,255,150,A)', 0.45);
-    for (const p of noseLeftSide) dot(p, 0.35, 'rgba(0,255,150,A)', 0.4);
-    for (const p of noseRightSide) dot(p, 0.35, 'rgba(0,255,150,A)', 0.4);
-    for (const p of noseNostrilL) dot(p, 0.35, 'rgba(0,255,180,A)', 0.45);
-    for (const p of noseNostrilR) dot(p, 0.35, 'rgba(0,255,180,A)', 0.45);
-    for (const p of noseBottomD) dot(p, 0.3, 'rgba(0,255,150,A)', 0.35);
-
-    // Eye dots
-    for (const p of lEyeFull) dot(p, 0.4, 'rgba(255,80,80,A)', 0.55);
-    for (const p of rEyeFull) dot(p, 0.4, 'rgba(255,80,80,A)', 0.55);
-    for (const p of lIrisD) dot(p, 0.3, 'rgba(255,120,120,A)', 0.45);
-    for (const p of rIrisD) dot(p, 0.3, 'rgba(255,120,120,A)', 0.45);
-    for (const p of lPupilD) dot(p, 0.25, 'rgba(255,150,150,A)', 0.6);
-    for (const p of rPupilD) dot(p, 0.25, 'rgba(255,150,150,A)', 0.6);
-
-    // Eyebrow dots
-    for (const p of lbrowD) dot(p, 0.3, 'rgba(255,100,100,A)', 0.4);
-    for (const p of rbrowD) dot(p, 0.3, 'rgba(255,100,100,A)', 0.4);
-    for (const p of lbrowUpper) dot(p, 0.25, 'rgba(255,100,100,A)', 0.3);
-    for (const p of rbrowUpper) dot(p, 0.25, 'rgba(255,100,100,A)', 0.3);
-
-    // Mouth dots
-    for (const p of mOuterU) dot(p, 0.35, 'rgba(255,180,50,A)', 0.45);
-    for (const p of mOuterL) dot(p, 0.35, 'rgba(255,180,50,A)', 0.45);
-    for (const p of mInnerU) dot(p, 0.25, 'rgba(255,140,30,A)', 0.35);
-    for (const p of mInnerL) dot(p, 0.25, 'rgba(255,140,30,A)', 0.35);
-
-    // === 68 LANDMARK DOTS (primary, slightly bigger) ===
-    const mapped = pts.map(m);
-    const depths = pts.map(depth);
-    const glowA = phase === 'countdown' ? 0.8 : 0.4;
+    // === 68 LANDMARKS ===
+    const mapped = pts.map(mapP);
     for (let i = 0; i < mapped.length; i++) {
-      const p = mapped[i], d = depths[i];
-      const sz = 0.8 + d * 1.2;
+      const p = mapped[i];
+      const dx = (pts[i].x - nc.x) / eyeDist, dy = (pts[i].y - nc.y) / eyeDist;
+      const d = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) * 0.35);
+      const sz = 0.6 + d * 0.8;
       let c: string;
       if (i >= 36 && i <= 47) c = `rgba(255,80,80,${0.5 + d * 0.5})`;
       else if (i >= 27 && i <= 35) c = `rgba(0,255,150,${0.5 + d * 0.5})`;
       else if (i >= 48 && i <= 67) c = `rgba(255,180,50,${0.5 + d * 0.5})`;
       else if (i <= 16) c = `rgba(0,220,255,${0.5 + d * 0.5})`;
       else c = `rgba(180,200,255,${0.4 + d * 0.4})`;
-      ctx.beginPath(); ctx.arc(p.x, p.y, sz, 0, Math.PI * 2);
-      ctx.fillStyle = c; ctx.fill();
-      if (d > 0.65) {
-        ctx.beginPath(); ctx.arc(p.x, p.y, sz + 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(0,255,200,${glowA * 0.15 * d})`; ctx.fill();
-      }
+      ctx.beginPath(); ctx.arc(p.x, p.y, sz, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill();
+      if (d > 0.7) { ctx.beginPath(); ctx.arc(p.x, p.y, sz + 1.8, 0, Math.PI * 2); ctx.fillStyle = `rgba(0,255,200,${0.25 * d})`; ctx.fill(); }
     }
 
-    // === GLOBAL CROSSHAIR ===
-    const eyeMid = m(nc);
-    const noseP = m(noseTip);
-    const chinP = m(pts[8]);
-    ctx.strokeStyle = 'rgba(255,255,0,0.15)';
-    ctx.lineWidth = 0.5;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.moveTo(eyeMid.x - eyeDist * sx * 0.6, eyeMid.y); ctx.lineTo(eyeMid.x + eyeDist * sx * 0.6, eyeMid.y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(eyeMid.x, eyeMid.y - eyeDist * sy * 0.4); ctx.lineTo(chinP.x, chinP.y + eyeDist * sy * 0.1); ctx.stroke();
+    // === CROSSHAIR + DISTANCE LABEL ===
+    const eMid = mapP(nc), cP = mapP(pts[8]);
+    ctx.strokeStyle = 'rgba(255,255,0,0.1)'; ctx.lineWidth = 0.35; ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(eMid.x - eyeDist * sx * 0.75, eMid.y); ctx.lineTo(eMid.x + eyeDist * sx * 0.75, eMid.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(eMid.x, eMid.y - eyeDist * sy * 0.55); ctx.lineTo(cP.x, cP.y + eyeDist * sy * 0.12); ctx.stroke();
     ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(0,255,200,0.5)'; ctx.font = `${Math.max(8, eyeDist * 0.11)}px monospace`; ctx.textAlign = 'center';
+    ctx.fillText(`${distLabel} ${(faceAR * 100).toFixed(1)}%`, eMid.x, cP.y + eyeDist * sy * 0.22);
 
     ctx.restore();
   }, [phase]);
