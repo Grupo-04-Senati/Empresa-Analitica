@@ -1,6 +1,6 @@
 import * as faceapi from 'face-api.js';
 import { extractEmbeddings, extractEmbeddingsAndShape, detectMultipleFaces, extractFrontalShape } from './faceRecognition';
-import { generateFaceSignature, normalizeLandmarksByNose, compareNormalizedLandmarks, Point2D } from './faceGeometry';
+import { generateFaceSignature, normalizeLandmarksByNose, compareNormalizedLandmarks, compareFaces, generateRatioSignature, Point2D } from './faceGeometry';
 
 const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || 'https://empresa-analitica-face.onrender.com';
 
@@ -375,7 +375,7 @@ export async function faceApiLogin(
 
       const { data: rostros, error } = await supabase
         .from('rostros')
-        .select('usuario_id, landmarks_68, embedding_frontal, embedding_izquierda, embedding_derecha');
+        .select('usuario_id, landmarks_68, embedding_frontal, embedding_izquierda, embedding_derecha, proporciones');
 
       if (error) {
         console.error('[faceApi] Fallback query error:', error);
@@ -386,14 +386,24 @@ export async function faceApiLogin(
         return { ok: false, error: 'No hay usuarios con rostro registrado. Primero debes registrarte desde "Crear Cuenta".' };
       }
 
-      const UMBRAL_GEO = 0.15;
-      const geoScores: { userId: number; dist: number }[] = [];
+      const UMBRAL_GEO = 0.45;
+      const geoScores: { userId: number; dist: number; method: string }[] = [];
 
       for (const r of rostros) {
         const storedLm = r.landmarks_68;
         if (!storedLm || storedLm.length < 68) continue;
 
-        let bestAngleDist = Infinity;
+        // Obtener ratios almacenados
+        let storedRatios: number[] | undefined;
+        if (r.proporciones) {
+          const prop = typeof r.proporciones === 'string' ? JSON.parse(r.proporciones) : r.proporciones;
+          if (prop.ratios && Array.isArray(prop.ratios) && prop.ratios.length > 0) {
+            storedRatios = prop.ratios.map(Number);
+          }
+        }
+
+        let bestScore = 0;
+        let bestMethod = '';
 
         for (const angle of presentAngles) {
           const anglePhotos = angle === 'frontal' ? photos['frontal'] : angle === 'izquierda' ? photos['izquierda'] : photos['derecha'];
@@ -413,27 +423,21 @@ export async function faceApiLogin(
             const capPts = det.landmarks.positions.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
             if (capPts.length < 68) continue;
 
-            const capNorm = normalizeLandmarksByNose(capPts);
-            let storedNorm: Point2D[] = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+            const storedPts: Point2D[] = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
 
-            const avgAbs = storedNorm.reduce((s: number, p: Point2D) => s + Math.abs(p.x) + Math.abs(p.y), 0) / storedNorm.length;
-            if (avgAbs > 5) {
-              const dIo = Math.sqrt((storedNorm[45].x - storedNorm[36].x) ** 2 + (storedNorm[45].y - storedNorm[36].y) ** 2);
-              if (dIo > 0) {
-                const noseTip = storedNorm[30];
-                storedNorm = storedNorm.map(p => ({ x: (p.x - noseTip.x) / dIo, y: (p.y - noseTip.y) / dIo }));
-              }
+            const { score, method } = compareFaces(storedPts, capPts, storedRatios);
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestMethod = method;
             }
-
-            const dist = compareNormalizedLandmarks(storedNorm, capNorm);
-            if (dist < bestAngleDist) bestAngleDist = dist;
           } catch {}
         }
 
-        console.log(`[faceApi] Geometric vs user ${r.usuario_id}: dist=${bestAngleDist.toFixed(4)}`);
+        console.log(`[faceApi] vs user ${r.usuario_id}: score=${bestScore.toFixed(3)} method=${bestMethod}`);
 
-        if (bestAngleDist <= UMBRAL_GEO) {
-          geoScores.push({ userId: r.usuario_id, dist: bestAngleDist });
+        if (bestScore >= UMBRAL_GEO) {
+          geoScores.push({ userId: r.usuario_id, dist: bestScore, method: bestMethod });
         }
       }
 
@@ -441,9 +445,11 @@ export async function faceApiLogin(
         return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
       }
 
-      geoScores.sort((a, b) => a.dist - b.dist);
+      // Ordenar por score DESCENDENTE (mayor score = mejor match)
+      geoScores.sort((a, b) => b.dist - a.dist);
 
-      if (geoScores.length > 1 && (geoScores[1].dist - geoScores[0].dist) < 0.05) {
+      // Ambigüedad: si los dos mejores están muy cerca, no se puede distinguir
+      if (geoScores.length > 1 && (geoScores[0].dist - geoScores[1].dist) < 0.08) {
         return { ok: false, error: 'Rostro ambiguo, intente de nuevo con mejor iluminacion' };
       }
 
@@ -458,7 +464,7 @@ export async function faceApiLogin(
         return { ok: false, error: 'Usuario no encontrado' };
       }
 
-      console.log(`[faceApi] Geometric LOGIN OK: user ${winner.userId} dist=${winner.dist.toFixed(4)}`);
+      console.log(`[faceApi] LOGIN OK: user ${winner.userId} score=${winner.dist.toFixed(3)} method=${winner.method}`);
       return {
         ok: true,
         usuario_id: usuario.id,
