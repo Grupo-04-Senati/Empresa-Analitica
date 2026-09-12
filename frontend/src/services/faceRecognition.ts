@@ -739,6 +739,7 @@ export async function loginByFace(
   photos: Record<string, string>
 ): Promise<{ ok: boolean; usuario_id?: number; nombre?: string; email?: string; error?: string }> {
   try {
+    const loginEmbeddings: number[][] = [];
     const loginLandmarks: Point2D[][] = [];
 
     for (const [angle, dataUrl] of Object.entries(photos)) {
@@ -749,15 +750,16 @@ export async function loginByFace(
         await new Promise<void>((resolve) => { img.onload = () => resolve(); });
 
         const detection = await (faceapi as any)
-          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
-          .withFaceLandmarks();
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
 
         if (!detection) {
           console.warn(`[face-login] No face detected in ${angle}`);
           continue;
         }
 
-        if (detection.detection.score < 0.5) {
+        if (detection.detection.score < 0.3) {
           console.warn(`[face-login] Low score in ${angle}: ${detection.detection.score}`);
           continue;
         }
@@ -768,17 +770,31 @@ export async function loginByFace(
         const leftEye = pts[36];
         const rightEye = pts[45];
         const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
-        if (eyeDist < 20) continue;
+        if (eyeDist < 15) continue;
+
+        const descriptor = detection.descriptor as Float32Array;
+        const embedding: number[] = Array.from(descriptor);
+        const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
+        if (norm > 0) {
+          for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
+        }
+
+        const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
+        if (nonZero >= 32) {
+          loginEmbeddings.push(embedding);
+        }
 
         const pts2d: Point2D[] = pts.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
         const normalized = normalizeLandmarksByNose(pts2d);
         loginLandmarks.push(normalized);
 
-        console.log(`[face-login] OK ${angle}: score=${detection.detection.score.toFixed(3)}`);
+        console.log(`[face-login] OK ${angle}: score=${detection.detection.score.toFixed(3)}, emb=${embedding.length}, nonZero=${nonZero}`);
       } catch {}
     }
 
-    if (loginLandmarks.length === 0) {
+    console.log(`[face-login] Captured: ${loginEmbeddings.length} embeddings, ${loginLandmarks.length} landmarks`);
+
+    if (loginEmbeddings.length === 0 && loginLandmarks.length === 0) {
       return { ok: false, error: 'No se detecto ningun rostro' };
     }
 
@@ -790,73 +806,109 @@ export async function loginByFace(
       return { ok: false, error: 'No hay usuarios con rostro registrado. Registrate primero.' };
     }
 
-    const UMBRAL_GEO = 0.25;
-    const userResults: { userId: number; bestDist: number; matchCount: number }[] = [];
+    // --- PASO 1: Intentar con embeddings (mas robusto) ---
+    const UMBRAL_EMB = 0.50;
+    const embScores: { userId: number; dist: number }[] = [];
 
-    for (const r of rostros) {
-      const uid = r.usuario_id;
-      const storedLm = r.landmarks_68;
-      if (!storedLm || storedLm.length < 68) continue;
+    if (loginEmbeddings.length > 0) {
+      for (const r of rostros) {
+        const uid = r.usuario_id;
+        const storedEmbeds: number[][] = [];
+        if (r.embedding_frontal) storedEmbeds.push(r.embedding_frontal);
+        if (r.embedding_izquierda) storedEmbeds.push(r.embedding_izquierda);
+        if (r.embedding_derecha) storedEmbeds.push(r.embedding_derecha);
 
-      let storedNorm: Point2D[] = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+        if (storedEmbeds.length === 0) continue;
 
-      const avgAbs = storedNorm.reduce((s, p) => s + Math.abs(p.x) + Math.abs(p.y), 0) / storedNorm.length;
-      if (avgAbs > 5) {
-        const dIo = Math.sqrt((storedNorm[45].x - storedNorm[36].x) ** 2 + (storedNorm[45].y - storedNorm[36].y) ** 2);
-        if (dIo > 0) {
-          const noseTip = storedNorm[30];
-          storedNorm = storedNorm.map(p => ({ x: (p.x - noseTip.x) / dIo, y: (p.y - noseTip.y) / dIo }));
-          console.log(`[face-login] user ${uid}: normalized raw landmarks on-the-fly (avgAbs=${avgAbs.toFixed(1)})`);
+        let totalBest = 0;
+        let matchCount = 0;
+
+        for (const loginEmb of loginEmbeddings) {
+          let bestDist = Infinity;
+          for (const stored of storedEmbeds) {
+            const dist = cosineDistance(loginEmb, stored);
+            if (dist < bestDist) bestDist = dist;
+          }
+          if (bestDist <= UMBRAL_EMB) {
+            totalBest += bestDist;
+            matchCount++;
+          }
+        }
+
+        console.log(`[face-login] Emb vs user ${uid}: matchCount=${matchCount}, avgDist=${(matchCount > 0 ? totalBest / matchCount : 999).toFixed(4)}`);
+
+        if (matchCount >= 1) {
+          embScores.push({ userId: uid, dist: totalBest / matchCount });
         }
       }
+    }
 
-      let totalDist = 0;
-      let matchCount = 0;
+    if (embScores.length > 0) {
+      embScores.sort((a, b) => a.dist - b.dist);
+      const winner = embScores[0];
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('id, nombre, email')
+        .eq('id', winner.userId)
+        .limit(1);
 
-      for (const capNorm of loginLandmarks) {
-        const dist = compareNormalizedLandmarks(storedNorm, capNorm);
-        if (dist <= UMBRAL_GEO) {
-          totalDist += dist;
-          matchCount++;
+      if (usuario && usuario.length > 0) {
+        console.log(`[face-login] EMB MATCH: user ${winner.userId} dist=${winner.dist.toFixed(4)}`);
+        return { ok: true, usuario_id: usuario[0].id, nombre: usuario[0].nombre, email: usuario[0].email };
+      }
+    }
+
+    // --- PASO 2: Fallback con geometria ---
+    const UMBRAL_GEO = 0.40;
+    const geoScores: { userId: number; dist: number }[] = [];
+
+    if (loginLandmarks.length > 0) {
+      for (const r of rostros) {
+        const uid = r.usuario_id;
+        const storedLm = r.landmarks_68;
+        if (!storedLm || storedLm.length < 68) continue;
+
+        let storedNorm: Point2D[] = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+
+        const avgAbs = storedNorm.reduce((s, p) => s + Math.abs(p.x) + Math.abs(p.y), 0) / storedNorm.length;
+        if (avgAbs > 5) {
+          const dIo = Math.sqrt((storedNorm[45].x - storedNorm[36].x) ** 2 + (storedNorm[45].y - storedNorm[36].y) ** 2);
+          if (dIo > 0) {
+            const noseTip = storedNorm[30];
+            storedNorm = storedNorm.map(p => ({ x: (p.x - noseTip.x) / dIo, y: (p.y - noseTip.y) / dIo }));
+          }
+        }
+
+        let bestGeoDist = Infinity;
+        for (const capNorm of loginLandmarks) {
+          const dist = compareNormalizedLandmarks(storedNorm, capNorm);
+          if (dist < bestGeoDist) bestGeoDist = dist;
+        }
+
+        console.log(`[face-login] Geo vs user ${uid}: bestDist=${bestGeoDist.toFixed(4)}`);
+
+        if (bestGeoDist <= UMBRAL_GEO) {
+          geoScores.push({ userId: uid, dist: bestGeoDist });
         }
       }
+    }
 
-      console.log(`[face-login] user ${uid}: matchCount=${matchCount}, avgDist=${(matchCount > 0 ? totalDist / matchCount : 999).toFixed(4)}`);
+    if (geoScores.length > 0) {
+      geoScores.sort((a, b) => a.dist - b.dist);
+      const winner = geoScores[0];
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('id, nombre, email')
+        .eq('id', winner.userId)
+        .limit(1);
 
-      if (matchCount >= 1) {
-        userResults.push({ userId: uid, bestDist: totalDist / matchCount, matchCount });
+      if (usuario && usuario.length > 0) {
+        console.log(`[face-login] GEO MATCH: user ${winner.userId} dist=${winner.dist.toFixed(4)}`);
+        return { ok: true, usuario_id: usuario[0].id, nombre: usuario[0].nombre, email: usuario[0].email };
       }
     }
 
-    if (userResults.length === 0) {
-      return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
-    }
-
-    userResults.sort((a, b) => a.bestDist - b.bestDist);
-
-    if (userResults.length > 1 && (userResults[1].bestDist - userResults[0].bestDist) < 0.05) {
-      return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
-    }
-
-    const winner = userResults[0];
-    const { data: usuario } = await supabase
-      .from('usuarios')
-      .select('id, nombre, email')
-      .eq('id', winner.userId)
-      .limit(1);
-
-    if (!usuario || usuario.length === 0) {
-      return { ok: false, error: 'Usuario no encontrado' };
-    }
-
-    console.log(`[face-login] MATCH: user ${winner.userId} (${winner.bestDist.toFixed(4)})`);
-
-    return {
-      ok: true,
-      usuario_id: usuario[0].id,
-      nombre: usuario[0].nombre,
-      email: usuario[0].email,
-    };
+    return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
   } catch (e: any) {
     return { ok: false, error: e?.message || 'Error en login facial' };
   }
@@ -891,6 +943,7 @@ export async function loginByFaceWithLiveness(
       return { ok: false, error: 'Giro de cabeza no detectado. Gire la cabeza lentamente a un lado.' };
     }
 
+    const loginEmbeddings: number[][] = [];
     const loginLandmarks: Point2D[][] = [];
     const angles = ['frontal', 'izquierda', 'derecha'];
 
@@ -898,10 +951,11 @@ export async function loginByFaceWithLiveness(
       await new Promise<void>((r) => setTimeout(r, 800));
 
       const det = await (faceapi as any)
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
-        .withFaceLandmarks();
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
 
-      if (!det || det.detection.score < 0.5) continue;
+      if (!det || det.detection.score < 0.3) continue;
 
       const pts = det.landmarks.positions;
       if (pts.length < 68) continue;
@@ -909,14 +963,28 @@ export async function loginByFaceWithLiveness(
       const leftEye = pts[36];
       const rightEye = pts[45];
       const eyeDist = Math.sqrt((rightEye.x - leftEye.x) ** 2 + (rightEye.y - leftEye.y) ** 2);
-      if (eyeDist < 20) continue;
+      if (eyeDist < 15) continue;
+
+      const descriptor = det.descriptor as Float32Array;
+      const embedding: number[] = Array.from(descriptor);
+      const norm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0));
+      if (norm > 0) {
+        for (let i = 0; i < embedding.length; i++) embedding[i] /= norm;
+      }
+
+      const nonZero = embedding.filter(v => Math.abs(v) > 0.001).length;
+      if (nonZero >= 32) {
+        loginEmbeddings.push(embedding);
+      }
 
       const pts2d: Point2D[] = pts.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
       const normalized = normalizeLandmarksByNose(pts2d);
       loginLandmarks.push(normalized);
     }
 
-    if (loginLandmarks.length < 2) {
+    console.log(`[face-login-liveness] Captured: ${loginEmbeddings.length} embeddings, ${loginLandmarks.length} landmarks`);
+
+    if (loginEmbeddings.length === 0 && loginLandmarks.length === 0) {
       return { ok: false, error: 'No se pudieron capturar suficientes angulos. Intente de nuevo.' };
     }
 
@@ -928,69 +996,105 @@ export async function loginByFaceWithLiveness(
       return { ok: false, error: 'No hay usuarios con rostro registrado.' };
     }
 
-    const UMBRAL_GEO = 0.25;
-    const userResults: { userId: number; bestDist: number; matchCount: number }[] = [];
+    // --- PASO 1: Intentar con embeddings ---
+    const UMBRAL_EMB = 0.50;
+    const embScores: { userId: number; dist: number }[] = [];
 
-    for (const r of rostros) {
-      const uid = r.usuario_id;
-      const storedLm = r.landmarks_68;
-      if (!storedLm || storedLm.length < 68) continue;
+    if (loginEmbeddings.length > 0) {
+      for (const r of rostros) {
+        const uid = r.usuario_id;
+        const storedEmbeds: number[][] = [];
+        if (r.embedding_frontal) storedEmbeds.push(r.embedding_frontal);
+        if (r.embedding_izquierda) storedEmbeds.push(r.embedding_izquierda);
+        if (r.embedding_derecha) storedEmbeds.push(r.embedding_derecha);
 
-      let storedNorm: Point2D[] = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+        if (storedEmbeds.length === 0) continue;
 
-      const avgAbs = storedNorm.reduce((s, p) => s + Math.abs(p.x) + Math.abs(p.y), 0) / storedNorm.length;
-      if (avgAbs > 5) {
-        const dIo = Math.sqrt((storedNorm[45].x - storedNorm[36].x) ** 2 + (storedNorm[45].y - storedNorm[36].y) ** 2);
-        if (dIo > 0) {
-          const noseTip = storedNorm[30];
-          storedNorm = storedNorm.map(p => ({ x: (p.x - noseTip.x) / dIo, y: (p.y - noseTip.y) / dIo }));
-          console.log(`[face-login-liveness] user ${uid}: normalized raw landmarks on-the-fly`);
+        let totalBest = 0;
+        let matchCount = 0;
+
+        for (const loginEmb of loginEmbeddings) {
+          let bestDist = Infinity;
+          for (const stored of storedEmbeds) {
+            const dist = cosineDistance(loginEmb, stored);
+            if (dist < bestDist) bestDist = dist;
+          }
+          if (bestDist <= UMBRAL_EMB) {
+            totalBest += bestDist;
+            matchCount++;
+          }
+        }
+
+        if (matchCount >= 1) {
+          embScores.push({ userId: uid, dist: totalBest / matchCount });
         }
       }
+    }
 
-      let totalDist = 0;
-      let matchCount = 0;
+    if (embScores.length > 0) {
+      embScores.sort((a, b) => a.dist - b.dist);
+      const winner = embScores[0];
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('id, nombre, email')
+        .eq('id', winner.userId)
+        .limit(1);
 
-      for (const capNorm of loginLandmarks) {
-        const dist = compareNormalizedLandmarks(storedNorm, capNorm);
-        if (dist <= UMBRAL_GEO) {
-          totalDist += dist;
-          matchCount++;
+      if (usuario && usuario.length > 0) {
+        console.log(`[face-login-liveness] EMB MATCH: user ${winner.userId}`);
+        return { ok: true, usuario_id: usuario[0].id, nombre: usuario[0].nombre, email: usuario[0].email };
+      }
+    }
+
+    // --- PASO 2: Fallback con geometria ---
+    const UMBRAL_GEO = 0.40;
+    const geoScores: { userId: number; dist: number }[] = [];
+
+    if (loginLandmarks.length > 0) {
+      for (const r of rostros) {
+        const uid = r.usuario_id;
+        const storedLm = r.landmarks_68;
+        if (!storedLm || storedLm.length < 68) continue;
+
+        let storedNorm: Point2D[] = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+
+        const avgAbs = storedNorm.reduce((s, p) => s + Math.abs(p.x) + Math.abs(p.y), 0) / storedNorm.length;
+        if (avgAbs > 5) {
+          const dIo = Math.sqrt((storedNorm[45].x - storedNorm[36].x) ** 2 + (storedNorm[45].y - storedNorm[36].y) ** 2);
+          if (dIo > 0) {
+            const noseTip = storedNorm[30];
+            storedNorm = storedNorm.map(p => ({ x: (p.x - noseTip.x) / dIo, y: (p.y - noseTip.y) / dIo }));
+          }
+        }
+
+        let bestGeoDist = Infinity;
+        for (const capNorm of loginLandmarks) {
+          const dist = compareNormalizedLandmarks(storedNorm, capNorm);
+          if (dist < bestGeoDist) bestGeoDist = dist;
+        }
+
+        if (bestGeoDist <= UMBRAL_GEO) {
+          geoScores.push({ userId: uid, dist: bestGeoDist });
         }
       }
+    }
 
-      if (matchCount >= 1) {
-        userResults.push({ userId: uid, bestDist: totalDist / matchCount, matchCount });
+    if (geoScores.length > 0) {
+      geoScores.sort((a, b) => a.dist - b.dist);
+      const winner = geoScores[0];
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('id, nombre, email')
+        .eq('id', winner.userId)
+        .limit(1);
+
+      if (usuario && usuario.length > 0) {
+        console.log(`[face-login-liveness] GEO MATCH: user ${winner.userId}`);
+        return { ok: true, usuario_id: usuario[0].id, nombre: usuario[0].nombre, email: usuario[0].email };
       }
     }
 
-    if (userResults.length === 0) {
-      return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
-    }
-
-    userResults.sort((a, b) => a.bestDist - b.bestDist);
-
-    if (userResults.length > 1 && (userResults[1].bestDist - userResults[0].bestDist) < 0.05) {
-      return { ok: false, error: 'Rostro ambiguo. Asegurese de que solo su rostro este visible.' };
-    }
-
-    const winner = userResults[0];
-    const { data: usuario } = await supabase
-      .from('usuarios')
-      .select('id, nombre, email')
-      .eq('id', winner.userId)
-      .limit(1);
-
-    if (!usuario || usuario.length === 0) {
-      return { ok: false, error: 'Usuario no encontrado' };
-    }
-
-    return {
-      ok: true,
-      usuario_id: usuario[0].id,
-      nombre: usuario[0].nombre,
-      email: usuario[0].email,
-    };
+    return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
   } catch (e: any) {
     return { ok: false, error: e?.message || 'Error en login facial' };
   }
