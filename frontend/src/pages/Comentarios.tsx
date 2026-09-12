@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, Plus, Search, Filter, Loader2, X, Send, BarChart3, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { MessageSquare, Plus, Search, Filter, Loader2, X, Send, BarChart3, Trash2, ArrowRight } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -71,6 +72,7 @@ const canalOptions = ['web', 'email', 'telefono', 'chat', 'redes'];
 
 export const Comentarios = () => {
   const { user, isAdmin } = useAuth();
+  const navigate = useNavigate();
   const [comentarios, setComentarios] = useState<ComentarioDB[]>([]);
   const [analisis, setAnalisis] = useState<AnalisisNLP[]>([]);
   const [clientes, setClientes] = useState<ClienteOption[]>([]);
@@ -277,7 +279,7 @@ export const Comentarios = () => {
                   const a = getAnalisis(c.id);
                   const est = c.estado === 'resuelto' ? { label: 'Resuelto', cls: 'bg-emerald-100 text-emerald-700' } : c.estado === 'en_proceso' ? { label: 'En Proceso', cls: 'bg-blue-100 text-blue-700' } : { label: 'Pendiente', cls: 'bg-amber-100 text-amber-700' };
                   return (
-                    <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                    <tr key={c.id} className={`group border-b border-slate-50 transition-colors ${isAdmin ? 'hover:bg-blue-50/50 cursor-pointer' : 'hover:bg-slate-50'}`} onClick={() => isAdmin && navigate(`/dashboard/analizar-comentario?comentario=${encodeURIComponent(c.contenido)}`)}>
                       <td className="py-3 px-4 font-medium text-slate-800">#{c.id}</td>
                       <td className="py-3 px-4">
                         <p className="font-medium text-slate-800">{c.clientes?.nombre || 'Sin cliente'}</p>
@@ -298,9 +300,14 @@ export const Comentarios = () => {
                       <td className="py-3 px-4 text-slate-500 text-xs whitespace-nowrap">{new Date(c.fecha).toLocaleDateString('es-ES')}</td>
                       {isAdmin && (
                         <td className="py-3 px-4 text-right">
-                          <button onClick={() => eliminarComentario(c.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50:bg-red-900/20 rounded-lg transition" title="Eliminar">
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="text-[10px] text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                              Analizar <ArrowRight size={10} />
+                            </span>
+                            <button onClick={(e) => { e.stopPropagation(); eliminarComentario(c.id); }} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Eliminar">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </td>
                       )}
                     </tr>

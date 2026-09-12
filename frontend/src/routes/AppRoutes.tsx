@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Loader2 } from 'lucide-react';
 
 import Landing from '../pages/Landing';
+import ComentariosPublico from '../pages/ComentariosPublico';
 import DashboardInicio from '../pages/dashboard';
 import Clientes from '../pages/Clientes';
 import ClientesNuevo from '../pages/ClientesNuevo';
@@ -55,6 +56,7 @@ const GuestGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 export const AppRoutes = () => (
   <Routes>
     <Route path="/" element={<Landing />} />
+    <Route path="/comentarios" element={<ComentariosPublico />} />
     <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
     <Route path="/register" element={<GuestGuard><Register /></GuestGuard>} />
     <Route path="/perfil" element={<AuthGuard><Perfil /></AuthGuard>} />

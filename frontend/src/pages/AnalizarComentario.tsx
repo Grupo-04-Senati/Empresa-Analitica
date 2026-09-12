@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   BrainCircuit, Send, Sparkles, Tag, Hash, Loader2, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
@@ -34,20 +35,23 @@ interface ResultadoLocal {
 
 const STOPWORDS_ES = new Set(['de','la','el','en','y','a','los','del','las','un','por','con','una','su','para','es','al','lo','como','más','o','pero','sus','le','ya','este','ha','sí','porque','esta','son','entre','cuando','muy','sin','sobre','también','me','hasta','hay','donde','quien','desde','todo','nos','durante','todos','uno','les','ni','contra','otros','ese','eso','ante','ellos','e','esto','mí','antes','algunos','qué','unos','yo','otro','otras','otra','él','tanto','esa','estos','mucho','quienes','nada','muchos','cual','poco','ella','estar','estas','algunas','algo','nosotros','mi','mis','tú','te','ti','tu','tus','ellas','nosotras','vosotros','vosotras','os','mío','mía','míos','mías','tuyo','tuya','tuyos','tuyas','suyo','suya','suyos','suyas','nuestro','nuestra','nuestros','nuestras','vuestro','vuestra','vuestros','vuestras','esos','esas','estoy','estás','está','estamos','estáis','están','esté','estés','estemos','estéis','estén','estaré','estarás','estará','estaremos','estaréis','estarán','estaría','estarías','estaríamos','estaríais','estarían','estaba','estabas','estábamos','estabais','estaban','estuve','estuviste','estuvo','estuvimos','estuvisteis','estuvieron','estuviera','estuvieras','estuviéramos','estuvierais','estuvieran','estuviese','estuvieses','estuviésemos','estuvieseis','estuviesen','estando','estado','estada','estados','estadas','estad','he','has','ha','hemos','habéis','han','haya','hayas','hayamos','hayáis','hayan','habré','habrás','habrá','habremos','habréis','habrán','habría','habrías','habríamos','habríais','habrían','había','habías','habíamos','habíais','habían','hube','hubiste','hubo','hubimos','hubisteis','hubieron','hubiera','hubieras','hubiéramos','hubierais','hubieran','hubiese','hubieses','hubiésemos','hubieseis','hubiesen','habiendo','habido','habida','habidos','habidas','soy','eres','es','somos','sois','son','sea','seas','seamos','seáis','sean','seré','serás','será','seremos','seréis','serán','sería','serías','seríamos','seríais','serían','era','eras','éramos','erais','eran','fui','fuiste','fue','fuimos','fuisteis','fueron','fuera','fueras','fuéramos','fuerais','fueran','fuese','fueses','fuésemos','fueseis','fuesen','siendo','sido','tengo','tienes','tiene','tenemos','tenéis','tienen','tenga','tengas','tengamos','tengáis','tengan','tendré','tendrás','tendrá','tendremos','tendréis','tendrán','tendría','tendrías','tendríamos','tendríais','tendrían','tenía','tenías','teníamos','teníais','tenían','tuve','tuviste','tuvo','tuvimos','tuvisteis','tuvieron','tuviera','tuvieras','tuviéramos','tuvierais','tuvieran','tuviese','tuvieses','tuviésemos','tuvieseis','tuviesen','teniendo','tenido','tenida','tenidos','tenidas','tened']);
 
-function analizarConCategorias(texto: string, categorias: CategoriaDB[]): ResultadoLocal {
+function analizarConCategorias(texto: string, categorias: CategoriaDB[], customWords?: { positivas: string[]; negativas: string[]; neutras: string[] }): ResultadoLocal {
   const limpio = texto.toLowerCase().replace(/[^\w\sáéíóúñ]/g, ' ');
   const tokens = limpio.split(/\s+/).filter((t) => t.length > 2 && !STOPWORDS_ES.has(t));
   const freq: Record<string, number> = {};
   tokens.forEach((t) => { freq[t] = (freq[t] || 0) + 1; });
   const palabrasFrecuentes = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([palabra, frecuencia]) => ({ palabra, frecuencia }));
 
-  const positivas = ['excelente','bueno','buen','muy bien','genial','increíble','perfecto','agradecido','gracias','feliz','satisfecho','recomiendo','me gusta','maravilloso','fantástico','rápido','eficiente','calidad','profesional','amable','resolvio','ayuda'];
-  const negativas = ['malo','terrible','pésimo','horrible','lento','error','problema','queja','reclamo','insatisfecho','decepcionado','no funciona','no sirve','muy lento','deficiente','lamentable','estafa','fraude','furioso','molesto','incumplimiento'];
+  const defaultPositivas = ['excelente','bueno','buen','muy bien','genial','increíble','perfecto','agradecido','gracias','feliz','satisfecho','recomiendo','me gusta','maravilloso','fantástico','rápido','eficiente','calidad','profesional','amable','resolvio','ayuda'];
+  const defaultNegativas = ['malo','terrible','pésimo','horrible','lento','error','problema','queja','reclamo','insatisfecho','decepcionado','no funciona','no sirve','muy lento','deficiente','lamentable','estafa','fraude','furioso','molesto','incumplimiento'];
+
+  const positivas = customWords?.positivas?.length ? customWords.positivas : defaultPositivas;
+  const negativas = customWords?.negativas?.length ? customWords.negativas : defaultNegativas;
 
   let posCount = 0, negCount = 0;
   const textoLower = texto.toLowerCase();
-  positivas.forEach((p) => { if (textoLower.includes(p)) posCount++; });
-  negativas.forEach((n) => { if (textoLower.includes(n)) negCount++; });
+  positivas.forEach((p) => { if (textoLower.includes(p.toLowerCase())) posCount++; });
+  negativas.forEach((n) => { if (textoLower.includes(n.toLowerCase())) negCount++; });
 
   let categoria = 'OTROS';
   let mejorScore = 0;
@@ -85,12 +89,30 @@ function analizarConCategorias(texto: string, categorias: CategoriaDB[]): Result
 }
 
 export const AnalizarComentario = () => {
+  const [searchParams] = useSearchParams();
   const [texto, setTexto] = useState('');
   const [resultado, setResultado] = useState<ResultadoLocal | null>(null);
   const [cargando, setCargando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [recientes, setRecientes] = useState<AnalisisReciente[]>([]);
   const [categorias, setCategorias] = useState<CategoriaDB[]>([]);
+  const [customWords, setCustomWords] = useState<{ positivas: string[]; negativas: string[]; neutras: string[] }>({ positivas: [], negativas: [], neutras: [] });
+  const [newWord, setNewWord] = useState('');
+  const [newWordType, setNewWordType] = useState<'positivas' | 'negativas' | 'neutras'>('positivas');
+  const [showWordEditor, setShowWordEditor] = useState(false);
+
+  useEffect(() => {
+    const comentarioParam = searchParams.get('comentario');
+    if (comentarioParam) {
+      setTexto(comentarioParam);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (texto.trim() && categorias.length > 0 && !resultado) {
+      analizar();
+    }
+  }, [texto, categorias]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -119,9 +141,25 @@ export const AnalizarComentario = () => {
   const analizar = async () => {
     if (!texto.trim()) return;
     setCargando(true);
-    const result = analizarConCategorias(texto, categorias);
+    const result = analizarConCategorias(texto, categorias, customWords);
     setResultado(result);
     setCargando(false);
+  };
+
+  const addWord = () => {
+    if (!newWord.trim()) return;
+    setCustomWords(prev => ({
+      ...prev,
+      [newWordType]: [...prev[newWordType], newWord.trim().toLowerCase()],
+    }));
+    setNewWord('');
+  };
+
+  const removeWord = (type: 'positivas' | 'negativas' | 'neutras', word: string) => {
+    setCustomWords(prev => ({
+      ...prev,
+      [type]: prev[type].filter(w => w !== word),
+    }));
   };
 
   const guardarEnBD = async () => {
@@ -297,6 +335,58 @@ export const AnalizarComentario = () => {
             <p className="text-sm text-slate-400 max-w-xs">
               Ingresa un comentario y presiona "Analizar" para ver el resultado.
             </p>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm mt-6 p-6">
+        <button onClick={() => setShowWordEditor(!showWordEditor)} className="flex items-center gap-2 w-full text-left">
+          <Tag size={18} className="text-blue-600" />
+          <h3 className="font-semibold text-slate-700 flex-1">Palabras de Analisis (Admin)</h3>
+          <span className="text-xs text-slate-400">{showWordEditor ? 'Ocultar' : 'Mostrar'}</span>
+        </button>
+        
+        {showWordEditor && (
+          <div className="mt-4 space-y-4">
+            <p className="text-xs text-slate-500">Edita las palabras que el sistema usa para clasificar sentimientos. Agrega o elimina palabras personalizadas.</p>
+            
+            <div className="flex gap-2">
+              <select value={newWordType} onChange={e => setNewWordType(e.target.value as any)}
+                className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+                <option value="positivas">Positivas</option>
+                <option value="negativas">Negativas</option>
+                <option value="neutras">Neutras</option>
+              </select>
+              <input value={newWord} onChange={e => setNewWord(e.target.value)} onKeyDown={e => e.key === 'Enter' && addWord()}
+                placeholder="Nueva palabra..." className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+              <button onClick={addWord} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">Agregar</button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {([
+                { key: 'positivas' as const, label: 'Positivas', color: 'emerald', defaultWords: ['excelente','bueno','genial','increíble','perfecto','agradecido','gracias','feliz','satisfecho','recomiendo'] },
+                { key: 'negativas' as const, label: 'Negativas', color: 'red', defaultWords: ['malo','terrible','pésimo','horrible','lento','error','problema','queja','reclamo','deficiente'] },
+                { key: 'neutras' as const, label: 'Neutras', color: 'slate', defaultWords: ['informacion','consulta','datos','estado','proceso','tiempo','fecha','numero','detalle','general'] },
+              ]).map(({ key, label, color, defaultWords }) => {
+                const allWords = [...new Set([...customWords[key], ...defaultWords])];
+                return (
+                  <div key={key} className={`bg-${color}-50 rounded-lg p-3`}>
+                    <p className={`text-xs font-medium text-${color}-700 mb-2 uppercase`}>{label} ({customWords[key].length > 0 ? `${customWords[key].length} custom + ${defaultWords.length} default` : `${defaultWords.length} default`})</p>
+                    <div className="flex flex-wrap gap-1">
+                      {customWords[key].map(w => (
+                        <span key={`custom-${w}`} className={`px-2 py-0.5 bg-${color}-100 text-${color}-700 text-[10px] rounded-full flex items-center gap-1`}>
+                          {w}
+                          <button onClick={() => removeWord(key, w)} className={`text-${color}-400 hover:text-${color}-700`}>x</button>
+                        </span>
+                      ))}
+                      {defaultWords.map(w => (
+                        <span key={`default-${w}`} className={`px-2 py-0.5 bg-white text-${color}-600 text-[10px] rounded-full border border-${color}-200`}>{w}</span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>

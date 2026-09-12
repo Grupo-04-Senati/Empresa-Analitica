@@ -75,7 +75,7 @@ export default function Landing() {
 
   const sections = [
     { icon: Users, label: 'Quienes Somos', desc: 'Conoce a nuestro grupo', path: '/nosotros' },
-    { icon: MessageSquare, label: 'Comentarios', desc: 'Gestiona tus comentarios', path: '/login' },
+    { icon: MessageSquare, label: 'Comentarios', desc: 'Dejanos tu feedback', path: '/comentarios' },
     { icon: HelpCircle, label: 'FAQ', desc: 'Preguntas frecuentes', path: '/faq-public' },
   ];
 
@@ -125,18 +125,18 @@ export default function Landing() {
           </div>
         </main>
 
-        <div className="fixed right-6 bottom-6 flex flex-col gap-3 z-20">
-          <button onClick={() => navigate('/login')} className="group flex items-center gap-3 bg-blue-600 hover:bg-blue-500 rounded-full pl-5 pr-4 py-3 shadow-lg shadow-blue-500/30 transition-all">
-            <span className="text-sm font-semibold">Register/Login</span>
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+        <div className="fixed right-6 bottom-6 flex flex-col gap-3 z-20 items-end">
+          <button onClick={() => navigate('/login')} className="group flex items-center gap-3 bg-blue-600 hover:bg-blue-500 rounded-full shadow-lg shadow-blue-500/30 transition-all duration-300 overflow-hidden">
+            <span className="max-w-0 group-hover:max-w-[160px] overflow-hidden whitespace-nowrap text-sm font-semibold text-white transition-all duration-300 ease-out pl-0 group-hover:pl-5">Register/Login</span>
+            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-300">
               <Users size={18} />
             </div>
           </button>
           {sections.map((s, i) => (
-            <button key={i} onClick={() => navigate(s.path)} className="group flex items-center gap-3 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 rounded-full pl-5 pr-4 py-3 transition-all">
-              <span className="text-xs text-slate-300">{s.label}</span>
-              <div className="w-9 h-9 bg-slate-700 rounded-full flex items-center justify-center">
-                <s.icon size={16} className="text-slate-300" />
+            <button key={i} onClick={() => navigate(s.path)} className="group flex items-center gap-3 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 hover:border-blue-500/50 rounded-full shadow-lg transition-all duration-300 overflow-hidden">
+              <span className="max-w-0 group-hover:max-w-[140px] overflow-hidden whitespace-nowrap text-xs text-slate-300 group-hover:text-white transition-all duration-300 ease-out pl-0 group-hover:pl-4">{s.label}</span>
+              <div className="w-10 h-10 bg-slate-700 group-hover:bg-blue-600/30 rounded-full flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-all duration-300">
+                <s.icon size={16} className="text-slate-300 group-hover:text-blue-300" />
               </div>
             </button>
           ))}
