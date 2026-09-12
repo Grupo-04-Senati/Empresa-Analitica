@@ -342,7 +342,9 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     let alive = true;
     (async () => {
       try {
+        setStatusMsg('Cargando modelos de IA...');
         await loadFaceModels();
+        setStatusMsg('Accediendo a la camara...');
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } });
         if (!alive) { stream.getTracks().forEach(t => t.stop()); return; }
         streamRef.current = stream;
@@ -350,7 +352,15 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         setStatusMsg(`Posicion: ${ANGLES[0].instruction}`);
       } catch (err: any) {
         if (!alive) return;
-        setErrorMsg(err?.name === 'NotAllowedError' ? 'Permiso de camara denegado.' : 'No se pudo acceder a la camara.');
+        const msg = err?.message || err?.name || String(err);
+        console.error('[FaceCapture] Init error:', err);
+        if (err?.name === 'NotAllowedError') {
+          setErrorMsg('Permiso de camara denegado. Permite el acceso a la camara en tu navegador.');
+        } else if (msg.includes('model') || msg.includes('load') || msg.includes('fetch')) {
+          setErrorMsg('Error cargando modelos de IA. Verifica tu conexion a internet.');
+        } else {
+          setErrorMsg(`Error: ${msg}`);
+        }
         setPhase('error');
       }
     })();
