@@ -1,0 +1,17 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.local
+.env.*
+!.env.example
+*.log
+.DS_Store
+*.egg-info/
+venv/
+.venv/
+supabase/.temp/
+.vercel
+deploy-sql.js
