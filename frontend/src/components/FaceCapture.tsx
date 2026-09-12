@@ -4,8 +4,7 @@ import * as faceapi from 'face-api.js';
 import { loadFaceModels } from '../services/faceRecognition';
 import { faceApiRegister, faceApiLogin } from '../services/faceApi';
 import { generateFaceSignature, FaceSignature, Point2D } from '../services/faceGeometry';
-import { analyzeFace, FacialAnalysis } from '../services/facialAttributeAnalysis';
-import { FacialAnalysisResults } from './FacialAnalysisResults';
+
 
 interface FaceCaptureProps {
   mode: 'register' | 'login';
@@ -86,8 +85,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
   const [readyToCapture, setReadyToCapture] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [scanPhase, setScanPhase] = useState('init');
-  const [facialAnalysis, setFacialAnalysis] = useState<FacialAnalysis | null>(null);
-  const [showAnalysis, setShowAnalysis] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -579,18 +576,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
             setCurrentAngle(angleIdx + 1); goodFramesRef.current = 0; setReadyToCapture(false); frozenRef.current = null;
             setPhase('scanning'); setStatusMsg(`Posicion: ${ANGLES[angleIdx + 1].instruction}`);
           } else {
-            // All 3 angles captured — run facial analysis
-            const frozen = frozenRef.current;
-            if (frozen) {
-              try {
-                const pts: Point2D[] = frozen.landmarks.positions.map((p: any) => ({ x: p.x, y: p.y }));
-                const analysis = analyzeFace(pts);
-                setFacialAnalysis(analysis);
-                setShowAnalysis(true);
-              } catch (e) {
-                console.error('[FaceCapture] Analysis error:', e);
-              }
-            }
             if (mode === 'login') { doLoginRef.current(newPhotos); }
             else if (mode === 'register' && usuarioId) { setPhase('processing'); doRegister(newPhotos); }
             else { setPhase('done'); setSuccessMsg('Fotos capturadas correctamente'); stopAll(); if (onCapture) onCapture(newPhotos); }
@@ -735,12 +720,6 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         </div>
         <canvas ref={canvasRef} className="hidden" />
       </div>
-      {showAnalysis && facialAnalysis && (
-        <FacialAnalysisResults
-          analysis={facialAnalysis}
-          onClose={() => setShowAnalysis(false)}
-        />
-      )}
     </div>
   );
 };

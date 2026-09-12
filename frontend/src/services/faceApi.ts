@@ -370,7 +370,7 @@ export async function faceApiLogin(
         return { ok: false, error: 'No hay usuarios con rostro registrado. Primero debes registrarte desde "Crear Cuenta".' };
       }
 
-      const UMBRAL_GEO = 0.25;
+      const UMBRAL_GEO = 0.15;
       const geoScores: { userId: number; dist: number }[] = [];
 
       for (const r of rostros) {
@@ -427,8 +427,8 @@ export async function faceApiLogin(
 
       geoScores.sort((a, b) => a.dist - b.dist);
 
-      if (geoScores.length > 1 && (geoScores[1].dist - geoScores[0].dist) < 0.03) {
-        return { ok: false, error: 'Rostro ambiguo, intente de nuevo' };
+      if (geoScores.length > 1 && (geoScores[1].dist - geoScores[0].dist) < 0.05) {
+        return { ok: false, error: 'Rostro ambiguo, intente de nuevo con mejor iluminacion' };
       }
 
       const winner = geoScores[0];
