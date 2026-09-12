@@ -101,6 +101,7 @@ function analizarConCategorias(texto: string, categorias: CategoriaDB[], customW
 export const AnalizarComentario = () => {
   const [searchParams] = useSearchParams();
   const [texto, setTexto] = useState('');
+  const [canal, setCanal] = useState('web');
   const [resultado, setResultado] = useState<ResultadoLocal | null>(null);
   const [cargando, setCargando] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -174,7 +175,7 @@ export const AnalizarComentario = () => {
     try {
       const { data: comentario, error: err1 } = await supabase.from('comentarios').insert({
         contenido: texto,
-        canal: 'web',
+        canal,
         tipo: 'comentario',
         estado: 'pendiente',
         procesado: true,
@@ -242,7 +243,18 @@ export const AnalizarComentario = () => {
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
           />
-          <div className="flex justify-end gap-2 mt-4">
+          <div className="flex items-center gap-3 mt-4">
+            <label className="text-xs font-medium text-slate-500">Canal:</label>
+            <select value={canal} onChange={e => setCanal(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+              <option value="web">Web</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="email">Email</option>
+              <option value="redes sociales">Redes Sociales</option>
+              <option value="presencial">Presencial</option>
+              <option value="telefono">Telefono</option>
+            </select>
+            <div className="flex-1" />
             <button
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
               onClick={analizar}

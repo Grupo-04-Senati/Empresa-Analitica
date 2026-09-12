@@ -17,7 +17,6 @@ const menuAdmin: MenuItem[] = [
   { title: 'CLIENTES', icon: <Users size={18} />, adminOnly: true, items: [{ label: 'Lista de clientes', path: '/dashboard/clientes' }, { label: 'Nuevo cliente', path: '/dashboard/clientes/nuevo', adminOnly: true }] },
   { title: 'ATENCION', icon: <Headphones size={18} />, items: [
     { label: 'Solicitudes', path: '/dashboard/solicitudes' },
-    { label: 'Comentarios', path: '/dashboard/comentarios' },
     { label: 'Tiempos de atencion', path: '/dashboard/tiempo-atencion', adminOnly: true },
   ]},
   { title: 'INTELIGENCIA NLP', icon: <Brain size={18} />, adminOnly: true, items: [
@@ -48,7 +47,6 @@ const menuUser: MenuItem[] = [
   { title: 'MI PANEL', icon: <LayoutDashboard size={18} />, items: [{ label: 'Inicio', path: '/dashboard' }] },
   { title: 'ATENCION', icon: <Headphones size={18} />, items: [
     { label: 'Mis Solicitudes', path: '/dashboard/solicitudes' },
-    { label: 'Mis Comentarios', path: '/dashboard/comentarios' },
   ]},
   { title: 'AYUDA', icon: <HelpCircle size={18} />, items: [
     { label: 'Centro de Ayuda', path: '/faq' },
