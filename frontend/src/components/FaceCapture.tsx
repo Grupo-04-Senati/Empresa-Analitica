@@ -386,13 +386,20 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     scanStartTimeRef.current = Date.now();
 
     let alive = true;
+    let detectionCount = 0;
     intervalRef.current = setInterval(async () => {
       if (!alive || !video || video.readyState < 2) return;
 
       try {
+        const detector = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.1 });
         const detections = await (faceapi as any)
-          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.2 }))
+          .detectSingleFace(video, detector)
           .withFaceLandmarks();
+
+        detectionCount++;
+        if (detectionCount <= 3) {
+          console.log(`[FaceCapture] Detection #${detectionCount}:`, detections ? `score=${detections.detection.score.toFixed(3)}` : 'null');
+        }
 
         if (!detections) {
           setMultiFace(false);

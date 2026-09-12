@@ -11,15 +11,17 @@ export async function loadFaceModels(): Promise<void> {
   if (modelsLoaded) return;
   if (modelsLoading) return modelsLoading;
   modelsLoading = (async () => {
+    console.log('[faceRec] Loading models from', MODEL_URL);
     const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Model loading timeout (15s)')), 15000));
     await Promise.race([
       Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL).then(() => console.log('[faceRec] tinyFaceDetector loaded')),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL).then(() => console.log('[faceRec] faceLandmark68Net loaded')),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL).then(() => console.log('[faceRec] faceRecognitionNet loaded')),
       ]),
       timeout,
     ]);
+    console.log('[faceRec] All models loaded');
     modelsLoaded = true;
     modelsLoading = null;
   })();
