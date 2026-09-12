@@ -109,9 +109,16 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
   const drawWireframeMask = useCallback((landmarks: faceapi.FaceLandmarks68, videoW: number, videoH: number, canvasW: number, canvasH: number) => {
     const overlay = overlayRef.current;
-    if (!overlay || canvasW < 10 || canvasH < 10) return;
+    if (!overlay || canvasW < 10 || canvasH < 10) {
+      console.warn('[FaceCapture] drawWireframeMask early return:', { overlay: !!overlay, canvasW, canvasH });
+      return;
+    }
     const ctx = overlay.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      console.warn('[FaceCapture] drawWireframeMask: no ctx');
+      return;
+    }
+    console.log('[FaceCapture] drawWireframeMask called:', { videoW, videoH, canvasW, canvasH, ptsCount: landmarks.positions.length });
 
     ctx.clearRect(0, 0, canvasW, canvasH);
     const scaleX = canvasW / videoW;
@@ -304,6 +311,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     ctx.setLineDash([]);
 
     ctx.restore();
+    console.log('[FaceCapture] drawWireframeMask DONE - first mapped pt:', mapped[0], 'last:', mapped[mapped.length - 1]);
   }, [phase]);
 
   const calculateGeometry = useCallback((landmarks: faceapi.FaceLandmarks68, videoW: number, videoH: number): FaceGeometry => {
@@ -423,9 +431,11 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         const videoH = video.videoHeight || video.clientHeight;
         const overlay = overlayRef.current;
         if (overlay && videoW > 0 && videoH > 0) {
-          overlay.width = videoW;
-          overlay.height = videoH;
-          try { drawWireframeMask(detections.landmarks, videoW, videoH, videoW, videoH); } catch (e) { console.error('[FaceCapture] drawWireframeMask error:', e); }
+          const cw = overlay.clientWidth || videoW;
+          const ch = overlay.clientHeight || videoH;
+          overlay.width = cw;
+          overlay.height = ch;
+          try { drawWireframeMask(detections.landmarks, videoW, videoH, cw, ch); } catch (e) { console.error('[FaceCapture] drawWireframeMask error:', e); }
         }
 
         frozenRef.current = { landmarks: detections.landmarks, score: detections.detection.score, videoW, videoH };
