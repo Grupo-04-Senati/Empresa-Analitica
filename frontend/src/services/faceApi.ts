@@ -132,31 +132,38 @@ export async function faceApiRegister(
       interocular_distance: interEyeDist,
     };
 
-    console.log('[faceApi] Sending to face server:', { usuario_id: usuarioId, frontalDims: frontalArr.length, ratios: geometryRatios.length });
+    console.log('[faceApi] Register:', { usuario_id: usuarioId, frontal: true, izquierda: !!izqArr, derecha: !!derArr });
 
+    // Si solo tenemos frontal, guardar directo en Supabase (sin servidor Render)
+    const hasAllAngles = frontalArr && izqArr && derArr;
     let serverOk = false;
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      const res = await fetch(apiUrl('register'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(serverBody),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ok) {
-          serverOk = true;
-          console.log('[faceApi] Face server register OK');
-          return { ok: true, faceShape: faceShape || undefined };
+    if (hasAllAngles) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const res = await fetch(apiUrl('register'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(serverBody),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ok) {
+            serverOk = true;
+            console.log('[faceApi] Face server register OK');
+            return { ok: true, faceShape: faceShape || undefined };
+          }
         }
+        console.warn('[faceApi] Face server returned error, trying fallback');
+      } catch (e: any) {
+        console.warn('[faceApi] Face server unreachable:', e?.message || e, '- trying direct Supabase fallback');
       }
-      console.warn('[faceApi] Face server returned error, trying fallback');
-    } catch (e: any) {
-      console.warn('[faceApi] Face server unreachable:', e?.message || e, '- trying direct Supabase fallback');
+    } else {
+      console.log('[faceApi] Solo frontal, guardando directo en Supabase...');
     }
 
     if (!serverOk) {
