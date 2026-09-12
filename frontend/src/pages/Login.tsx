@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, Loader2, Scan, ArrowRight } from 'lucide-react';
 import { FaceCapture478 } from '../components/FaceCapture478';
+import { warmUpFaceEngine } from '../services/mediaPipeFace';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -13,6 +14,10 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showFace, setShowFace] = useState(false);
+
+  // Empieza a descargar el motor facial (~15 MB) en cuanto se abre la pantalla,
+  // para que el escaner no arranque con la descarga cuando el usuario lo pulsa.
+  useEffect(() => { warmUpFaceEngine(); }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

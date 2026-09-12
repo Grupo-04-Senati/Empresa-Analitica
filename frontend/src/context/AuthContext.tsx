@@ -36,6 +36,49 @@ function isAdminRole(rol: string): boolean {
 
 const FACE_KEY = 'badi_face_session';
 
+/**
+ * La sesion por reconocimiento facial caduca.
+ *
+ * Antes se guardaba el perfil en localStorage sin fecha y se restauraba tal
+ * cual en cada carga de la pagina: una vez que alguien entraba con su rostro en
+ * un navegador, todas las visitas siguientes abrian SU cuenta sin escanear
+ * nada, incluso para otra persona que usara el mismo equipo.
+ */
+const FACE_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
+interface FaceSession {
+  v: 2;
+  profile: UserProfile;
+  createdAt: number;
+}
+
+/** Lee la sesion facial guardada, descartandola si no es valida o caduco. */
+function readFaceSession(): FaceSession | null {
+  try {
+    const raw = localStorage.getItem(FACE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+
+    // Formato antiguo (perfil suelto, sin caducidad): se descarta a proposito
+    // para que vuelva a pedir escaneo una vez.
+    if (parsed?.v !== 2 || !parsed.profile?.id || typeof parsed.createdAt !== 'number') {
+      localStorage.removeItem(FACE_KEY);
+      return null;
+    }
+
+    if (Date.now() - parsed.createdAt > FACE_SESSION_TTL_MS) {
+      localStorage.removeItem(FACE_KEY);
+      return null;
+    }
+
+    return parsed as FaceSession;
+  } catch {
+    localStorage.removeItem(FACE_KEY);
+    return null;
+  }
+}
+
 async function waitForProfile(authUserId: string, maxAttempts = 10): Promise<any> {
   for (let i = 0; i < maxAttempts; i++) {
     const { data } = await supabase
@@ -88,19 +131,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        const raw = localStorage.getItem(FACE_KEY);
-        if (raw) {
-          const parsed: UserProfile = JSON.parse(raw);
+        const faceSession = readFaceSession();
+        if (faceSession) {
+          const stored = faceSession.profile;
           const { data: profile } = await supabase
             .from('usuarios')
             .select('id, nombre, email, rol, activo, telefono, empresa')
-            .eq('id', Number(parsed.id))
+            .eq('id', Number(stored.id))
             .maybeSingle();
-          if (profile && profile.activo) {
+
+          // El id de `usuarios` es BIGSERIAL: si la cuenta se borro y se creo
+          // otra, el id puede apuntar a una persona distinta. El email tiene
+          // que seguir coincidiendo con el de la sesion guardada.
+          const sameAccount = !!profile && profile.email?.toLowerCase() === stored.email;
+
+          if (profile && profile.activo && sameAccount) {
             faceLockRef.current = true;
             setUser({
               id: String(profile.id),
-              nombre: profile.nombre || parsed.email.split('@')[0],
+              nombre: profile.nombre || stored.email.split('@')[0],
               email: profile.email.toLowerCase(),
               rol: (profile.rol as UserRole) || 'usuario',
               activo: true,
@@ -387,7 +436,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       empresa: profile.empresa || undefined,
     };
 
-    localStorage.setItem(FACE_KEY, JSON.stringify(userProfile));
+    const session: FaceSession = { v: 2, profile: userProfile, createdAt: Date.now() };
+    localStorage.setItem(FACE_KEY, JSON.stringify(session));
     faceLockRef.current = true;
     setUser(userProfile);
     logAudit({ accion: 'LOGIN', tabla: 'usuarios', registro_id: profile.id, usuario_email: profile.email, modulo: 'Auth', detalles: 'Login por reconocimiento facial: ' + profile.email });

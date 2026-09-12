@@ -1,8 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { Shield, Search, Eye, UserPlus, LogIn, LogOut, Edit3, Trash2, Bell, Scan, AlertTriangle, X, Clock, RotateCcw } from 'lucide-react';
+import { supabase } from '@/services/supabase';
 
-const SB_URL = 'https://poikhicityheikmnfltb.supabase.co';
-const SB_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY || '';
+/*
+ * Antes esta pagina hacia fetch directo contra /rest/v1 con la service_role
+ * (VITE_SUPABASE_SERVICE_KEY). Cualquier variable VITE_ se incrusta en el
+ * JavaScript publicado, asi que la clave de administrador total viajaba al
+ * navegador de todos los visitantes.
+ *
+ * Se usa el cliente normal con la clave anon. La tabla `auditoria` tiene RLS
+ * deshabilitado (database/003_rls_policies.sql), asi que lee y borra igual.
+ * El acceso de admin lo controla AdminGuard en las rutas.
+ */
 
 interface AuditRow {
   id: number;
@@ -19,20 +28,40 @@ interface AuditRow {
   modulo: string | null;
 }
 
-async function adminDelete(query: string) {
-  const res = await fetch(`${SB_URL}/rest/v1/auditoria?${query}`, {
-    method: 'DELETE',
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
-  });
-  return res.ok;
+async function adminDelete(query: string): Promise<boolean> {
+  // Se conserva la firma con query tipo PostgREST para no tocar los llamadores.
+  const params = new URLSearchParams(query);
+  let peticion = supabase.from('auditoria').delete();
+
+  for (const [columna, valor] of params.entries()) {
+    const [operador, ...resto] = valor.split('.');
+    const v = resto.join('.');
+    if (operador === 'eq') peticion = peticion.eq(columna, v);
+    else if (operador === 'lt') peticion = peticion.lt(columna, v);
+    else if (operador === 'gt') peticion = peticion.gt(columna, v);
+    else if (operador === 'neq') peticion = peticion.neq(columna, v);
+    else {
+      console.warn('[Auditoria] operador no soportado en el borrado:', valor);
+      return false;
+    }
+  }
+
+  const { error } = await peticion;
+  if (error) console.error('[Auditoria] error al borrar:', error.message);
+  return !error;
 }
 
 async function adminSelect(): Promise<AuditRow[]> {
-  const res = await fetch(`${SB_URL}/rest/v1/auditoria?select=*&order=created_at.desc&limit=200`, {
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
-  });
-  if (!res.ok) return [];
-  return res.json();
+  const { data, error } = await supabase
+    .from('auditoria')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) {
+    console.error('[Auditoria] error al consultar:', error.message);
+    return [];
+  }
+  return (data as AuditRow[]) || [];
 }
 
 const ACCIONES: Record<string, { icon: typeof Shield; color: string; bg: string }> = {

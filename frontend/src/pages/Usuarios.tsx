@@ -3,8 +3,15 @@ import { Users, Shield, Mail, Search, Edit3, Trash2, Loader2, X, CheckCircle } f
 import { supabase } from '@/services/supabase';
 import { logAudit } from '@/services/audit';
 
-const SB_URL = 'https://poikhicityheikmnfltb.supabase.co';
-const SB_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY || '';
+/*
+ * Ya no se usa VITE_SUPABASE_SERVICE_KEY: cualquier variable VITE_ se incrusta
+ * en el JavaScript publicado, asi que la clave de administrador total de
+ * Supabase acababa en el navegador de todos los visitantes.
+ *
+ * Las tablas se tocan con el cliente normal (RLS deshabilitado) y el borrado
+ * del usuario de Auth, que si exige service_role, se delega en la Edge
+ * Function admin-usuarios, donde la clave vive en el servidor.
+ */
 
 const ROLES = ['ADMIN', 'USUARIO'];
 const roleColors: Record<string, string> = {
@@ -21,13 +28,29 @@ interface UsuarioRow {
   created_at: string;
 }
 
-async function adminRequest(path: string, method: string, body?: Record<string, unknown>) {
-  const res = await fetch(`${SB_URL}${path}`, {
-    method,
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
-    body: body ? JSON.stringify(body) : undefined,
+/**
+ * Borra una cuenta completa (perfil, datos asociados y usuario de Auth) a
+ * traves de la Edge Function, que comprueba el rol del solicitante.
+ */
+async function borrarCuenta(email: string): Promise<{ ok: boolean; mensaje?: string }> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    return { ok: false, mensaje: 'Tu sesion expiro. Vuelve a iniciar sesion con correo y contrasena.' };
+  }
+
+  const { data, error } = await supabase.functions.invoke('admin-usuarios', {
+    method: 'DELETE',
+    body: { email },
   });
-  return res.ok ? res.json() : null;
+
+  if (error) {
+    return {
+      ok: false,
+      mensaje: `No se pudo borrar la cuenta: ${error.message}. ` +
+        'Revisa que la Edge Function admin-usuarios este desplegada.',
+    };
+  }
+  return { ok: !!(data as { ok?: boolean })?.ok };
 }
 
 export const Usuarios = () => {
@@ -93,7 +116,13 @@ export const Usuarios = () => {
     try {
       const usuario = usuarios.find((u) => u.id === usuarioId);
       const rolAnterior = usuario?.rol || 'desconocido';
-      await adminRequest(`/rest/v1/usuarios?id=eq.${usuarioId}`, 'PATCH', { rol: newRole });
+      // Cliente normal: `usuarios` tiene RLS deshabilitado y el acceso de
+      // admin ya lo controla AdminGuard en la ruta.
+      const { error: updateError } = await supabase
+        .from('usuarios')
+        .update({ rol: newRole })
+        .eq('id', usuarioId);
+      if (updateError) throw new Error(updateError.message);
       logAudit({ accion: 'UPDATE', tabla: 'usuarios', registro_id: usuarioId, usuario_email: usuario?.email, modulo: 'Admin', detalles: `Rol cambiado de "${rolAnterior}" a "${newRole}" para ${usuario?.email || usuarioId}`, datos_anteriores: { rol: rolAnterior }, datos_nuevos: { rol: newRole } });
       setSuccess('Rol actualizado correctamente');
       setEditingId(null);
@@ -109,22 +138,14 @@ export const Usuarios = () => {
     setSuccess('');
     try {
       const usuario = usuarios.find((u) => u.id === usuarioId);
-      await adminRequest(`/rest/v1/rostros?usuario_id=eq.${usuarioId}`, 'DELETE');
-      await adminRequest(`/rest/v1/auditoria?usuario_id=eq.${usuarioId}`, 'DELETE');
-      await adminRequest(`/rest/v1/optimizaciones?usuario_id=eq.${usuarioId}`, 'DELETE');
-      await adminRequest(`/rest/v1/notificaciones?usuario_email=eq.${usuario?.email}`, 'DELETE');
-      await adminRequest(`/rest/v1/usuarios?id=eq.${usuarioId}`, 'DELETE');
-      const adminKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
-      if (adminKey && SB_URL && usuario) {
-        const { data: authUsers } = await fetch(`${SB_URL}/auth/v1/admin/users?email=${encodeURIComponent(usuario.email)}`, {
-          headers: { apikey: adminKey, Authorization: `Bearer ${adminKey}` },
-        }).then(r => r.json()).catch(() => ({ data: [] }));
-        if (authUsers && authUsers.length > 0) {
-          await fetch(`${SB_URL}/auth/v1/admin/users/${authUsers[0].id}`, {
-            method: 'DELETE',
-            headers: { apikey: adminKey, Authorization: `Bearer ${adminKey}` },
-          });
-        }
+      if (!usuario) return;
+
+      // Un solo paso en el servidor: borra las tablas hijas, el perfil y el
+      // usuario de Auth, con la service_role en el servidor.
+      const resultado = await borrarCuenta(usuario.email);
+      if (!resultado.ok) {
+        setError(resultado.mensaje || 'No se pudo borrar la cuenta.');
+        return;
       }
       logAudit({ accion: 'DELETE', tabla: 'usuarios', registro_id: usuarioId, usuario_email: usuario?.email, modulo: 'Admin', detalles: `Cuenta eliminada: ${usuario?.email || usuarioId}` });
       setUsuarios((prev) => prev.filter((u) => u.id !== usuarioId));

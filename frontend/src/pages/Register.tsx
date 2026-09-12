@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, Loader2, ArrowRight, UserPlus } from 'lucide-react';
 import { FaceCapture478 } from '../components/FaceCapture478';
+import { warmUpFaceEngine } from '../services/mediaPipeFace';
 import { supabase } from '../services/supabase';
 
 export const Register: React.FC = () => {
@@ -20,6 +21,12 @@ export const Register: React.FC = () => {
   const [enableFace, setEnableFace] = useState(false);
   const [showFaceCapture, setShowFaceCapture] = useState(false);
   const [userId, setUserId] = useState<number | null>(null);
+  /** Si el rostro llego a guardarse, cerrar el modal NO debe borrar la cuenta. */
+  const faceOkRef = useRef(false);
+
+  // Empieza a descargar el motor facial (~15 MB) en cuanto se abre la pantalla,
+  // para que el escaner no arranque con la descarga cuando el usuario lo pulsa.
+  useEffect(() => { warmUpFaceEngine(); }, []);
 
   const handleRegister = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,16 +65,37 @@ export const Register: React.FC = () => {
     setIsLoading(false);
   }, [nombre, email, password, telefono, empresa, enableFace, navigate]);
 
-  const handleFaceRegistered = async (data: { signature: number[]; landmarks478: number[] }) => {
-    setShowFaceCapture(false);
+  /*
+   * El rostro ya quedo guardado. NO se cierra el modal aqui: se deja abierto
+   * para que se vean las medidas 3D capturadas, y se navega cuando el usuario
+   * pulsa Cerrar (handleFaceClose comprueba esta bandera).
+   */
+  const handleFaceRegistered = async (_data: { signature: number[]; landmarks478: number[] }) => {
+    faceOkRef.current = true;
     setSuccessMsg('Cuenta y rostro registrados correctamente (478 puntos).');
-    setTimeout(() => navigate('/login'), 2000);
   };
 
   const handleFaceClose = async () => {
     setShowFaceCapture(false);
+
+    // Registro completado: solo continuar.
+    if (faceOkRef.current) {
+      navigate('/login');
+      return;
+    }
+
+    /*
+     * Se cerro sin guardar el rostro: no debe quedar nada a medias, asi que se
+     * elimina la cuenta recien creada.
+     *
+     * Limitacion conocida: esto borra la fila de `usuarios`, pero el usuario de
+     * Supabase Auth creado por signUp no se puede borrar desde el navegador
+     * (hace falta la service_role). Al volver a registrarte con el mismo correo
+     * el flujo lo detecta y reconstruye el perfil, pero el usuario de Auth
+     * queda. Para limpiarlo de verdad haria falta una Edge Function.
+     */
     if (userId && enableFace) {
-      setErrorMsg('Debes completar el registro facial para crear tu cuenta. Eliminando cuenta temporal...');
+      setErrorMsg('No se guardo el rostro, asi que la cuenta no se creo. Vuelve a intentarlo.');
       try {
         await supabase.from('usuarios').delete().eq('id', userId);
       } catch { /* empty */ }

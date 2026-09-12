@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@mediapipe/tasks-vision": "^1.0.1",
+    "@mediapipe/tasks-vision": "1.0.1",
     "@supabase/supabase-js": "^2.115.0",
     "face-api.js": "^0.22.2",
     "lucide-react": "^1.40.0",
@@ -24,9 +24,15 @@
     "vite": "^5.0.0"
   },
   "scripts": {
+    "predev": "node scripts/copy-mediapipe-wasm.mjs",
     "dev": "vite",
+    "predev:tunnel": "node scripts/copy-mediapipe-wasm.mjs",
+    "dev:tunnel": "vite --mode tunnel --host",
+    "prebuild": "node scripts/copy-mediapipe-wasm.mjs",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "copy-wasm": "node scripts/copy-mediapipe-wasm.mjs",
+    "test:face": "node scripts/verify-face-math.mjs"
   },
   "allowScripts": {
     "esbuild@0.21.5": true

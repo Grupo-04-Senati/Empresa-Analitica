@@ -173,49 +173,33 @@ export const Perfil: React.FC = () => {
         return;
       }
 
-      const uid = Number(user!.id);
+      /*
+       * Todo el borrado lo hace la Edge Function admin-usuarios.
+       *
+       * Antes esta pantalla listaba y borraba usuarios de Supabase Auth con la
+       * service_role leida de VITE_SUPABASE_SERVICE_KEY. Cualquier variable
+       * VITE_ se incrusta en el JavaScript publicado, asi que la clave de
+       * administrador total viajaba al navegador de todos los visitantes.
+       *
+       * La funcion permite que cada usuario borre su PROPIA cuenta, y la clave
+       * se queda en el servidor.
+       */
+      const { data: resultado, error: fnError } = await supabase.functions.invoke(
+        'admin-usuarios',
+        { method: 'DELETE', body: { email: user!.email } }
+      );
 
-      const { data: rostros } = await supabase.from('rostros').select('id').eq('usuario_id', uid);
-      if (rostros && rostros.length > 0) {
-        await supabase.from('rostros').delete().eq('usuario_id', uid);
+      if (fnError) {
+        setDeleteMsg(
+          `No se pudo eliminar la cuenta: ${fnError.message}. ` +
+          'Revisa que la Edge Function admin-usuarios este desplegada.'
+        );
+        setDeleteLoading(false);
+        return;
       }
 
-      const { data: auditoria } = await supabase.from('auditoria').select('id').eq('usuario_id', uid);
-      if (auditoria && auditoria.length > 0) {
-        await supabase.from('auditoria').delete().eq('usuario_id', uid);
-      }
-
-      const { data: optimizaciones } = await supabase.from('optimizaciones').select('id').eq('usuario_id', uid);
-      if (optimizaciones && optimizaciones.length > 0) {
-        await supabase.from('optimizaciones').delete().eq('usuario_id', uid);
-      }
-
-      await supabase.from('usuarios').delete().eq('id', uid);
-
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const serviceKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
-      if (supabaseUrl && serviceKey) {
-        try {
-          const listRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
-            headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
-          });
-          const listData = await listRes.json();
-          console.log('[delete] Auth list status:', listRes.status, listData);
-          if (listRes.ok) {
-            const authUser = listData.users?.find((u: any) => u.email === user!.email);
-            if (authUser) {
-              const delRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${authUser.id}`, {
-                method: 'DELETE',
-                headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
-              });
-              console.log('[delete] Auth delete status:', delRes.status, await delRes.text());
-            } else {
-              console.log('[delete] Auth user not found for:', user!.email);
-            }
-          }
-        } catch (e) { console.error('[delete] Auth deletion error:', e); }
-      } else {
-        console.log('[delete] Missing supabaseUrl or serviceKey');
+      if (!(resultado as { authBorrado?: boolean })?.authBorrado) {
+        console.warn('[Perfil] el perfil se borro pero el usuario de Auth no:', resultado);
       }
 
       await logout();
