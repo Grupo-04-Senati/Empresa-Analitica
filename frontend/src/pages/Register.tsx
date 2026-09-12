@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, Loader2, ArrowRight, UserPlus } from 'lucide-react';
-import { FaceCapture } from '../components/FaceCapture';
+import { FaceCapture478 } from '../components/FaceCapture478';
 import { supabase } from '../services/supabase';
 
 export const Register: React.FC = () => {
@@ -58,9 +58,9 @@ export const Register: React.FC = () => {
     setIsLoading(false);
   }, [nombre, email, password, telefono, empresa, enableFace, navigate]);
 
-  const handleFaceRegistered = async (photos: Record<string, string>) => {
+  const handleFaceRegistered = async (data: { signature: number[]; landmarks478: number[] }) => {
     setShowFaceCapture(false);
-    setSuccessMsg('Cuenta y rostro registrados correctamente.');
+    setSuccessMsg('Cuenta y rostro registrados correctamente (478 puntos).');
     setTimeout(() => navigate('/login'), 2000);
   };
 
@@ -167,7 +167,7 @@ export const Register: React.FC = () => {
       </div>
 
       {showFaceCapture && userId && (
-        <FaceCapture mode="register" usuarioId={userId} onCapture={handleFaceRegistered} onClose={handleFaceClose} />
+        <FaceCapture478 mode="register" usuarioId={userId} onCapture={handleFaceRegistered} onClose={handleFaceClose} />
       )}
     </div>
   );
