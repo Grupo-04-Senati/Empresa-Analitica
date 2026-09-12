@@ -1,7 +1,7 @@
 ﻿import * as faceapi from 'face-api.js';
 import { supabase } from './supabase';
 import { classifyFromLandmarks, FaceProportions, FaceShape, FaceLandmark } from './faceShapeClassification';
-import { normalizeLandmarksByNose, compareNormalizedLandmarks, Point2D } from './faceGeometry';
+import { normalizeLandmarksByNose, compareNormalizedLandmarks, Point2D, generateRatioSignature } from './faceGeometry';
 
 const MODEL_URL = '/models';
 
@@ -730,6 +730,9 @@ export async function registerFace(
       : [];
     const normalizedLandmarks = lmPts.length >= 68 ? normalizeLandmarksByNose(lmPts) : lmPts;
 
+    // Calcular ratios de proporciones (invariantes a distancia)
+    const ratioSignature = lmPts.length >= 68 ? generateRatioSignature(lmPts) : [];
+
     const { error } = await supabase.from('rostros').insert({
       usuario_id: userId,
       embedding_frontal: embeddings.frontal,
@@ -737,6 +740,7 @@ export async function registerFace(
       embedding_derecha: embeddings.derecha,
       forma_rostro: faceShape || '',
       landmarks_68: normalizedLandmarks,
+      proporciones: { ratios: ratioSignature },
       metadata,
     });
 

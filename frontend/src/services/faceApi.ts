@@ -1,6 +1,6 @@
 import * as faceapi from 'face-api.js';
 import { extractEmbeddings, extractEmbeddingsAndShape, detectMultipleFaces, extractFrontalShape } from './faceRecognition';
-import { generateFaceSignature, normalizeLandmarksByNose, compareNormalizedLandmarks, Point2D } from './faceGeometry';
+import { generateFaceSignature, normalizeLandmarksByNose, compareNormalizedLandmarks, compareFaces, generateRatioSignature, Point2D } from './faceGeometry';
 
 const FACE_API_BASE = import.meta.env.VITE_FACE_API_URL || 'https://empresa-analitica-face.onrender.com';
 
@@ -76,8 +76,9 @@ export async function faceApiRegister(
     if (!embeddings.izquierda) missing.push('izquierda');
     if (!embeddings.derecha) missing.push('derecha');
 
-    if (missing.length > 0) {
-      return { ok: false, error: `No se detecto rostro en: ${missing.join(', ')}. Intenta de nuevo.`, missing };
+    // Solo necesita frontal para funcionar
+    if (!embeddings.frontal) {
+      return { ok: false, error: 'No se detecto rostro frontal. Colocate frente a la camara.', missing };
     }
 
     let geometryRatios: number[] = [];
@@ -103,8 +104,11 @@ export async function faceApiRegister(
     const derArr = toFlatArray(embeddings.derecha);
 
     if (!frontalArr || frontalArr.length !== 128) return { ok: false, error: 'Embedding frontal invalido' };
-    if (!izqArr || izqArr.length !== 128) return { ok: false, error: 'Embedding izquierda invalido' };
-    if (!derArr || derArr.length !== 128) return { ok: false, error: 'Embedding derecha invalido' };
+
+    const pgVectorStr = (arr: number[] | null): string | null => {
+      if (!arr || arr.length === 0) return null;
+      return '[' + arr.map(v => v.toFixed(6)).join(',') + ']';
+    };
 
     const proporcionesData = {
       ratios: geometryRatios.map(Number),
@@ -121,38 +125,45 @@ export async function faceApiRegister(
 
     const serverBody = {
       usuario_id: usuarioId,
-      embeddings: { frontal: frontalArr, izquierda: izqArr, derecha: derArr },
+      embeddings: { frontal: frontalArr, izquierda: izqArr || [], derecha: derArr || [] },
       face_shape: faceShape || '',
       proporciones: proporcionesData,
       landmarks_68: normalizedLandmarks,
       interocular_distance: interEyeDist,
     };
 
-    console.log('[faceApi] Sending to face server:', { usuario_id: usuarioId, frontalDims: frontalArr.length, ratios: geometryRatios.length });
+    console.log('[faceApi] Register:', { usuario_id: usuarioId, frontal: true, izquierda: !!izqArr, derecha: !!derArr });
 
+    // Si solo tenemos frontal, guardar directo en Supabase (sin servidor Render)
+    const hasAllAngles = frontalArr && izqArr && derArr;
     let serverOk = false;
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      const res = await fetch(apiUrl('register'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(serverBody),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ok) {
-          serverOk = true;
-          console.log('[faceApi] Face server register OK');
-          return { ok: true, faceShape: faceShape || undefined };
+    if (hasAllAngles) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const res = await fetch(apiUrl('register'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(serverBody),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ok) {
+            serverOk = true;
+            console.log('[faceApi] Face server register OK');
+            return { ok: true, faceShape: faceShape || undefined };
+          }
         }
+        console.warn('[faceApi] Face server returned error, trying fallback');
+      } catch (e: any) {
+        console.warn('[faceApi] Face server unreachable:', e?.message || e, '- trying direct Supabase fallback');
       }
-      console.warn('[faceApi] Face server returned error, trying fallback');
-    } catch (e: any) {
-      console.warn('[faceApi] Face server unreachable:', e?.message || e, '- trying direct Supabase fallback');
+    } else {
+      console.log('[faceApi] Solo frontal, guardando directo en Supabase...');
     }
 
     if (!serverOk) {
@@ -182,8 +193,8 @@ export async function faceApiRegister(
       const fullData: Record<string, any> = {
         usuario_id: numericUserId,
         embedding_frontal: pgVectorStr(frontalArr),
-        embedding_izquierda: pgVectorStr(izqArr),
-        embedding_derecha: pgVectorStr(derArr),
+        embedding_izquierda: izqArr ? pgVectorStr(izqArr) : null,
+        embedding_derecha: derArr ? pgVectorStr(derArr) : null,
         forma_rostro: faceShape || '',
         proporciones: proporcionesData,
         landmarks_68: normalizedLandmarks,
@@ -191,7 +202,7 @@ export async function faceApiRegister(
         metadata: {
           engine: 'face-api.js+fallback',
           embedding_dims: 128,
-          valid_angles: 3,
+          valid_angles: izqArr && derArr ? 3 : 1,
           registered_via: 'direct_supabase',
           timestamp: new Date().toISOString(),
         },
@@ -200,9 +211,10 @@ export async function faceApiRegister(
       const minimalData: Record<string, any> = {
         usuario_id: numericUserId,
         embedding_frontal: pgVectorStr(frontalArr),
-        embedding_izquierda: pgVectorStr(izqArr),
-        embedding_derecha: pgVectorStr(derArr),
+        embedding_izquierda: izqArr ? pgVectorStr(izqArr) : null,
+        embedding_derecha: derArr ? pgVectorStr(derArr) : null,
         landmarks_68: normalizedLandmarks,
+        proporciones: proporcionesData,
         interocular_distance: interEyeDist,
         metadata: {
           engine: 'face-api.js+fallback',
@@ -375,7 +387,7 @@ export async function faceApiLogin(
 
       const { data: rostros, error } = await supabase
         .from('rostros')
-        .select('usuario_id, landmarks_68, embedding_frontal, embedding_izquierda, embedding_derecha');
+        .select('usuario_id, landmarks_68, embedding_frontal, embedding_izquierda, embedding_derecha, proporciones');
 
       if (error) {
         console.error('[faceApi] Fallback query error:', error);
@@ -386,14 +398,41 @@ export async function faceApiLogin(
         return { ok: false, error: 'No hay usuarios con rostro registrado. Primero debes registrarte desde "Crear Cuenta".' };
       }
 
-      const UMBRAL_GEO = 0.15;
-      const geoScores: { userId: number; dist: number }[] = [];
+      const UMBRAL_GEO = 0.30;
+      const geoScores: { userId: number; dist: number; method: string }[] = [];
+
+      console.log(`[faceApi] Login: ${rostros.length} rostros registrados, umbral=${UMBRAL_GEO}`);
 
       for (const r of rostros) {
         const storedLm = r.landmarks_68;
-        if (!storedLm || storedLm.length < 68) continue;
+        const hasLandmarks = storedLm && storedLm.length >= 68;
 
-        let bestAngleDist = Infinity;
+        if (!hasLandmarks) {
+          // Intentar usar embedding_frontal como fallback
+          const storedEmb = r.embedding_frontal;
+          if (storedEmb && storedEmb.length > 0) {
+            console.log(`[faceApi] user ${r.usuario_id}: sin landmarks68, intentando con embedding...`);
+          } else {
+            console.log(`[faceApi] user ${r.usuario_id}: sin landmarks68 ni embedding, saltando`);
+            continue;
+          }
+        } else {
+          console.log(`[faceApi] user ${r.usuario_id}: landmarks68 OK (${storedLm.length} pts)`);
+        }
+
+        // Obtener ratios almacenados (puede no existir para registros viejos)
+        let storedRatios: number[] | undefined;
+        if (r.proporciones) {
+          try {
+            const prop = typeof r.proporciones === 'string' ? JSON.parse(r.proporciones) : r.proporciones;
+            if (prop.ratios && Array.isArray(prop.ratios) && prop.ratios.length > 0) {
+              storedRatios = prop.ratios.map(Number);
+            }
+          } catch {}
+        }
+
+        let bestScore = 0;
+        let bestMethod = '';
 
         for (const angle of presentAngles) {
           const anglePhotos = angle === 'frontal' ? photos['frontal'] : angle === 'izquierda' ? photos['izquierda'] : photos['derecha'];
@@ -413,37 +452,37 @@ export async function faceApiLogin(
             const capPts = det.landmarks.positions.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
             if (capPts.length < 68) continue;
 
-            const capNorm = normalizeLandmarksByNose(capPts);
-            let storedNorm: Point2D[] = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+            const storedPts: Point2D[] = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
 
-            const avgAbs = storedNorm.reduce((s: number, p: Point2D) => s + Math.abs(p.x) + Math.abs(p.y), 0) / storedNorm.length;
-            if (avgAbs > 5) {
-              const dIo = Math.sqrt((storedNorm[45].x - storedNorm[36].x) ** 2 + (storedNorm[45].y - storedNorm[36].y) ** 2);
-              if (dIo > 0) {
-                const noseTip = storedNorm[30];
-                storedNorm = storedNorm.map(p => ({ x: (p.x - noseTip.x) / dIo, y: (p.y - noseTip.y) / dIo }));
-              }
+            const { score, method } = compareFaces(storedPts, capPts, storedRatios);
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestMethod = method;
             }
-
-            const dist = compareNormalizedLandmarks(storedNorm, capNorm);
-            if (dist < bestAngleDist) bestAngleDist = dist;
           } catch {}
         }
 
-        console.log(`[faceApi] Geometric vs user ${r.usuario_id}: dist=${bestAngleDist.toFixed(4)}`);
+        console.log(`[faceApi] vs user ${r.usuario_id}: score=${bestScore.toFixed(3)} ${bestMethod} ${bestScore >= UMBRAL_GEO ? '✓' : '✗'}`);
 
-        if (bestAngleDist <= UMBRAL_GEO) {
-          geoScores.push({ userId: r.usuario_id, dist: bestAngleDist });
+        if (bestScore >= UMBRAL_GEO) {
+          geoScores.push({ userId: r.usuario_id, dist: bestScore, method: bestMethod });
         }
       }
 
       if (geoScores.length === 0) {
+        const countNoLandmarks = rostros.filter(r => !r.landmarks_68 || r.landmarks_68.length < 68).length;
+        if (countNoLandmarks > 0) {
+          return { ok: false, error: `Tus datos faciales estan desactualizados (${countNoLandmarks} registros sin puntos). Debes RE-REGISTRAR tu rostro desde "Crear Cuenta".` };
+        }
         return { ok: false, error: 'Rostro no reconocido. Debes registrarte primero.' };
       }
 
-      geoScores.sort((a, b) => a.dist - b.dist);
+      // Ordenar por score DESCENDENTE (mayor score = mejor match)
+      geoScores.sort((a, b) => b.dist - a.dist);
 
-      if (geoScores.length > 1 && (geoScores[1].dist - geoScores[0].dist) < 0.05) {
+      // Ambigüedad: si los dos mejores están muy cerca, no se puede distinguir
+      if (geoScores.length > 1 && (geoScores[0].dist - geoScores[1].dist) < 0.08) {
         return { ok: false, error: 'Rostro ambiguo, intente de nuevo con mejor iluminacion' };
       }
 
@@ -458,7 +497,7 @@ export async function faceApiLogin(
         return { ok: false, error: 'Usuario no encontrado' };
       }
 
-      console.log(`[faceApi] Geometric LOGIN OK: user ${winner.userId} dist=${winner.dist.toFixed(4)}`);
+      console.log(`[faceApi] LOGIN OK: user ${winner.userId} score=${winner.dist.toFixed(3)} method=${winner.method}`);
       return {
         ok: true,
         usuario_id: usuario.id,
