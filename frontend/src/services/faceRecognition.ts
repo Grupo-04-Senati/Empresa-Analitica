@@ -807,7 +807,7 @@ export async function loginByFace(
     }
 
     // --- PASO 1: Intentar con embeddings (mas robusto) ---
-    const UMBRAL_EMB = 0.50;
+    const UMBRAL_EMB = 0.35;
     const embScores: { userId: number; dist: number }[] = [];
 
     if (loginEmbeddings.length > 0) {
@@ -859,7 +859,7 @@ export async function loginByFace(
     }
 
     // --- PASO 2: Fallback con geometria ---
-    const UMBRAL_GEO = 0.40;
+    const UMBRAL_GEO = 0.28;
     const geoScores: { userId: number; dist: number }[] = [];
 
     if (loginLandmarks.length > 0) {
@@ -997,7 +997,7 @@ export async function loginByFaceWithLiveness(
     }
 
     // --- PASO 1: Intentar con embeddings ---
-    const UMBRAL_EMB = 0.50;
+    const UMBRAL_EMB = 0.35;
     const embScores: { userId: number; dist: number }[] = [];
 
     if (loginEmbeddings.length > 0) {
@@ -1047,7 +1047,7 @@ export async function loginByFaceWithLiveness(
     }
 
     // --- PASO 2: Fallback con geometria ---
-    const UMBRAL_GEO = 0.40;
+    const UMBRAL_GEO = 0.28;
     const geoScores: { userId: number; dist: number }[] = [];
 
     if (loginLandmarks.length > 0) {
