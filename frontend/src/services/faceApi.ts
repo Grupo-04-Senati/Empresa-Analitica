@@ -398,7 +398,16 @@ export async function faceApiLogin(
             if (capPts.length < 68) continue;
 
             const capNorm = normalizeLandmarksByNose(capPts);
-            const storedNorm = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+            let storedNorm: Point2D[] = storedLm.map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+
+            const avgAbs = storedNorm.reduce((s: number, p: Point2D) => s + Math.abs(p.x) + Math.abs(p.y), 0) / storedNorm.length;
+            if (avgAbs > 5) {
+              const dIo = Math.sqrt((storedNorm[45].x - storedNorm[36].x) ** 2 + (storedNorm[45].y - storedNorm[36].y) ** 2);
+              if (dIo > 0) {
+                const noseTip = storedNorm[30];
+                storedNorm = storedNorm.map(p => ({ x: (p.x - noseTip.x) / dIo, y: (p.y - noseTip.y) / dIo }));
+              }
+            }
 
             const dist = compareNormalizedLandmarks(storedNorm, capNorm);
             if (dist < bestAngleDist) bestAngleDist = dist;
