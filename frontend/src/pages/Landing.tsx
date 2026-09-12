@@ -98,18 +98,18 @@ export default function Landing() {
         </header>
 
         <main className="flex-1 flex flex-col justify-center items-center text-center px-4 py-12">
-          <div className="max-w-2xl">
+          <div className="max-w-2xl w-full">
             <h2 className="text-4xl md:text-5xl font-bold leading-tight mb-2">
               Centro Inteligente de
             </h2>
             <h2 className="text-4xl md:text-5xl font-bold leading-tight mb-6">
               <span className="text-blue-400">Analisis y Gestion</span>
             </h2>
-            <p className="text-slate-400 text-lg mb-10 max-w-lg">
+            <p className="text-slate-400 text-lg mb-10 max-w-lg mx-auto">
               Potencia tu empresa con inteligencia artificial, analisis de sentimiento y metricas en tiempo real.
             </p>
 
-            <div className="space-y-5 mb-12">
+            <div className="space-y-5 mb-12 text-left">
               {features.map((f, i) => (
                 <div key={i} className="flex items-start gap-4">
                   <div className="w-10 h-10 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
