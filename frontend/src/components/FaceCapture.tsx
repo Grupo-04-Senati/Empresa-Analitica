@@ -391,6 +391,65 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     ctx.fillStyle = 'rgba(0,255,200,0.5)'; ctx.font = `${Math.max(8, eyeDist * 0.11)}px monospace`; ctx.textAlign = 'center';
     ctx.fillText(`${distLabel} ${(faceAR * 100).toFixed(1)}%`, eMid.x, cP.y + eyeDist * sy * 0.22);
 
+    // === FACIAL PROPORTIONS (VERTICAL THIRDS) ===
+    const hairline = mapP({ x: (pts[19].x + pts[24].x) / 2, y: pts[19].y - eyeDist * 0.35 });
+    const browLine = mapP({ x: (pts[19].x + pts[24].x) / 2, y: (pts[19].y + pts[24].y) / 2 });
+    const noseBaseP = mapP(pts[33]);
+    const chinP = mapP(pts[8]);
+    const topY = hairline.y;
+    const browY = browLine.y;
+    const noseY = noseBaseP.y;
+    const chinY = chinP.y;
+    const vTotal = Math.max(1, chinY - topY);
+    const vFrente = ((browY - topY) / vTotal * 100).toFixed(0);
+    const vNariz = ((noseY - browY) / vTotal * 100).toFixed(0);
+    const vMenton = ((chinY - noseY) / vTotal * 100).toFixed(0);
+    const lineLeft = Math.min(hairline.x, browLine.x, noseBaseP.x, chinP.x) - eyeDist * sx * 0.35;
+    const lineRight = Math.max(hairline.x, browLine.x, noseBaseP.x, chinP.x) + eyeDist * sx * 0.35;
+    ctx.strokeStyle = 'rgba(255,200,50,0.4)'; ctx.lineWidth = 0.6; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(lineLeft, topY); ctx.lineTo(lineRight, topY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lineLeft, browY); ctx.lineTo(lineRight, browY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lineLeft, noseY); ctx.lineTo(lineRight, noseY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lineLeft, chinY); ctx.lineTo(lineRight, chinY); ctx.stroke();
+    ctx.setLineDash([]);
+    const lblX = lineRight + eyeDist * sx * 0.06;
+    const lblFs = Math.max(7, eyeDist * 0.09);
+    ctx.font = `bold ${lblFs}px monospace`; ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,200,50,0.7)';
+    ctx.fillText(`${vFrente}%`, lblX, (topY + browY) / 2 + lblFs * 0.35);
+    ctx.fillText(`${vNariz}%`, lblX, (browY + noseY) / 2 + lblFs * 0.35);
+    ctx.fillText(`${vMenton}%`, lblX, (noseY + chinY) / 2 + lblFs * 0.35);
+    ctx.fillStyle = 'rgba(255,200,50,0.4)'; ctx.font = `${lblFs * 0.75}px monospace`;
+    ctx.fillText('Frente', lblX, topY + lblFs * 0.5);
+    ctx.fillText('Nariz', lblX, browY + lblFs * 0.5);
+    ctx.fillText('Menton', lblX, noseY + lblFs * 0.5);
+
+    // === FACIAL PROPORTIONS (HORIZONTAL FIFTHS) ===
+    const hfLeft = mapP(pts[0]);
+    const hfLEye = mapP(pts[36]);
+    const hfNoseL = mapP(pts[31]);
+    const hfNoseR = mapP(pts[35]);
+    const hfREye = mapP(pts[45]);
+    const hfRight = mapP(pts[16]);
+    const hBars = [hfLeft.x, hfLEye.x, hfNoseL.x, hfNoseR.x, hfREye.x, hfRight.x];
+    const hWidths: number[] = [];
+    let hTotal = 0;
+    for (let i = 0; i < hBars.length - 1; i++) { const w = hBars[i + 1] - hBars[i]; hWidths.push(w); hTotal += w; }
+    const hPcts = hWidths.map(w => hTotal > 0 ? (w / hTotal * 100).toFixed(0) : '0');
+    const hTop = Math.min(hairline.y, browLine.y) - eyeDist * sy * 0.1;
+    const hBot = chinY + eyeDist * sy * 0.05;
+    ctx.strokeStyle = 'rgba(100,200,255,0.35)'; ctx.lineWidth = 0.6; ctx.setLineDash([4, 3]);
+    for (let i = 0; i < hBars.length; i++) {
+      ctx.beginPath(); ctx.moveTo(hBars[i], hTop); ctx.lineTo(hBars[i], hBot); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    const hLblFs = Math.max(6, eyeDist * 0.075);
+    ctx.font = `bold ${hLblFs}px monospace`; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(100,200,255,0.7)';
+    for (let i = 0; i < hWidths.length; i++) {
+      const cx = (hBars[i] + hBars[i + 1]) / 2;
+      ctx.fillText(`${hPcts[i]}%`, cx, hTop - hLblFs * 0.3);
+    }
+
     ctx.restore();
   }, [phase]);
 
