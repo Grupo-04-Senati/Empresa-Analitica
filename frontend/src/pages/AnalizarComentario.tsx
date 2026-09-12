@@ -129,10 +129,10 @@ export const AnalizarComentario = () => {
         const [comentariosRes, catsRes] = await Promise.all([
           supabase
             .from('comentarios')
-            .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes, sentimiento)')
-            .eq('procesado', true)
+            .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes)')
+            .eq('tipo', 'comentario')
             .order('fecha', { ascending: false })
-            .limit(10),
+            .limit(20),
           supabase
             .from('categorias')
             .select('id, nombre, descripcion, activo')
@@ -200,10 +200,10 @@ export const AnalizarComentario = () => {
       setResultado(null);
       const { data } = await supabase
         .from('comentarios')
-        .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes, sentimiento)')
-        .eq('procesado', true)
+        .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes)')
+        .eq('tipo', 'comentario')
         .order('fecha', { ascending: false })
-        .limit(10);
+        .limit(20);
       if (data) setRecientes(data as unknown as AnalisisReciente[]);
     } catch (err) {
       console.error(err);
@@ -237,16 +237,10 @@ export const AnalizarComentario = () => {
             <BrainCircuit size={18} className="text-blue-600" />
             <h3 className="font-semibold text-slate-700">Texto a Analizar</h3>
           </div>
-          <textarea
-            className="w-full h-40 p-4 border border-slate-200 rounded-lg text-sm text-slate-700 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-            placeholder="Pega aqui el comentario del cliente para analizarlo..."
-            value={texto}
-            onChange={(e) => setTexto(e.target.value)}
-          />
-          <div className="flex items-center gap-3 mt-4">
-            <label className="text-xs font-medium text-slate-500">Canal:</label>
+          <div className="flex items-center gap-3 mb-4">
+            <label className="text-sm font-semibold text-slate-700">Canal de origen:</label>
             <select value={canal} onChange={e => setCanal(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+              className="px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
               <option value="web">Web</option>
               <option value="whatsapp">WhatsApp</option>
               <option value="email">Email</option>
@@ -254,7 +248,14 @@ export const AnalizarComentario = () => {
               <option value="presencial">Presencial</option>
               <option value="telefono">Telefono</option>
             </select>
-            <div className="flex-1" />
+          </div>
+          <textarea
+            className="w-full h-40 p-4 border border-slate-200 rounded-lg text-sm text-slate-700 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+            placeholder="Pega aqui el comentario del cliente para analizarlo..."
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+          />
+          <div className="flex justify-end mt-4">
             <button
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
               onClick={analizar}
