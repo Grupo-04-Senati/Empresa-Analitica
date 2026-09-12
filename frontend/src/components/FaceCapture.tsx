@@ -109,7 +109,10 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
   const drawWireframeMask = useCallback((landmarks: faceapi.FaceLandmarks68, videoW: number, videoH: number, canvasW: number, canvasH: number) => {
     const overlay = overlayRef.current;
-    if (!overlay || canvasW < 10 || canvasH < 10) return;
+    if (!overlay || canvasW < 10 || canvasH < 10) {
+      console.warn('[FaceCapture] drawWireframeMask skipped:', { overlay: !!overlay, canvasW, canvasH });
+      return;
+    }
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
 
@@ -387,6 +390,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
     let alive = true;
     let detectionCount = 0;
+    let lastError = '';
     intervalRef.current = setInterval(async () => {
       if (!alive || !video || video.readyState < 2) return;
 
@@ -397,8 +401,8 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           .withFaceLandmarks();
 
         detectionCount++;
-        if (detectionCount <= 3) {
-          console.log(`[FaceCapture] Detection #${detectionCount}:`, detections ? `score=${detections.detection.score.toFixed(3)}` : 'null');
+        if (detectionCount <= 5 || detectionCount % 20 === 0) {
+          console.log(`[FaceCapture] Detection #${detectionCount}:`, detections ? `score=${detections.detection.score.toFixed(3)}, landmarks=${detections.landmarks.positions.length}` : 'null');
         }
 
         if (!detections) {
@@ -427,7 +431,10 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
           if (cw > 0 && ch > 0) {
             overlay.width = cw;
             overlay.height = ch;
+            if (detectionCount <= 3) console.log(`[FaceCapture] Drawing: videoW=${videoW} videoH=${videoH} canvasW=${cw} canvasH=${ch}`);
             drawWireframeMask(detections.landmarks, videoW, videoH, cw, ch);
+          } else {
+            console.warn('[FaceCapture] Canvas dims zero:', { cw, ch, clientW: overlay.clientWidth, clientH: overlay.clientHeight });
           }
         }
 
