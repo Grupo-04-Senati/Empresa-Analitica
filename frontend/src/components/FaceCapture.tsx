@@ -109,7 +109,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
 
   const drawWireframeMask = useCallback((landmarks: faceapi.FaceLandmarks68, videoW: number, videoH: number, canvasW: number, canvasH: number) => {
     const overlay = overlayRef.current;
-    if (!overlay) return;
+    if (!overlay || canvasW < 10 || canvasH < 10) return;
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
 
@@ -404,10 +404,14 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
         const videoW = video.videoWidth || video.clientWidth;
         const videoH = video.videoHeight || video.clientHeight;
         const overlay = overlayRef.current;
-        if (overlay) {
-          overlay.width = overlay.clientWidth;
-          overlay.height = overlay.clientHeight;
-          drawWireframeMask(detections.landmarks, videoW, videoH, overlay.width, overlay.height);
+        if (overlay && videoW > 0 && videoH > 0) {
+          const cw = overlay.clientWidth || videoW;
+          const ch = overlay.clientHeight || videoH;
+          if (cw > 0 && ch > 0) {
+            overlay.width = cw;
+            overlay.height = ch;
+            drawWireframeMask(detections.landmarks, videoW, videoH, cw, ch);
+          }
         }
 
         frozenRef.current = { landmarks: detections.landmarks, score: detections.detection.score, videoW, videoH };
@@ -544,9 +548,13 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     if (!frozen) return;
     const overlay = overlayRef.current;
     if (overlay) {
-      overlay.width = overlay.clientWidth;
-      overlay.height = overlay.clientHeight;
-      drawWireframeMask(frozen.landmarks, frozen.videoW, frozen.videoH, overlay.width, overlay.height);
+      const cw = overlay.clientWidth || frozen.videoW;
+      const ch = overlay.clientHeight || frozen.videoH;
+      if (cw > 0 && ch > 0) {
+        overlay.width = cw;
+        overlay.height = ch;
+        drawWireframeMask(frozen.landmarks, frozen.videoW, frozen.videoH, cw, ch);
+      }
     }
   }, [phase, countdown, drawWireframeMask]);
 
@@ -629,7 +637,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
             <>
               <div className="relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3]">
                 <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
-                <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none z-5" />
+                <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 5 }} />
                 {phase === 'countdown' && countdown > 0 && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10"><span className="text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span></div>
                 )}
