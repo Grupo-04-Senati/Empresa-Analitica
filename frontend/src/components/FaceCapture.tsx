@@ -325,14 +325,14 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     L(jawD, 'rgba(0,200,255,0.6)', 1.2); L(chinD, 'rgba(0,200,255,0.55)', 1.1);
     L(lJawD, 'rgba(0,200,255,0.55)', 1.1); L(rJawD, 'rgba(0,200,255,0.55)', 1.1);
     L(lCheekD, 'rgba(0,200,255,0.4)', 0.8); L(rCheekD, 'rgba(0,200,255,0.4)', 0.8);
-    L(lCheekBone, 'rgba(100,220,255,0.3)', 0.5); L(rCheekBone, 'rgba(100,220,255,0.3)', 0.5);
-    L(lNasoFold, 'rgba(0,220,200,0.25)', 0.45); L(rNasoFold, 'rgba(0,220,200,0.25)', 0.45);
-    L(foreheadD, 'rgba(0,200,255,0.3)', 0.6); L(foreheadTop, 'rgba(0,200,255,0.2)', 0.45);
-    L(fWrinkle1, 'rgba(0,200,255,0.12)', 0.3); L(fWrinkle2, 'rgba(0,200,255,0.1)', 0.25); L(fWrinkle3, 'rgba(0,200,255,0.08)', 0.2);
-    L(lInner, 'rgba(0,200,255,0.15)', 0.35); L(rInner, 'rgba(0,200,255,0.15)', 0.35);
-    L(lMidCheek, 'rgba(0,200,255,0.12)', 0.3); L(rMidCheek, 'rgba(0,200,255,0.12)', 0.3);
-    L(lOuterFace, 'rgba(0,200,255,0.1)', 0.25); L(rOuterFace, 'rgba(0,200,255,0.1)', 0.25);
-    L(templeL, 'rgba(0,200,255,0.15)', 0.3); L(templeR, 'rgba(0,200,255,0.15)', 0.3);
+    L(lCheekBone, 'rgba(100,220,255,0.55)', 0.9); L(rCheekBone, 'rgba(100,220,255,0.55)', 0.9);
+    L(lNasoFold, 'rgba(0,220,200,0.5)', 0.8); L(rNasoFold, 'rgba(0,220,200,0.5)', 0.8);
+    L(foreheadD, 'rgba(0,200,255,0.5)', 0.9); L(foreheadTop, 'rgba(0,200,255,0.35)', 0.7);
+    L(fWrinkle1, 'rgba(0,200,255,0.25)', 0.5); L(fWrinkle2, 'rgba(0,200,255,0.2)', 0.45); L(fWrinkle3, 'rgba(0,200,255,0.15)', 0.4);
+    L(lInner, 'rgba(0,200,255,0.4)', 0.7); L(rInner, 'rgba(0,200,255,0.4)', 0.7);
+    L(lMidCheek, 'rgba(0,200,255,0.35)', 0.65); L(rMidCheek, 'rgba(0,200,255,0.35)', 0.65);
+    L(lOuterFace, 'rgba(0,200,255,0.3)', 0.6); L(rOuterFace, 'rgba(0,200,255,0.3)', 0.6);
+    L(templeL, 'rgba(0,200,255,0.35)', 0.6); L(templeR, 'rgba(0,200,255,0.35)', 0.6);
 
     L(nBridge, 'rgba(0,255,150,0.5)', 0.8); L(nLSide, 'rgba(0,255,150,0.4)', 0.6); L(nRSide, 'rgba(0,255,150,0.4)', 0.6);
     L(nNostrL, 'rgba(0,255,150,0.45)', 0.55); L(nNostrR, 'rgba(0,255,150,0.45)', 0.55);
@@ -344,7 +344,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     L(lLidU, 'rgba(255,80,80,0.6)', 1.0); L(lLidL, 'rgba(255,80,80,0.6)', 1.0);
     L(rLidU, 'rgba(255,80,80,0.6)', 1.0); L(rLidL, 'rgba(255,80,80,0.6)', 1.0);
     L(lCrease, 'rgba(255,60,60,0.2)', 0.35); L(rCrease, 'rgba(255,60,60,0.2)', 0.35);
-    L(lUnderEye, 'rgba(255,80,80,0.15)', 0.3); L(rUnderEye, 'rgba(255,80,80,0.15)', 0.3);
+    L(lUnderEye, 'rgba(255,80,80,0.35)', 0.5); L(rUnderEye, 'rgba(255,80,80,0.35)', 0.5);
     L(lIris, 'rgba(255,120,120,0.5)', 0.7); L(rIris, 'rgba(255,120,120,0.5)', 0.7);
     L(lIrisR1, 'rgba(255,100,100,0.25)', 0.4); L(rIrisR1, 'rgba(255,100,100,0.25)', 0.4);
     L(lIrisR2, 'rgba(255,100,100,0.3)', 0.45); L(rIrisR2, 'rgba(255,100,100,0.3)', 0.45);
