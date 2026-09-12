@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, Loader2, ArrowRight, UserPlus } from 'lucide-react';
 import { FaceCapture } from '../components/FaceCapture';
+import { supabase } from '../services/supabase';
 
 export const Register: React.FC = () => {
   const navigate = useNavigate();
@@ -44,7 +45,7 @@ export const Register: React.FC = () => {
       if (result.success) {
         if (result.userId) setUserId(result.userId);
         if (enableFace && result.userId) {
-          setSuccessMsg('Cuenta creada. Ahora registra tu rostro.');
+          setSuccessMsg('Cuenta creada. Ahora registra tu rostro para continuar.');
           setShowFaceCapture(true);
         } else {
           setSuccessMsg('Cuenta creada correctamente. Revisa tu email para confirmar.');
@@ -61,6 +62,18 @@ export const Register: React.FC = () => {
     setShowFaceCapture(false);
     setSuccessMsg('Cuenta y rostro registrados correctamente.');
     setTimeout(() => navigate('/login'), 2000);
+  };
+
+  const handleFaceClose = async () => {
+    setShowFaceCapture(false);
+    if (userId && enableFace) {
+      setErrorMsg('Debes completar el registro facial para crear tu cuenta. Eliminando cuenta temporal...');
+      try {
+        await supabase.from('usuarios').delete().eq('id', userId);
+      } catch { /* empty */ }
+      setUserId(null);
+      setSuccessMsg('');
+    }
   };
 
   const passwordStrength = password.length === 0 ? 0 : password.length < 6 ? 1 : password.length < 10 ? 2 : /[A-Z]/.test(password) && /[0-9]/.test(password) ? 3 : 2;
@@ -154,7 +167,7 @@ export const Register: React.FC = () => {
       </div>
 
       {showFaceCapture && userId && (
-        <FaceCapture mode="register" usuarioId={userId} onCapture={handleFaceRegistered} onClose={() => { setShowFaceCapture(false); setSuccessMsg('Cuenta creada. Puedes registrar tu rostro desde tu perfil.'); setTimeout(() => navigate('/login'), 1500); }} />
+        <FaceCapture mode="register" usuarioId={userId} onCapture={handleFaceRegistered} onClose={handleFaceClose} />
       )}
     </div>
   );
