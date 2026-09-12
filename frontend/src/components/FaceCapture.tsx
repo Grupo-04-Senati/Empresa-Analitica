@@ -153,24 +153,24 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
     const mouthInner = pts.slice(60, 68);
 
     // Dense interpolation for each contour
-    const jawDense = interpolatePoints(jawLine, 50);
-    const leftCheekDense = interpolatePoints([jawLine[2], jawLine[3], jawLine[4], leftEyeContour[0], leftBrow[0]], 30);
-    const rightCheekDense = interpolatePoints([jawLine[12], jawLine[13], jawLine[14], rightEyeContour[0], rightBrow[4]], 30);
-    const foreheadDense = interpolatePoints([leftBrow[0], leftBrow[1], leftBrow[2], { x: noseCenter.x, y: leftBrow[0].y - eyeDist * 0.4 }, rightBrow[2], rightBrow[3], rightBrow[4]], 30);
-    const chinDense = interpolatePoints([jawLine[5], jawLine[6], jawLine[7], jawLine[8], jawLine[9], jawLine[10], jawLine[11]], 24);
-    const leftJawDense = interpolatePoints([jawLine[0], jawLine[1], jawLine[2], jawLine[3], jawLine[4], jawLine[5], jawLine[6]], 20);
-    const rightJawDense = interpolatePoints([jawLine[10], jawLine[11], jawLine[12], jawLine[13], jawLine[14], jawLine[15], jawLine[16]], 20);
-    const noseLeft = interpolatePoints([noseBridge[0], noseBottom[0], noseBottom[1], noseBottom[2]], 16);
-    const noseRight = interpolatePoints([noseBridge[0], noseBottom[4], noseBottom[3], noseBottom[2]], 16);
-    const noseTipDense = interpolatePoints(noseBottom, 14);
-    const lipUpper = interpolatePoints([mouthOuter[0], mouthOuter[1], mouthOuter[2], mouthOuter[3], mouthOuter[4], mouthOuter[5], mouthOuter[6], mouthOuter[7], mouthOuter[8], mouthOuter[9], mouthOuter[10], mouthOuter[11]], 24);
-    const lipLower = interpolatePoints([mouthOuter[12], mouthOuter[13], mouthOuter[14], mouthOuter[15], mouthOuter[16], mouthOuter[17], mouthOuter[18], mouthOuter[19], mouthOuter[20], mouthOuter[21], mouthOuter[22], mouthOuter[23]], 24);
-    const innerLipUpper = interpolatePoints(mouthInner.slice(0, 7), 14);
-    const innerLipLower = interpolatePoints([...mouthInner.slice(7), mouthInner[0]], 14);
-    const leftEyeDense = interpolatePoints([...leftEyeContour, leftEyeContour[0]], 20);
-    const rightEyeDense = interpolatePoints([...rightEyeContour, rightEyeContour[0]], 20);
-    const leftBrowDense = interpolatePoints(leftBrow, 16);
-    const rightBrowDense = interpolatePoints(rightBrow, 16);
+    const jawDense = interpolatePoints(jawLine, 50).map(map);
+    const leftCheekDense = interpolatePoints([jawLine[2], jawLine[3], jawLine[4], leftEyeContour[0], leftBrow[0]], 30).map(map);
+    const rightCheekDense = interpolatePoints([jawLine[12], jawLine[13], jawLine[14], rightEyeContour[0], rightBrow[4]], 30).map(map);
+    const foreheadDense = interpolatePoints([leftBrow[0], leftBrow[1], leftBrow[2], { x: noseCenter.x, y: leftBrow[0].y - eyeDist * 0.4 }, rightBrow[2], rightBrow[3], rightBrow[4]], 30).map(map);
+    const chinDense = interpolatePoints([jawLine[5], jawLine[6], jawLine[7], jawLine[8], jawLine[9], jawLine[10], jawLine[11]], 24).map(map);
+    const leftJawDense = interpolatePoints([jawLine[0], jawLine[1], jawLine[2], jawLine[3], jawLine[4], jawLine[5], jawLine[6]], 20).map(map);
+    const rightJawDense = interpolatePoints([jawLine[10], jawLine[11], jawLine[12], jawLine[13], jawLine[14], jawLine[15], jawLine[16]], 20).map(map);
+    const noseLeft = interpolatePoints([noseBridge[0], noseBottom[0], noseBottom[1], noseBottom[2]], 16).map(map);
+    const noseRight = interpolatePoints([noseBridge[0], noseBottom[4], noseBottom[3], noseBottom[2]], 16).map(map);
+    const noseTipDense = interpolatePoints(noseBottom, 14).map(map);
+    const lipUpper = interpolatePoints([mouthOuter[0], mouthOuter[1], mouthOuter[2], mouthOuter[3], mouthOuter[4], mouthOuter[5], mouthOuter[6], mouthOuter[7], mouthOuter[8], mouthOuter[9], mouthOuter[10], mouthOuter[11]], 24).map(map);
+    const lipLower = interpolatePoints([mouthOuter[12], mouthOuter[13], mouthOuter[14], mouthOuter[15], mouthOuter[16], mouthOuter[17], mouthOuter[18], mouthOuter[19], mouthOuter[20], mouthOuter[21], mouthOuter[22], mouthOuter[23]], 24).map(map);
+    const innerLipUpper = interpolatePoints(mouthInner.slice(0, 7), 14).map(map);
+    const innerLipLower = interpolatePoints([...mouthInner.slice(7), mouthInner[0]], 14).map(map);
+    const leftEyeDense = interpolatePoints([...leftEyeContour, leftEyeContour[0]], 20).map(map);
+    const rightEyeDense = interpolatePoints([...rightEyeContour, rightEyeContour[0]], 20).map(map);
+    const leftBrowDense = interpolatePoints(leftBrow, 16).map(map);
+    const rightBrowDense = interpolatePoints(rightBrow, 16).map(map);
 
     // Draw all contour lines
     const allContours = [
@@ -276,22 +276,22 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({ mode, usuarioId, onCap
       }
     };
 
-    drawDenseDots(jawDense.map(map), 'rgba(0, 200, 255, 0.5)', 0.8);
-    drawDenseDots(leftCheekDense.map(map), 'rgba(0, 200, 255, 0.35)', 0.6);
-    drawDenseDots(rightCheekDense.map(map), 'rgba(0, 200, 255, 0.35)', 0.6);
-    drawDenseDots(foreheadDense.map(map), 'rgba(0, 200, 255, 0.35)', 0.6);
-    drawDenseDots(chinDense.map(map), 'rgba(0, 200, 255, 0.45)', 0.7);
-    drawDenseDots(leftEyeDense.map(map), 'rgba(255, 80, 80, 0.6)', 0.9);
-    drawDenseDots(rightEyeDense.map(map), 'rgba(255, 80, 80, 0.6)', 0.9);
-    drawDenseDots(leftBrowDense.map(map), 'rgba(255, 100, 100, 0.4)', 0.6);
-    drawDenseDots(rightBrowDense.map(map), 'rgba(255, 100, 100, 0.4)', 0.6);
-    drawDenseDots(noseLeft.map(map), 'rgba(0, 255, 150, 0.5)', 0.7);
-    drawDenseDots(noseRight.map(map), 'rgba(0, 255, 150, 0.5)', 0.7);
-    drawDenseDots(noseTipDense.map(map), 'rgba(0, 255, 150, 0.6)', 0.8);
-    drawDenseDots(lipUpper.map(map), 'rgba(255, 180, 50, 0.5)', 0.7);
-    drawDenseDots(lipLower.map(map), 'rgba(255, 180, 50, 0.5)', 0.7);
-    drawDenseDots(innerLipUpper.map(map), 'rgba(255, 140, 30, 0.35)', 0.5);
-    drawDenseDots(innerLipLower.map(map), 'rgba(255, 140, 30, 0.35)', 0.5);
+    drawDenseDots(jawDense, 'rgba(0, 200, 255, 0.5)', 0.8);
+    drawDenseDots(leftCheekDense, 'rgba(0, 200, 255, 0.35)', 0.6);
+    drawDenseDots(rightCheekDense, 'rgba(0, 200, 255, 0.35)', 0.6);
+    drawDenseDots(foreheadDense, 'rgba(0, 200, 255, 0.35)', 0.6);
+    drawDenseDots(chinDense, 'rgba(0, 200, 255, 0.45)', 0.7);
+    drawDenseDots(leftEyeDense, 'rgba(255, 80, 80, 0.6)', 0.9);
+    drawDenseDots(rightEyeDense, 'rgba(255, 80, 80, 0.6)', 0.9);
+    drawDenseDots(leftBrowDense, 'rgba(255, 100, 100, 0.4)', 0.6);
+    drawDenseDots(rightBrowDense, 'rgba(255, 100, 100, 0.4)', 0.6);
+    drawDenseDots(noseLeft, 'rgba(0, 255, 150, 0.5)', 0.7);
+    drawDenseDots(noseRight, 'rgba(0, 255, 150, 0.5)', 0.7);
+    drawDenseDots(noseTipDense, 'rgba(0, 255, 150, 0.6)', 0.8);
+    drawDenseDots(lipUpper, 'rgba(255, 180, 50, 0.5)', 0.7);
+    drawDenseDots(lipLower, 'rgba(255, 180, 50, 0.5)', 0.7);
+    drawDenseDots(innerLipUpper, 'rgba(255, 140, 30, 0.35)', 0.5);
+    drawDenseDots(innerLipLower, 'rgba(255, 140, 30, 0.35)', 0.5);
 
     // === CROSSHAIR LINES (nose-eyes-chin reference) ===
     const le = map({ x: pts.slice(36, 42).reduce((s, p) => s + p.x, 0) / 6, y: pts.slice(36, 42).reduce((s, p) => s + p.y, 0) / 6 });
