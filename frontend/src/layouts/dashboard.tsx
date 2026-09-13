@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Headphones, Brain, Database, FileText, Settings,
@@ -63,7 +63,7 @@ export const DashboardLayout = () => {
   const [notificaciones, setNotificaciones] = useState<{ id: number; titulo: string; mensaje: string; tipo: string; enlace: string | null; leida: boolean; created_at: string }[]>([]);
   const [showNotif, setShowNotif] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const prevNotifCountRef = useRef(0);
+
 
   const menuData = isAdmin ? menuAdmin : menuUser;
 
@@ -75,28 +75,26 @@ export const DashboardLayout = () => {
   useEffect(() => {
     if (!user) return;
     const fetchNotif = async () => {
-      const { data } = await supabase.from('notificaciones').select('id, titulo, mensaje, tipo, enlace, leida, created_at, destinatario, eliminada').eq('destinatario', user.email).eq('eliminada', false).order('created_at', { ascending: false }).limit(20);
+      const { data } = await supabase.from('notificaciones').select('id, titulo, mensaje, tipo, enlace, leida, created_at, destinatario').eq('destinatario', user.email).eq('leida', false).order('created_at', { ascending: false }).limit(20);
       if (data) setNotificaciones(data);
     };
     fetchNotif();
-    const channel = supabase.channel('notif-layout').on('postgres_changes', { event: '*', schema: 'public', table: 'notificaciones' }, fetchNotif).subscribe();
+    const channel = supabase.channel('notif-layout-v2')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notificaciones' }, (payload: any) => {
+        const nueva = payload.new;
+        if (nueva && (nueva.destinatario === user.email || nueva.destinatario === '__all__')) {
+          try {
+            const audio = new Audio('/aud/ad.mp3');
+            audio.volume = 0.7;
+            audio.play().catch(() => {});
+          } catch {}
+        }
+        fetchNotif();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notificaciones' }, fetchNotif)
+      .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    if (notificaciones.length > prevNotifCountRef.current && prevNotifCountRef.current > 0) {
-      const nueva = notificaciones[0];
-      if (nueva && !nueva.leida) {
-        try {
-          const audio = new Audio('/aud/ad.mp3');
-          audio.volume = 0.7;
-          audio.play().catch(() => {});
-        } catch {}
-      }
-    }
-    prevNotifCountRef.current = notificaciones.length;
-  }, [notificaciones.length, user]);
 
   // Heartbeat: actualizar last_seen del cliente cada 60 segundos
   useEffect(() => {

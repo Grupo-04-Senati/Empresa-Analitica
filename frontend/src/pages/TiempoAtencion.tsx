@@ -43,7 +43,7 @@ export const TiempoAtencion = () => {
     try {
       const [tiemposRes, clientesRes] = await Promise.all([
         supabase.from('tiempos_atencion')
-          .select('*')
+          .select('*, clientes(nombre, empresa), solicitudes(contenido, estado, canal)')
           .order('fecha', { ascending: false }),
         supabase.from('clientes').select('id, nombre').eq('activo', true).order('nombre'),
       ]);
