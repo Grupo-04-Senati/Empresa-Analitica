@@ -69,20 +69,50 @@ export function calcStats(valores: number[]): StatsResult | null {
 }
 
 export function interpolar(xBase: number[], yBase: number[], xNew: number[], metodo: string = 'lineal'): number[] {
-  if (xBase.length < 2 || yBase.length < 2) return xNew.map(() => 0);
+  if (xBase.length === 0 || yBase.length === 0) return xNew.map(() => 0);
+  if (xBase.length === 1) return xNew.map(() => Math.round(yBase[0] * 100) / 100);
+
   return xNew.map(x => {
-    if (x <= xBase[0]) return yBase[0];
-    if (x >= xBase[xBase.length - 1]) return yBase[yBase.length - 1];
+    if (x <= xBase[0]) {
+      if (metodo === 'cuadratico' && xBase.length >= 2) {
+        const slope = yBase[1] - yBase[0];
+        const dx = x - xBase[0];
+        return Math.round((yBase[0] + slope * dx) * 100) / 100;
+      }
+      return Math.round(yBase[0] * 100) / 100;
+    }
+    if (x >= xBase[xBase.length - 1]) {
+      if (metodo === 'cuadratico' && xBase.length >= 3) {
+        const n = xBase.length;
+        const slope = yBase[n - 1] - yBase[n - 2];
+        const dx = x - xBase[n - 1];
+        return Math.round((yBase[n - 1] + slope * dx) * 100) / 100;
+      }
+      return Math.round(yBase[yBase.length - 1] * 100) / 100;
+    }
+
     let i = 0;
     while (i < xBase.length - 1 && xBase[i + 1] < x) i++;
     const t = (x - xBase[i]) / (xBase[i + 1] - xBase[i]);
-    if (metodo === 'cuadratico' && i < xBase.length - 2) {
-      const t2 = t * t;
-      const a = yBase[i];
-      const b = yBase[i + 1] - yBase[i];
-      const c = (i < xBase.length - 2 ? yBase[i + 2] - 2 * yBase[i + 1] + yBase[i] : 0) * 0.5;
-      return Math.round((a + b * t + c * t2) * 100) / 100;
+
+    if (metodo === 'cuadratico') {
+      if (i > 0 && i < xBase.length - 1) {
+        const y0 = yBase[i - 1], y1 = yBase[i], y2 = yBase[i + 1];
+        const tm1 = t + 1;
+        const val = y1 + (y2 - y0) * t * 0.5 + (y0 - 2 * y1 + y2) * t * t * 0.5;
+        return Math.round(val * 100) / 100;
+      }
+      if (i < xBase.length - 2) {
+        const t2 = t * t;
+        const a = yBase[i];
+        const b = yBase[i + 1] - yBase[i];
+        const c = (yBase[i + 2] - 2 * yBase[i + 1] + yBase[i]) * 0.5;
+        return Math.round((a + b * t + c * t2) * 100) / 100;
+      }
+      const slope = yBase[i + 1] - yBase[i];
+      return Math.round((yBase[i] + slope * t) * 100) / 100;
     }
+
     return Math.round((yBase[i] + t * (yBase[i + 1] - yBase[i])) * 100) / 100;
   });
 }
