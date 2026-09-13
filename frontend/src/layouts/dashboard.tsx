@@ -82,6 +82,22 @@ export const DashboardLayout = () => {
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    let prevCount = notificaciones.length;
+    if (notificaciones.length > prevCount) {
+      const nueva = notificaciones[0];
+      if (nueva && !nueva.leida) {
+        try {
+          const audio = new Audio('/aud/ad.mp3');
+          audio.volume = 0.7;
+          audio.play().catch(() => {});
+        } catch {}
+      }
+    }
+    prevCount = notificaciones.length;
+  }, [notificaciones.length, user]);
+
   // Heartbeat: actualizar last_seen del cliente cada 60 segundos
   useEffect(() => {
     if (!user) return;
@@ -226,7 +242,7 @@ export const DashboardLayout = () => {
                     {notificaciones.length === 0 ? (
                       <div className="px-4 py-8 text-center text-sm text-slate-400">Sin notificaciones</div>
                     ) : notificaciones.map((n) => (
-                      <div key={n.id} onClick={() => { if (n.enlace) { navigate(n.enlace); setShowNotif(false); } if (!n.leida) markAsRead(n.id); }} className={`px-4 py-3 border-b border-slate-50 transition-colors flex items-start gap-3 cursor-pointer ${n.leida ? 'bg-white' : 'bg-blue-50/50'}`}>
+                      <div key={n.id} onClick={() => { navigate('/dashboard/notificaciones'); setShowNotif(false); if (!n.leida) markAsRead(n.id); }} className={`px-4 py-3 border-b border-slate-50 transition-colors flex items-start gap-3 cursor-pointer ${n.leida ? 'bg-white' : 'bg-blue-50/50'}`}>
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${n.tipo === 'usuario' ? 'bg-emerald-100 text-emerald-600' : n.tipo === 'sistema' ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600'}`}>
                           {n.tipo === 'usuario' ? <Users size={14} /> : n.tipo === 'sistema' ? <Activity size={14} /> : <AlertTriangle size={14} />}
                         </div>

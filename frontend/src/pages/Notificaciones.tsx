@@ -74,6 +74,24 @@ export const Notificaciones = () => {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel('notif-sound')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notificaciones' }, (payload) => {
+        const nueva = payload.new as Notif;
+        if (nueva.destinatario === user.email || nueva.destinatario === '__all__') {
+          try {
+            const audio = new Audio('/aud/ad.mp3');
+            audio.volume = 0.7;
+            audio.play().catch(() => {});
+          } catch {}
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
+
   const fetchUsuarios = async () => {
     try {
       const { data } = await supabase
@@ -88,7 +106,7 @@ export const Notificaciones = () => {
     try {
       const { data } = await supabase
         .from('notificaciones')
-        .select('id, tipo, titulo, mensaje, enlace, leida, usuario_email, destinatario, origen_tabla, origen_id, generado_por, created_at')
+        .select('*')
         .order('created_at', { ascending: false })
         .limit(50);
       if (data) setNotifs(data);
@@ -129,11 +147,11 @@ export const Notificaciones = () => {
         tipo,
         titulo: titulo.trim(),
         mensaje: `${titulo.trim()}: ${mensaje.trim()}`,
-        enlace,
+        enlace: '/dashboard/notificaciones',
         leida: false,
         usuario_email: email,
         destinatario: email,
-        generado_por: 'admin',
+        generado_por: user?.rol || 'admin',
       }));
 
       const { error } = await supabase.from('notificaciones').insert(inserts);
