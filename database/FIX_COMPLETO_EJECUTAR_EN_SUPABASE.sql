@@ -26,6 +26,15 @@ ALTER TABLE tiempos_atencion ADD COLUMN IF NOT EXISTS estado VARCHAR(30) DEFAULT
 ALTER TABLE tiempos_atencion ADD COLUMN IF NOT EXISTS sla_cumplido BOOLEAN DEFAULT FALSE;
 ALTER TABLE tiempos_atencion ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
+-- 2b. FOREIGN KEY de solicitud_id a solicitudes (solo si la tabla solicitudes ya existe)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'solicitudes') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_tiempos_solicitud') THEN
+      ALTER TABLE tiempos_atencion ADD CONSTRAINT fk_tiempos_solicitud FOREIGN KEY (solicitud_id) REFERENCES solicitudes(id) ON DELETE SET NULL;
+    END IF;
+  END IF;
+END $$;
+
 -- 3. CORREGIR NOTIFICACIONES
 ALTER TABLE notificaciones ADD COLUMN IF NOT EXISTS generado_por VARCHAR(50) DEFAULT 'manual';
 ALTER TABLE notificaciones ADD COLUMN IF NOT EXISTS eliminada BOOLEAN DEFAULT FALSE;

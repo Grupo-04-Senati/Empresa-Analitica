@@ -14,8 +14,8 @@ interface TiempoRow {
   estado: string | null;
   sla_cumplido: boolean | null;
   created_at: string;
-  clientes?: { nombre: string; empresa: string } | null;
-  solicitudes?: { contenido: string; estado: string; canal: string } | null;
+  cliente_nombre?: string;
+  cliente_empresa?: string;
 }
 
 interface ClienteOption { id: number; nombre: string; }
@@ -43,17 +43,26 @@ export const TiempoAtencion = () => {
     try {
       const [tiemposRes, clientesRes] = await Promise.all([
         supabase.from('tiempos_atencion')
-          .select('*, clientes(nombre, empresa), solicitudes(contenido, estado, canal)')
+          .select('*')
           .order('fecha', { ascending: false }),
-        supabase.from('clientes').select('id, nombre').eq('activo', true).order('nombre'),
+        supabase.from('clientes').select('id, nombre, empresa').eq('activo', true).order('nombre'),
       ]);
       if (tiemposRes.error) {
         setError('Error: ' + tiemposRes.error.message);
         setDatos([]);
       } else if (tiemposRes.data) {
-        setDatos(tiemposRes.data as TiempoRow[]);
+        const clientMap = new Map<number, { nombre: string; empresa: string }>();
+        if (clientesRes.data) {
+          clientesRes.data.forEach(c => clientMap.set(c.id, { nombre: c.nombre, empresa: c.empresa || '' }));
+        }
+        const enriched = tiemposRes.data.map((r: any) => ({
+          ...r,
+          cliente_nombre: r.cliente_id ? clientMap.get(r.cliente_id)?.nombre || null : null,
+          cliente_empresa: r.cliente_id ? clientMap.get(r.cliente_id)?.empresa || null : null,
+        }));
+        setDatos(enriched);
       }
-      if (clientesRes.data) setClientes(clientesRes.data);
+      if (clientesRes.data) setClientes(clientesRes.data.map(c => ({ id: c.id, nombre: c.nombre })));
     } catch (e) {
       setError('Error de conexion');
     }
@@ -92,9 +101,7 @@ export const TiempoAtencion = () => {
   ];
 
   const filtrados = datos.filter(d => {
-    const clientName = d.clientes?.nombre || '';
-    const solicitudText = d.solicitudes?.contenido || '';
-    const matchBusq = `${clientName} ${d.operador || ''} ${solicitudText}`.toLowerCase().includes(busqueda.toLowerCase());
+    const matchBusq = `${d.cliente_nombre || ''} ${d.operador || ''}`.toLowerCase().includes(busqueda.toLowerCase());
     const tiempo = Number(d.tiempo_minutos);
     const cumple = d.sla_cumplido !== null ? d.sla_cumplido : tiempo <= SLA_MINUTOS;
     const matchFiltro = filtroCumple === 'todos' || (filtroCumple === 'cumple' && cumple) || (filtroCumple === 'excede' && !cumple);
@@ -286,17 +293,12 @@ export const TiempoAtencion = () => {
                   return (
                     <tr key={d.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
                       <td className="py-3 px-4">
-                        <p className="font-medium text-slate-800">{d.clientes?.nombre || 'Sin cliente'}</p>
-                        {d.clientes?.empresa && <p className="text-xs text-slate-400">{d.clientes.empresa}</p>}
+                        <p className="font-medium text-slate-800">{d.cliente_nombre || 'Sin cliente'}</p>
+                        {d.cliente_empresa && <p className="text-xs text-slate-400">{d.cliente_empresa}</p>}
                       </td>
                       <td className="py-3 px-4 max-w-[200px]">
-                        {d.solicitudes ? (
-                          <div>
-                            <p className="text-slate-600 truncate text-xs">{d.solicitudes.contenido}</p>
-                            <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${d.solicitudes.estado === 'resuelto' ? 'bg-emerald-100 text-emerald-700' : d.solicitudes.estado === 'en_proceso' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                              {d.solicitudes.estado}
-                            </span>
-                          </div>
+                        {d.solicitud_id ? (
+                          <span className="text-xs text-slate-500">Solicitud #{d.solicitud_id}</span>
                         ) : <span className="text-slate-400 text-xs">—</span>}
                       </td>
                       <td className="py-3 px-4 font-medium text-slate-800">{tiempo} min</td>
