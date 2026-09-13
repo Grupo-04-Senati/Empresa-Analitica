@@ -4,7 +4,7 @@ import {
   BrainCircuit, Send, Sparkles, Tag, Hash, Loader2, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { supabase } from '@/services/supabase';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '../context/AuthContext';
 
 interface CategoriaDB {
   id: number;

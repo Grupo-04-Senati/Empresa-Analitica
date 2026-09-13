@@ -90,7 +90,6 @@ export const DashboardLayout = () => {
     const updateLastSeen = async () => {
       try {
         if (!clienteId) {
-          // Buscar el cliente asociado a este usuario
           const { data } = await supabase
             .from('clientes')
             .select('id')
@@ -99,13 +98,14 @@ export const DashboardLayout = () => {
           if (data) clienteId = data.id;
           else return;
         }
-        await supabase.rpc('update_cliente_last_seen', { p_cliente_id: clienteId });
+        await supabase
+          .from('clientes')
+          .update({ last_seen: new Date().toISOString() })
+          .eq('id', clienteId);
       } catch { /* empty */ }
     };
 
-    // Actualizar inmediatamente al cargar
     updateLastSeen();
-    // Y luego cada 60 segundos
     const interval = setInterval(updateLastSeen, 60000);
     return () => clearInterval(interval);
   }, [user]);
