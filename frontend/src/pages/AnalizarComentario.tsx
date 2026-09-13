@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   BrainCircuit, Send, Sparkles, Tag, Hash, Loader2, ThumbsUp, ThumbsDown,
-  Pencil, Trash2, X, AlertTriangle,
 } from 'lucide-react';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -116,16 +115,6 @@ export const AnalizarComentario = () => {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [showWordEditor, setShowWordEditor] = useState(false);
 
-  // Modal para editar/borrar comentario (admin)
-  const [editModal, setEditModal] = useState<AnalisisReciente | null>(null);
-  const [editTexto, setEditTexto] = useState('');
-  const [editCategoria, setEditCategoria] = useState('');
-  const [editEstado, setEditEstado] = useState('');
-  const [editResultado, setEditResultado] = useState<ResultadoLocal | null>(null);
-  const [editGuardando, setEditGuardando] = useState(false);
-  const [editAnalizando, setEditAnalizando] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<AnalisisReciente | null>(null);
-
   useEffect(() => {
     const comentarioParam = searchParams.get('comentario');
     if (comentarioParam) setTexto(comentarioParam);
@@ -192,80 +181,13 @@ export const AnalizarComentario = () => {
     if (newWordType === type) setNewWordType('positivas');
   };
 
-  const openEditModal = (comentario: AnalisisReciente) => {
-    setEditModal(comentario);
-    setEditTexto(comentario.contenido);
-    setEditCategoria(comentario.analisis_nlp?.categoria_detectada || '');
-    setEditEstado('procesado');
-    setEditResultado(null);
-  };
-
-  const analizarEdit = async () => {
-    if (!editTexto.trim()) return;
-    setEditAnalizando(true);
-    const result = analizarConCategorias(editTexto, categorias, customWords);
-    setEditResultado(result);
-    setEditCategoria(result.categoria);
-    setEditAnalizando(false);
-  };
-
-  const guardarEdicion = async () => {
-    if (!editModal || !editTexto.trim()) return;
-    setEditGuardando(true);
-    try {
-      // Actualizar comentario
-      const { error: err1 } = await supabase
-        .from('comentarios')
-        .update({
-          contenido: editTexto,
-          categoria: editCategoria || undefined,
-          estado: editEstado,
-          procesado: true,
-        })
-        .eq('id', editModal.id);
-      if (err1) throw err1;
-
-      // Actualizar o crear analisis_nlp
-      const { data: existente } = await supabase
-        .from('analisis_nlp')
-        .select('id')
-        .eq('comentario_id', editModal.id)
-        .maybeSingle();
-
-      const nlpData = {
-        idioma: 'es',
-        cantidad_palabras: editResultado?.tokens.length || editTexto.split(/\s+/).length,
-        palabras_limpias: editResultado?.tokens || [],
-        palabras_frecuentes: editResultado?.palabrasFrecuentes.map(p => p.palabra) || [],
-        categoria_detectada: editCategoria,
-        confianza: editResultado ? editResultado.confianza / 100 : 0.5,
-        sentimiento: editResultado?.sentimiento || 'neutro',
-        fecha_analisis: new Date().toISOString(),
-      };
-
-      if (existente) {
-        await supabase.from('analisis_nlp').update(nlpData).eq('id', existente.id);
-      } else {
-        await supabase.from('analisis_nlp').insert({ comentario_id: editModal.id, ...nlpData });
-      }
-
-      setEditModal(null);
-      await cargarRecientes();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setEditGuardando(false);
-    }
-  };
-
-  const eliminarComentario = async (comentario: AnalisisReciente) => {
-    try {
-      await supabase.from('analisis_nlp').delete().eq('comentario_id', comentario.id);
-      await supabase.from('comentarios').delete().eq('id', comentario.id);
-      setDeleteConfirm(null);
-      await cargarRecientes();
-    } catch (err) {
-      console.error(err);
+  const handleAnalizarComentario = (comentario: AnalisisReciente) => {
+    setTexto(comentario.contenido);
+    setCanal(comentario.canal);
+    setResultado(null);
+    if (categorias.length > 0) {
+      const result = analizarConCategorias(comentario.contenido, categorias, customWords);
+      setResultado(result);
     }
   };
 
@@ -321,7 +243,11 @@ export const AnalizarComentario = () => {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Analizar Comentario</h2>
-          <p className="text-slate-500 text-sm mt-1">Analisis de sentimiento y clasificacion automatica</p>
+          <p className="text-slate-500 text-sm mt-1">
+            {isAdmin
+              ? 'Haz clic en un comentario reciente para analizarlo automaticamente'
+              : 'Analisis de sentimiento y clasificacion automatica'}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full">
@@ -341,18 +267,29 @@ export const AnalizarComentario = () => {
             <BrainCircuit size={18} className="text-blue-600" />
             <h3 className="font-semibold text-slate-700">Texto a Analizar</h3>
           </div>
-          <div className="flex items-center gap-3 mb-4">
-            <label className="text-sm font-semibold text-slate-700">Canal de origen:</label>
-            <select value={canal} onChange={e => setCanal(e.target.value)}
-              className="px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
-              <option value="web">Web</option>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="email">Email</option>
-              <option value="redes sociales">Redes Sociales</option>
-              <option value="presencial">Presencial</option>
-              <option value="telefono">Telefono</option>
-            </select>
-          </div>
+
+          {isAdmin ? (
+            <div className="mb-4">
+              <label className="text-xs font-medium text-slate-500 mb-1 block">Canal de origen (definido por el usuario)</label>
+              <div className="px-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 capitalize">
+                {canal}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 mb-4">
+              <label className="text-sm font-semibold text-slate-700">Canal de origen:</label>
+              <select value={canal} onChange={e => setCanal(e.target.value)}
+                className="px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+                <option value="web">Web</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="email">Email</option>
+                <option value="redes sociales">Redes Sociales</option>
+                <option value="presencial">Presencial</option>
+                <option value="telefono">Telefono</option>
+              </select>
+            </div>
+          )}
+
           <textarea
             className="w-full h-40 p-4 border border-slate-200 rounded-lg text-sm text-slate-700 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
             placeholder="Pega aqui el comentario del cliente para analizarlo..."
@@ -457,7 +394,9 @@ export const AnalizarComentario = () => {
             </div>
             <p className="font-semibold text-slate-700 mb-1">Esperando analisis</p>
             <p className="text-sm text-slate-400 max-w-xs">
-              Ingresa un comentario y presiona "Analizar" para ver el resultado.
+              {isAdmin
+                ? 'Haz clic en un comentario de la tabla de abajo para analizarlo automaticamente.'
+                : 'Ingresa un comentario y presiona "Analizar" para ver el resultado.'}
             </p>
           </div>
         )}
@@ -500,22 +439,22 @@ export const AnalizarComentario = () => {
                 const color = key === 'positivas' ? 'emerald' : key === 'negativas' ? 'red' : key === 'neutras' ? 'slate' : 'blue';
                 const defaults = key === 'positivas' ? DEFAULT_POSITIVAS : key === 'negativas' ? DEFAULT_NEGATIVAS : key === 'neutras' ? ['informacion','consulta','datos','estado','proceso','tiempo','fecha','numero','detalle','general'] : [];
                 return (
-                  <div key={key} className={`bg-${color}-50 rounded-lg p-3`}>
+                  <div key={key} className={`rounded-lg p-3`} style={{ backgroundColor: color === 'emerald' ? '#ecfdf5' : color === 'red' ? '#fef2f2' : color === 'slate' ? '#f8fafc' : '#eff6ff' }}>
                     <div className="flex items-center justify-between mb-2">
-                      <p className={`text-xs font-medium text-${color}-700 uppercase`}>{key} ({words.length} custom + {defaults.length} default)</p>
+                      <p className="text-xs font-medium uppercase" style={{ color: color === 'emerald' ? '#065f46' : color === 'red' ? '#991b1b' : color === 'slate' ? '#475569' : '#1d4ed8' }}>{key} ({words.length} custom + {defaults.length} default)</p>
                       {!isDefault && (
                         <button onClick={() => removeCategory(key)} className="text-red-400 hover:text-red-600 text-xs" title="Eliminar categoria">x</button>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {words.map(w => (
-                        <span key={`custom-${w}`} className={`px-2 py-0.5 bg-${color}-100 text-${color}-700 text-[10px] rounded-full flex items-center gap-1`}>
+                        <span key={`custom-${w}`} className="px-2 py-0.5 text-[10px] rounded-full flex items-center gap-1" style={{ backgroundColor: color === 'emerald' ? '#d1fae5' : color === 'red' ? '#fee2e2' : color === 'slate' ? '#e2e8f0' : '#dbeafe', color: color === 'emerald' ? '#065f46' : color === 'red' ? '#991b1b' : color === 'slate' ? '#475569' : '#1d4ed8' }}>
                           {w}
-                          <button onClick={() => removeWord(key, w)} className={`text-${color}-400 hover:text-${color}-700`}>x</button>
+                          <button onClick={() => removeWord(key, w)} className="opacity-50 hover:opacity-100">x</button>
                         </span>
                       ))}
                       {defaults.map(w => (
-                        <span key={`default-${w}`} className={`px-2 py-0.5 bg-white text-${color}-600 text-[10px] rounded-full border border-${color}-200`}>{w}</span>
+                        <span key={`default-${w}`} className="px-2 py-0.5 bg-white text-[10px] rounded-full border" style={{ borderColor: color === 'emerald' ? '#a7f3d0' : color === 'red' ? '#fecaca' : color === 'slate' ? '#cbd5e1' : '#bfdbfe', color: color === 'emerald' ? '#047857' : color === 'red' ? '#b91c1c' : color === 'slate' ? '#64748b' : '#2563eb' }}>{w}</span>
                       ))}
                     </div>
                   </div>
@@ -531,7 +470,7 @@ export const AnalizarComentario = () => {
           <Sparkles size={18} className="text-blue-600" />
           <h3 className="font-semibold text-slate-700">Analisis Recientes</h3>
           {isAdmin && (
-            <span className="text-xs text-slate-400 ml-2">— haz clic en un comentario para editar o borrar</span>
+            <span className="text-xs text-slate-400 ml-2">— haz clic en un comentario para analizarlo</span>
           )}
         </div>
         {recientes.length === 0 ? (
@@ -547,7 +486,6 @@ export const AnalizarComentario = () => {
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Categoria</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Confianza</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Sentimiento</th>
-                  {isAdmin && <th className="text-right py-3 px-4 text-xs font-medium text-slate-500 uppercase">Acciones</th>}
                 </tr>
               </thead>
               <tbody>
@@ -557,7 +495,7 @@ export const AnalizarComentario = () => {
                     className={`border-b border-slate-50 transition ${
                       isAdmin ? 'hover:bg-blue-50/50 cursor-pointer' : 'hover:bg-slate-50'
                     }`}
-                    onClick={() => isAdmin && openEditModal(r)}
+                    onClick={() => isAdmin && handleAnalizarComentario(r)}
                   >
                     <td className="py-3 px-4 text-slate-500 whitespace-nowrap">
                       {new Date(r.fecha).toLocaleDateString('es-ES')}
@@ -575,11 +513,11 @@ export const AnalizarComentario = () => {
                       {r.analisis_nlp?.confianza != null ? `${(r.analisis_nlp.confianza * 100).toFixed(0)}%` : '—'}
                     </td>
                     <td className="py-3 px-4">
-                      {(r.analisis_nlp as any)?.sentimiento === 'positivo' ? (
+                      {r.analisis_nlp?.sentimiento === 'positivo' ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-600 text-xs rounded-full font-medium">
                           <ThumbsUp size={12} /> Positivo
                         </span>
-                      ) : (r.analisis_nlp as any)?.sentimiento === 'negativo' ? (
+                      ) : r.analisis_nlp?.sentimiento === 'negativo' ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 text-xs rounded-full font-medium">
                           <ThumbsDown size={12} /> Negativo
                         </span>
@@ -587,26 +525,6 @@ export const AnalizarComentario = () => {
                         <span className="px-2 py-1 bg-slate-100 text-slate-500 text-xs rounded-full">Neutro</span>
                       )}
                     </td>
-                    {isAdmin && (
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
-                          <button
-                            onClick={() => openEditModal(r)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition"
-                            title="Editar"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirm(r)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
-                            title="Borrar"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    )}
                   </tr>
                 ))}
               </tbody>
@@ -614,146 +532,6 @@ export const AnalizarComentario = () => {
           </div>
         )}
       </div>
-
-      {/* Modal de editar comentario */}
-      {editModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <Pencil size={18} className="text-blue-600" />
-                <h3 className="font-semibold text-slate-700">Editar Comentario #{editModal.id}</h3>
-              </div>
-              <button onClick={() => setEditModal(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              {/* Canal de origen — solo lectura */}
-              <div>
-                <label className="text-xs font-medium text-slate-500 mb-1 block">Canal de origen (solo lectura)</label>
-                <div className="px-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 capitalize">
-                  {editModal.canal}
-                </div>
-              </div>
-              {/* Comentario */}
-              <div>
-                <label className="text-xs font-medium text-slate-500 mb-1 block">Comentario</label>
-                <textarea
-                  className="w-full h-28 p-3 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  value={editTexto}
-                  onChange={e => setEditTexto(e.target.value)}
-                />
-              </div>
-              {/* Categoria + Estado */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-medium text-slate-500 mb-1 block">Categoria</label>
-                  <input
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                    value={editCategoria}
-                    onChange={e => setEditCategoria(e.target.value)}
-                    placeholder="Ej: RECLAMO"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-500 mb-1 block">Estado</label>
-                  <select
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                    value={editEstado}
-                    onChange={e => setEditEstado(e.target.value)}
-                  >
-                    <option value="pendiente">Pendiente</option>
-                    <option value="procesado">Procesado</option>
-                    <option value="resuelto">Resuelto</option>
-                  </select>
-                </div>
-              </div>
-              {/* Boton Analizar */}
-              <button
-                onClick={analizarEdit}
-                disabled={editAnalizando || !editTexto.trim()}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
-              >
-                {editAnalizando ? <Loader2 size={14} className="animate-spin" /> : <BrainCircuit size={14} />}
-                Re-analizar texto
-              </button>
-              {/* Resultado del re-analisis */}
-              {editResultado && (
-                <div className="bg-slate-50 rounded-lg p-4 space-y-2 text-sm">
-                  <div className="flex items-center gap-4">
-                    <span className="font-medium text-slate-600">Categoria: <span className="text-blue-600">{editResultado.categoria}</span></span>
-                    <span className="font-medium text-slate-600">Confianza: <span className="text-blue-600">{editResultado.confianza}%</span></span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-slate-600">Sentimiento:</span>
-                    {editResultado.sentimiento === 'positivo' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 text-xs rounded-full"><ThumbsUp size={12} /> Positivo</span>
-                    )}
-                    {editResultado.sentimiento === 'negativo' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 text-xs rounded-full"><ThumbsDown size={12} /> Negativo</span>
-                    )}
-                    {editResultado.sentimiento === 'neutro' && (
-                      <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-xs rounded-full">Neutro</span>
-                    )}
-                  </div>
-                  {editResultado.palabrasFrecuentes.length > 0 && (
-                    <div>
-                      <span className="text-slate-500 text-xs">Palabras frecuentes: </span>
-                      <span className="text-slate-600 text-xs">{editResultado.palabrasFrecuentes.map(p => p.palabra).join(', ')}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-3 p-5 border-t border-slate-100">
-              <button
-                onClick={() => setEditModal(null)}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={guardarEdicion}
-                disabled={editGuardando || !editTexto.trim()}
-                className="px-5 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition"
-              >
-                {editGuardando ? <Loader2 size={14} className="animate-spin inline mr-2" /> : null}
-                Guardar cambios
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de confirmar eliminacion */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4">
-            <div className="p-6 text-center">
-              <AlertTriangle size={40} className="text-red-500 mx-auto mb-3" />
-              <h3 className="text-lg font-semibold text-slate-700 mb-2">Eliminar comentario</h3>
-              <p className="text-sm text-slate-500 mb-1">Comentario #{deleteConfirm.id}:</p>
-              <p className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3 mx-4 mb-2">"{deleteConfirm.contenido}"</p>
-              <p className="text-xs text-red-500">Esta accion no se puede deshacer.</p>
-            </div>
-            <div className="flex justify-center gap-3 p-5 border-t border-slate-100">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => eliminarComentario(deleteConfirm)}
-                className="px-5 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition"
-              >
-                Eliminar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
