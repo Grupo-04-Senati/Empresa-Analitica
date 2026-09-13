@@ -139,6 +139,12 @@ export const Notificaciones = () => {
       const { error } = await supabase.from('notificaciones').insert(inserts);
       if (error) throw error;
 
+      try {
+        const audio = new Audio('/aud/ad.mp3');
+        audio.volume = 0.7;
+        audio.play().catch(() => {});
+      } catch {}
+
       logAudit({ accion: 'NOTIFICATION', tabla: 'notificaciones', modulo: 'Notificaciones', detalles: `Notificacion "${titulo.trim()}" enviada a ${emailsToSend.length} usuario(s)`, datos_nuevos: { titulo: titulo.trim(), destinatario, tipo, enlace } });
 
       setTitulo('');
