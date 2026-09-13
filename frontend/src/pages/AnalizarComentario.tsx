@@ -1,17 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  BrainCircuit, Send, Sparkles, Tag, Hash, Loader2, ThumbsUp, ThumbsDown,
+  BrainCircuit, Send, Sparkles, Hash, Loader2, ThumbsUp, ThumbsDown, Zap, Tags,
 } from 'lucide-react';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
-
-interface CategoriaDB {
-  id: number;
-  nombre: string;
-  descripcion: string;
-  activo: boolean;
-}
+import { analizar } from '../services/nlpApi';
 
 interface AnalisisReciente {
   id: number;
@@ -27,19 +21,6 @@ interface AnalisisReciente {
   } | null;
 }
 
-interface ResultadoLocal {
-  tokens: string[];
-  palabrasFrecuentes: { palabra: string; frecuencia: number }[];
-  categoria: string;
-  confianza: number;
-  sentimiento: 'positivo' | 'negativo' | 'neutro';
-}
-
-const STOPWORDS_ES = new Set(['de','la','el','en','y','a','los','del','las','un','por','con','una','su','para','es','al','lo','como','más','o','pero','sus','le','ya','este','ha','sí','porque','esta','son','entre','cuando','muy','sin','sobre','también','me','hasta','hay','donde','quien','desde','todo','nos','durante','todos','uno','les','ni','contra','otros','ese','eso','ante','ellos','e','esto','mí','antes','algunos','qué','unos','yo','otro','otras','otra','él','tanto','esa','estos','mucho','quienes','nada','muchos','cual','poco','ella','estar','estas','algunas','algo','nosotros','mi','mis','tú','te','ti','tu','tus','ellas','nosotras','vosotros','vosotras','os','mío','mía','míos','mías','tuyo','tuya','tuyos','tuyas','suyo','suya','suyos','suyas','nuestro','nuestra','nuestros','nuestras','vuestro','vuestra','vuestros','vuestras','esos','esas','estoy','estás','está','estamos','estáis','están','seré','serás','será','seremos','seréis','serán','sido','siendo','fue','fuera','han','hemos']);
-
-const DEFAULT_POSITIVAS = ['excelente','bueno','buen','buenas','genial','increíble','increible','perfecto','agradecido','agradecida','gracias','feliz','satisfecho','satisfecha','recomiendo','me gusta','maravilloso','fantástico','fantastico','rápido','rapido','eficiente','calidad','profesional','amable','resolvio','ayuda','mejor','bien','ok','servicio bueno','todo bien','funciona bien'];
-const DEFAULT_NEGATIVAS = ['malo','mala','terrible','pésimo','pesimo','horrible','lento','lenta','error','problema','queja','reclamo','insatisfecho','decepcionado','decepcionada','no funciona','no sirve','muy lento','deficiente','lamentable','estafa','fraude','furioso','furiosa','molesto','molesta','incumplimiento','carajo','mierda','puta','maldito','maldita','culo','pendejo','pendeja','estupido','estupida','imbécil','imbecil','idiota','basura','asco','asqueroso','asquerosa','desastre','falso','robo','robado','corrupto','corrupta','inutil','inútil','vergüenza','verguenza','odio','odioso','detesto','furibundo','desesperado','desesperada','hartado','hartada','harto','harta','jodido','jodida','hijueputa','malparido','careverga','marica','maricon','puto','prostituto','pedo','caca','verga','torpe'];
-
 const STORAGE_KEY = 'badi_custom_words';
 
 function loadCustomWords(): Record<string, string[]> {
@@ -54,49 +35,72 @@ function saveCustomWords(words: Record<string, string[]>) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(words)); } catch { /* empty */ }
 }
 
-function analizarConCategorias(texto: string, categorias: CategoriaDB[], customWords: Record<string, string[]>): ResultadoLocal {
-  const limpio = texto.toLowerCase().replace(/[^\w\sáéíóúñ]/g, ' ');
-  const tokens = limpio.split(/\s+/).filter((t) => t.length > 2 && !STOPWORDS_ES.has(t));
-  const freq: Record<string, number> = {};
-  tokens.forEach((t) => { freq[t] = (freq[t] || 0) + 1; });
-  const palabrasFrecuentes = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([palabra, frecuencia]) => ({ palabra, frecuencia }));
+const PalabrasEditor = () => {
+  const [words, setWords] = useState<Record<string, string[]>>(loadCustomWords);
+  const [newWord, setNewWord] = useState('');
+  const [wordType, setWordType] = useState('positivas');
 
-  const positivas = [...new Set([...DEFAULT_POSITIVAS, ...customWords.positivas])];
-  const negativas = [...new Set([...DEFAULT_NEGATIVAS, ...customWords.negativas])];
+  useEffect(() => { saveCustomWords(words); }, [words]);
 
-  const textoLower = texto.toLowerCase();
-  let posCount = 0, negCount = 0;
-  positivas.forEach((p) => { if (textoLower.includes(p.toLowerCase())) posCount++; });
-  negativas.forEach((n) => { if (textoLower.includes(n.toLowerCase())) negCount++; });
+  const addWord = () => {
+    if (!newWord.trim()) return;
+    setWords(prev => ({
+      ...prev,
+      [wordType]: [...new Set([...(prev[wordType] || []), newWord.trim().toLowerCase()])],
+    }));
+    setNewWord('');
+  };
 
-  let categoria = 'OTROS';
-  let mejorScore = 0;
-  for (const cat of categorias) {
-    if (!cat.activo) continue;
-    const nombreCat = cat.nombre.toLowerCase();
-    const descCat = (cat.descripcion || '').toLowerCase();
-    const scoreNombre = textoLower.includes(nombreCat) ? 10 : 0;
-    const palabrasDesc = descCat.split(/\s+/).filter(w => w.length > 3);
-    const scoreDesc = palabrasDesc.filter(w => textoLower.includes(w)).length;
-    const scoreTotal = scoreNombre + scoreDesc;
-    if (scoreTotal > mejorScore) { mejorScore = scoreTotal; categoria = cat.nombre.toUpperCase(); }
-  }
-  if (mejorScore === 0) {
-    if (textoLower.match(/compr|venta|adquir|producto|precio/)) categoria = 'VENTAS';
-    else if (textoLower.match(/soporte|ayuda|técnic|repar|falla/)) categoria = 'SOPORTE';
-    else if (textoLower.match(/reclamo|queja|malo|pésimo|defecto|estafa|fraude|mierda|carajo|puta|horrible|basura|asco/)) categoria = 'RECLAMO';
-    else if (textoLower.match(/consulta|pregunt|información|duda/)) categoria = 'CONSULTA';
-    else if (textoLower.match(/excelente|gracias|buen|feliz|satisfecho|genial|increíble|perfecto/)) categoria = 'FELICITACION';
-  }
+  const removeWord = (type: string, word: string) => {
+    setWords(prev => ({
+      ...prev,
+      [type]: (prev[type] || []).filter(w => w !== word),
+    }));
+  };
 
-  const total = posCount + negCount || 1;
-  const confianza = Math.min(95, Math.round(50 + (Math.abs(posCount - negCount) / total) * 45));
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <select value={wordType} onChange={e => setWordType(e.target.value)}
+          className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+          <option value="positivas">Positivas</option>
+          <option value="negativas">Negativas</option>
+          <option value="neutras">Neutras</option>
+        </select>
+        <input value={newWord} onChange={e => setNewWord(e.target.value)} onKeyDown={e => e.key === 'Enter' && addWord()}
+          placeholder="Nueva palabra..." className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+        <button onClick={addWord} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">Agregar</button>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {Object.entries(words).map(([key, wordList]) => {
+          const color = key === 'positivas' ? 'emerald' : key === 'negativas' ? 'red' : 'slate';
+          return (
+            <div key={key} className="rounded-lg p-3" style={{ backgroundColor: color === 'emerald' ? '#ecfdf5' : color === 'red' ? '#fef2f2' : '#f8fafc' }}>
+              <p className="text-xs font-medium uppercase mb-2" style={{ color: color === 'emerald' ? '#065f46' : color === 'red' ? '#991b1b' : '#475569' }}>{key} ({wordList.length})</p>
+              <div className="flex flex-wrap gap-1">
+                {wordList.map(w => (
+                  <span key={w} className="px-2 py-0.5 text-[10px] rounded-full flex items-center gap-1" style={{ backgroundColor: color === 'emerald' ? '#d1fae5' : color === 'red' ? '#fee2e2' : '#e2e8f0', color: color === 'emerald' ? '#065f46' : color === 'red' ? '#991b1b' : '#475569' }}>
+                    {w}
+                    <button onClick={() => removeWord(key, w)} className="opacity-50 hover:opacity-100">x</button>
+                  </span>
+                ))}
+                {wordList.length === 0 && <span className="text-[10px] text-slate-400">Vacio</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
-  let sentimiento: 'positivo' | 'negativo' | 'neutro' = 'neutro';
-  if (posCount > negCount) sentimiento = 'positivo';
-  else if (negCount > posCount) sentimiento = 'negativo';
-
-  return { tokens, palabrasFrecuentes, categoria, confianza, sentimiento };
+interface ResultadoLocal {
+  tokens: string[];
+  palabrasFrecuentes: { palabra: string; frecuencia: number }[];
+  categoria: string;
+  confianza: number;
+  sentimiento: 'positivo' | 'negativo' | 'neutro';
+  temas: string[];
 }
 
 export const AnalizarComentario = () => {
@@ -108,87 +112,53 @@ export const AnalizarComentario = () => {
   const [cargando, setCargando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [recientes, setRecientes] = useState<AnalisisReciente[]>([]);
-  const [categorias, setCategorias] = useState<CategoriaDB[]>([]);
-  const [customWords, setCustomWords] = useState<Record<string, string[]>>(loadCustomWords);
-  const [newWord, setNewWord] = useState('');
-  const [newWordType, setNewWordType] = useState('positivas');
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [showWordEditor, setShowWordEditor] = useState(false);
 
   useEffect(() => {
     const comentarioParam = searchParams.get('comentario');
     if (comentarioParam) setTexto(comentarioParam);
   }, [searchParams]);
 
-  useEffect(() => { saveCustomWords(customWords); }, [customWords]);
+  useEffect(() => { cargarRecientes(); }, []);
 
   useEffect(() => {
-    if (texto.trim() && categorias.length > 0 && !resultado) analizar();
-  }, [texto, categorias]);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        await cargarRecientes();
-        const catsRes = await supabase
-          .from('categorias')
-          .select('id, nombre, descripcion, activo')
-          .eq('activo', true);
-        if (catsRes.data) setCategorias(catsRes.data as CategoriaDB[]);
-      } catch { /* empty */ }
-    };
-    fetchData();
+    const channel = supabase
+      .channel('comentarios-recientes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comentarios' }, () => {
+        cargarRecientes();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const analizar = async () => {
+  const analizarTexto = async () => {
     if (!texto.trim()) return;
     setCargando(true);
-    const result = analizarConCategorias(texto, categorias, customWords);
-    setResultado(result);
+    const result = await analizar(texto);
+    setResultado({
+      tokens: result.tokens,
+      palabrasFrecuentes: result.palabras_frecuentes,
+      categoria: result.categoria_detectada,
+      confianza: result.confianza,
+      sentimiento: result.sentimiento,
+      temas: result.temas,
+    });
     setCargando(false);
   };
 
-  const addWord = () => {
-    if (!newWord.trim()) return;
-    setCustomWords(prev => ({
-      ...prev,
-      [newWordType]: [...new Set([...(prev[newWordType] || []), newWord.trim().toLowerCase()])],
-    }));
-    setNewWord('');
-  };
-
-  const removeWord = (type: string, word: string) => {
-    setCustomWords(prev => ({
-      ...prev,
-      [type]: (prev[type] || []).filter(w => w !== word),
-    }));
-  };
-
-  const addCategory = () => {
-    const name = newCategoryName.trim().toLowerCase().replace(/\s+/g, '_');
-    if (!name || customWords[name]) return;
-    setCustomWords(prev => ({ ...prev, [name]: [] }));
-    setNewWordType(name);
-    setNewCategoryName('');
-  };
-
-  const removeCategory = (type: string) => {
-    setCustomWords(prev => {
-      const next = { ...prev };
-      delete next[type];
-      return next;
-    });
-    if (newWordType === type) setNewWordType('positivas');
-  };
-
-  const handleAnalizarComentario = (comentario: AnalisisReciente) => {
+  const handleAnalizarComentario = async (comentario: AnalisisReciente) => {
     setTexto(comentario.contenido);
     setCanal(comentario.canal);
-    setResultado(null);
-    if (categorias.length > 0) {
-      const result = analizarConCategorias(comentario.contenido, categorias, customWords);
-      setResultado(result);
-    }
+    setCargando(true);
+    const result = await analizar(comentario.contenido);
+    setResultado({
+      tokens: result.tokens,
+      palabrasFrecuentes: result.palabras_frecuentes,
+      categoria: result.categoria_detectada,
+      confianza: result.confianza,
+      sentimiento: result.sentimiento,
+      temas: result.temas,
+    });
+    setCargando(false);
   };
 
   const cargarRecientes = async () => {
@@ -209,8 +179,9 @@ export const AnalizarComentario = () => {
         contenido: texto,
         canal,
         tipo: 'comentario',
-        estado: 'pendiente',
+        estado: 'procesado',
         procesado: true,
+        categoria: resultado.categoria,
         fecha: new Date().toISOString(),
       }).select('id').single();
       if (err1) throw err1;
@@ -250,13 +221,13 @@ export const AnalizarComentario = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <span className="inline-flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full">
+            <Zap size={14} />
+            ML Backend
+          </span>
           <span className="inline-flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full">
             <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-            Analisis local activo
-          </span>
-          <span className="inline-flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full">
-            <Tag size={14} />
-            {categorias.length} categorias DB
+            Analisis activo
           </span>
         </div>
       </div>
@@ -299,7 +270,7 @@ export const AnalizarComentario = () => {
           <div className="flex justify-end mt-4">
             <button
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              onClick={analizar}
+              onClick={analizarTexto}
               disabled={cargando || !texto.trim()}
             >
               {cargando ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
@@ -336,9 +307,9 @@ export const AnalizarComentario = () => {
               </div>
               <div className="bg-slate-50 rounded-lg p-3">
                 <p className="text-xs text-slate-500 mb-1">Confianza</p>
-                <p className="text-lg font-bold text-slate-800">{resultado.confianza}%</p>
+                <p className="text-lg font-bold text-slate-800">{resultado.confianza.toFixed(1)}%</p>
                 <div className="w-full h-2 bg-slate-200 rounded-full mt-2">
-                  <div className="h-2 bg-blue-500 rounded-full transition-all" style={{ width: `${resultado.confianza}%` }} />
+                  <div className="h-2 bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min(100, resultado.confianza)}%` }} />
                 </div>
               </div>
               <div className="bg-slate-50 rounded-lg p-3">
@@ -378,12 +349,14 @@ export const AnalizarComentario = () => {
 
             <div>
               <p className="flex items-center gap-1.5 text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
-                <Tag size={13} /> Categoria
+                <Sparkles size={13} /> Temas detectados
               </p>
               <div className="flex flex-wrap gap-2">
-                <span className="px-2.5 py-1 bg-blue-50 text-blue-600 text-xs rounded-full font-medium">
-                  {resultado.categoria}
-                </span>
+                {resultado.temas.map((t) => (
+                  <span key={t} className="px-2.5 py-1 bg-blue-50 text-blue-600 text-xs rounded-full font-medium">
+                    {t}
+                  </span>
+                ))}
               </div>
             </div>
           </div>
@@ -403,66 +376,17 @@ export const AnalizarComentario = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm mt-6 p-6">
-        <button onClick={() => setShowWordEditor(!showWordEditor)} className="flex items-center gap-2 w-full text-left">
-          <Tag size={18} className="text-blue-600" />
-          <h3 className="font-semibold text-slate-700 flex-1">Palabras de Analisis (Admin)</h3>
-          <span className="text-xs text-slate-400">{showWordEditor ? 'Ocultar' : 'Mostrar'}</span>
-        </button>
-        {showWordEditor && (
+        <details>
+          <summary className="flex items-center gap-2 cursor-pointer select-none">
+            <Tags size={18} className="text-blue-600" />
+            <h3 className="font-semibold text-slate-700 flex-1">Palabras de Analisis (Admin)</h3>
+            <span className="text-xs text-slate-400">Personalizar</span>
+          </summary>
           <div className="mt-4 space-y-4">
-            <p className="text-xs text-slate-500">Administra las palabras y categorias de analisis. Crea nuevos tipos, agrega o elimina palabras personalizadas.</p>
-            
-            <div className="flex gap-2">
-              <select value={newWordType} onChange={e => setNewWordType(e.target.value)}
-                className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
-                {Object.keys(customWords).map(k => (
-                  <option key={k} value={k}>{k.charAt(0).toUpperCase() + k.slice(1)}</option>
-                ))}
-              </select>
-              <input value={newWord} onChange={e => setNewWord(e.target.value)} onKeyDown={e => e.key === 'Enter' && addWord()}
-                placeholder="Nueva palabra..." className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
-              <button onClick={addWord} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">Agregar</button>
-            </div>
-
-            <div className="flex gap-2 items-end">
-              <div className="flex-1">
-                <label className="text-xs font-medium text-slate-500 mb-1 block">Nueva categoria</label>
-                <input value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCategory()}
-                  placeholder=" Nombre de la categoria..." className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
-              </div>
-              <button onClick={addCategory} className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition">Crear Categoria</button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {Object.entries(customWords).map(([key, words]) => {
-                const isDefault = ['positivas', 'negativas', 'neutras'].includes(key);
-                const color = key === 'positivas' ? 'emerald' : key === 'negativas' ? 'red' : key === 'neutras' ? 'slate' : 'blue';
-                const defaults = key === 'positivas' ? DEFAULT_POSITIVAS : key === 'negativas' ? DEFAULT_NEGATIVAS : key === 'neutras' ? ['informacion','consulta','datos','estado','proceso','tiempo','fecha','numero','detalle','general'] : [];
-                return (
-                  <div key={key} className={`rounded-lg p-3`} style={{ backgroundColor: color === 'emerald' ? '#ecfdf5' : color === 'red' ? '#fef2f2' : color === 'slate' ? '#f8fafc' : '#eff6ff' }}>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-medium uppercase" style={{ color: color === 'emerald' ? '#065f46' : color === 'red' ? '#991b1b' : color === 'slate' ? '#475569' : '#1d4ed8' }}>{key} ({words.length} custom + {defaults.length} default)</p>
-                      {!isDefault && (
-                        <button onClick={() => removeCategory(key)} className="text-red-400 hover:text-red-600 text-xs" title="Eliminar categoria">x</button>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {words.map(w => (
-                        <span key={`custom-${w}`} className="px-2 py-0.5 text-[10px] rounded-full flex items-center gap-1" style={{ backgroundColor: color === 'emerald' ? '#d1fae5' : color === 'red' ? '#fee2e2' : color === 'slate' ? '#e2e8f0' : '#dbeafe', color: color === 'emerald' ? '#065f46' : color === 'red' ? '#991b1b' : color === 'slate' ? '#475569' : '#1d4ed8' }}>
-                          {w}
-                          <button onClick={() => removeWord(key, w)} className="opacity-50 hover:opacity-100">x</button>
-                        </span>
-                      ))}
-                      {defaults.map(w => (
-                        <span key={`default-${w}`} className="px-2 py-0.5 bg-white text-[10px] rounded-full border" style={{ borderColor: color === 'emerald' ? '#a7f3d0' : color === 'red' ? '#fecaca' : color === 'slate' ? '#cbd5e1' : '#bfdbfe', color: color === 'emerald' ? '#047857' : color === 'red' ? '#b91c1c' : color === 'slate' ? '#64748b' : '#2563eb' }}>{w}</span>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <p className="text-xs text-slate-500">Agrega palabras personalizadas para mejorar la deteccion de sentimiento.</p>
+            <PalabrasEditor />
           </div>
-        )}
+        </details>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm mt-6 p-6">

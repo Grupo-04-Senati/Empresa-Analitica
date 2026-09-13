@@ -28,6 +28,15 @@ export const Clasificacion = () => {
 
   useEffect(() => { fetchData(); }, []);
 
+  useEffect(() => {
+    const channel = supabase
+      .channel('clasificacion-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comentarios' }, () => { fetchData(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'analisis_nlp' }, () => { fetchData(); })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   const fetchData = async () => {
     setLoading(true);
     const [comRes, catRes] = await Promise.all([

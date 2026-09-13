@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Shield, Search, Eye, UserPlus, LogIn, LogOut, Edit3, Trash2, Bell, Scan, AlertTriangle, X, Clock, RotateCcw } from 'lucide-react';
+import { Shield, Search, Eye, UserPlus, LogIn, LogOut, Edit3, Trash2, Bell, Scan, AlertTriangle, X, Clock, RotateCcw, BrainCircuit } from 'lucide-react';
 import { supabase } from '@/services/supabase';
 
 /*
@@ -26,6 +26,7 @@ interface AuditRow {
   ip: string | null;
   detalles: Record<string, unknown> | string | null;
   modulo: string | null;
+  usuario_o_sistema: string | null;
 }
 
 async function adminDelete(query: string): Promise<boolean> {
@@ -69,15 +70,19 @@ const ACCIONES: Record<string, { icon: typeof Shield; color: string; bg: string 
   LOGOUT: { icon: LogOut, color: 'text-slate-600', bg: 'bg-slate-100' },
   REGISTER: { icon: UserPlus, color: 'text-blue-600', bg: 'bg-blue-100' },
   CREATE: { icon: UserPlus, color: 'text-blue-600', bg: 'bg-blue-100' },
+  INSERT: { icon: UserPlus, color: 'text-blue-600', bg: 'bg-blue-100' },
   UPDATE: { icon: Edit3, color: 'text-amber-600', bg: 'bg-amber-100' },
   DELETE: { icon: Trash2, color: 'text-red-600', bg: 'bg-red-100' },
   VIEW: { icon: Eye, color: 'text-slate-500', bg: 'bg-slate-100' },
   EXPORT: { icon: RotateCcw, color: 'text-purple-600', bg: 'bg-purple-100' },
   NOTIFICATION: { icon: Bell, color: 'text-indigo-600', bg: 'bg-indigo-100' },
+  NOTIFICACION_AUTO: { icon: Bell, color: 'text-indigo-600', bg: 'bg-indigo-100' },
+  CLASIFICACION_AUTO: { icon: Scan, color: 'text-orange-600', bg: 'bg-orange-100' },
   FACE_LOGIN: { icon: Scan, color: 'text-cyan-600', bg: 'bg-cyan-100' },
   FACE_REGISTER: { icon: Scan, color: 'text-cyan-600', bg: 'bg-cyan-100' },
   ROLE_CHANGE: { icon: Shield, color: 'text-pink-600', bg: 'bg-pink-100' },
   ERROR: { icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-100' },
+  PROCESAR_COMENTARIO: { icon: BrainCircuit, color: 'text-teal-600', bg: 'bg-teal-100' },
 };
 
 const LIMPIEZA_OPCIONES = [

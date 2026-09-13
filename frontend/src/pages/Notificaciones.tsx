@@ -13,6 +13,9 @@ interface Notif {
   leida: boolean;
   usuario_email: string | null;
   destinatario: string | null;
+  origen_tabla: string | null;
+  origen_id: number | null;
+  generado_por: string | null;
   created_at: string;
 }
 
@@ -85,7 +88,7 @@ export const Notificaciones = () => {
     try {
       const { data } = await supabase
         .from('notificaciones')
-        .select('*')
+        .select('id, tipo, titulo, mensaje, enlace, leida, usuario_email, destinatario, origen_tabla, origen_id, generado_por, created_at')
         .order('created_at', { ascending: false })
         .limit(50);
       if (data) setNotifs(data);
@@ -130,6 +133,7 @@ export const Notificaciones = () => {
         leida: false,
         usuario_email: email,
         destinatario: email,
+        generado_por: 'admin',
       }));
 
       const { error } = await supabase.from('notificaciones').insert(inserts);
@@ -171,7 +175,7 @@ export const Notificaciones = () => {
       <div className="max-w-4xl mx-auto flex flex-col gap-6">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Notificaciones</h2>
-          <p className="text-slate-500 text-sm mt-1">Enviar notificaciones en tiempo real a usuarios especificos</p>
+          <p className="text-slate-500 text-sm mt-1">Enviar y revisar notificaciones manuales y automaticas del sistema</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-6">
@@ -301,6 +305,11 @@ export const Notificaciones = () => {
                     <div className="flex items-center gap-2">
                       <p className={`text-sm ${n.leida ? 'text-slate-500' : 'text-slate-700 font-semibold'}`}>{n.titulo}</p>
                       {isEliminada && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">Eliminada por usuario</span>}
+                      {n.generado_por === 'sistema' ? (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-600 font-medium">Auto</span>
+                      ) : (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium">Manual</span>
+                      )}
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">{n.mensaje}</p>
                     <div className="flex items-center gap-2 mt-1">
