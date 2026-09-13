@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Calculator, BrainCircuit, Database, Loader2, RefreshCw, TrendingUp, BarChart3, AlertTriangle } from 'lucide-react';
 import { apiGet } from '@/services/api';
-import { calculoStatsLocal } from '@/services/scipy';
 
 interface EstadisticasBackend {
   tiene_datos: boolean;

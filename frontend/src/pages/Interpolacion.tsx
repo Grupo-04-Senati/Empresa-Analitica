@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Intersect, Database, TrendingUp, AlertTriangle, RefreshCw, Loader2, BrainCircuit } from 'lucide-react';
+import { TrendingUp, Database, AlertTriangle, RefreshCw, Loader2, BrainCircuit } from 'lucide-react';
 import { apiGet, apiPost } from '@/services/api';
 
 interface PuntoInterpolado {
@@ -120,7 +120,7 @@ const Interpolacion = () => {
 
           <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
             <div className="flex items-center gap-2 mb-4">
-              <Intersect size={18} className="text-blue-600" />
+              <TrendingUp size={18} className="text-blue-600" />
               <h3 className="font-semibold text-slate-700">Modelo de Interpolación</h3>
             </div>
             <div className="h-[320px]">
