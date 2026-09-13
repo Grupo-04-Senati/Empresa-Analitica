@@ -16,10 +16,11 @@ interface SolicitudDB {
   fecha_inicio: string | null;
   fecha_resolucion: string | null;
   created_at: string;
-  clientes?: { nombre: string; empresa: string } | null;
+  cliente_nombre?: string | null;
+  cliente_empresa?: string | null;
 }
 
-interface ClienteOption { id: number; nombre: string; }
+interface ClienteOption { id: number; nombre: string; empresa: string | null; }
 
 const estadoConfig: Record<string, { label: string; cls: string; icon: typeof Clock }> = {
   pendiente: { label: 'Pendiente', cls: 'bg-amber-100 text-amber-700', icon: Clock },
@@ -47,6 +48,7 @@ export const Solicitudes = () => {
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [error, setError] = useState('');
   const [contenido, setContenido] = useState('');
+  const [asunto, setAsunto] = useState('');
   const [canal, setCanal] = useState('web');
   const [prioridad, setPrioridad] = useState('normal');
   const [saving, setSaving] = useState(false);
@@ -58,7 +60,11 @@ export const Solicitudes = () => {
   const fetchMiCliente = async () => {
     if (!user?.id) return;
     const userId = Number(user.id);
-    const { data } = await supabase.from('clientes').select('nombre, empresa').eq('usuario_id', userId).maybeSingle();
+    let { data } = await supabase.from('clientes').select('nombre, empresa').eq('usuario_id', userId).maybeSingle();
+    if (!data && user?.email) {
+      const { data: cliByEmail } = await supabase.from('clientes').select('nombre, empresa').eq('email', user.email).maybeSingle();
+      if (cliByEmail) data = cliByEmail;
+    }
     if (data) setMiCliente(data);
   };
 
@@ -69,15 +75,24 @@ export const Solicitudes = () => {
         supabase.from('solicitudes')
           .select('*')
           .order('fecha_solicitud', { ascending: false }),
-        supabase.from('clientes').select('id, nombre, empresa').eq('activo', true).order('nombre'),
+        supabase.from('clientes').select('id, nombre, empresa').order('nombre'),
       ]);
       if (solRes.error) {
         setError('Error cargando solicitudes: ' + solRes.error.message);
         setSolicitudes([]);
       } else if (solRes.data) {
-        setSolicitudes(solRes.data as SolicitudDB[]);
+        const clientMap = new Map<number, { nombre: string; empresa: string }>();
+        if (cliRes.data) {
+          cliRes.data.forEach(c => clientMap.set(c.id, { nombre: c.nombre, empresa: c.empresa || '' }));
+        }
+        const enriched = solRes.data.map((r: any) => ({
+          ...r,
+          cliente_nombre: r.cliente_id ? clientMap.get(r.cliente_id)?.nombre || null : null,
+          cliente_empresa: r.cliente_id ? clientMap.get(r.cliente_id)?.empresa || null : null,
+        }));
+        setSolicitudes(enriched);
       }
-      if (cliRes.data) setClientes(cliRes.data);
+      if (cliRes.data) setClientes(cliRes.data.map(c => ({ id: c.id, nombre: c.nombre, empresa: c.empresa })));
     } catch (e) {
       setError('Error de conexion con la base de datos');
     }
@@ -85,7 +100,7 @@ export const Solicitudes = () => {
   };
 
   const handleSubmit = async () => {
-    if (!contenido.trim()) return;
+    if (!contenido.trim() && !asunto.trim()) return;
     setSaving(true);
     setError('');
     try {
@@ -95,10 +110,11 @@ export const Solicitudes = () => {
         const { data: cli } = await supabase.from('clientes').select('id').eq('usuario_id', userId).single();
         clienteIdVal = cli?.id || null;
       }
+      const contenidoFinal = asunto.trim() ? `[${asunto.trim()}] ${contenido.trim()}` : contenido.trim();
       const { error: err } = await supabase.from('solicitudes').insert({
         cliente_id: clienteIdVal,
         usuario_id: userId,
-        contenido,
+        contenido: contenidoFinal,
         canal,
         prioridad,
         estado: 'pendiente',
@@ -107,6 +123,7 @@ export const Solicitudes = () => {
       if (err) throw err;
       setShowModal(false);
       setContenido('');
+      setAsunto('');
       setPrioridad('normal');
       fetchData();
     } catch (err) {
@@ -128,7 +145,7 @@ export const Solicitudes = () => {
   };
 
   const filtrados = solicitudes.filter(s => {
-    const matchBusq = `${s.clientes?.nombre || ''} ${s.contenido} ${s.operador || ''}`.toLowerCase().includes(busqueda.toLowerCase());
+    const matchBusq = `${s.cliente_nombre || ''} ${s.contenido} ${s.operador || ''}`.toLowerCase().includes(busqueda.toLowerCase());
     const matchEst = filtroEstado === 'todos' || s.estado === filtroEstado;
     return matchBusq && matchEst;
   });
@@ -201,7 +218,7 @@ export const Solicitudes = () => {
               <thead>
                 <tr className="border-b border-slate-100">
                   <th className="text-left py-3 px-4 font-medium text-slate-500">ID</th>
-                  {isAdmin && <th className="text-left py-3 px-4 font-medium text-slate-500">Cliente</th>}
+                  <th className="text-left py-3 px-4 font-medium text-slate-500">Cliente</th>
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Solicitud</th>
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Canal</th>
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Prioridad</th>
@@ -218,12 +235,10 @@ export const Solicitudes = () => {
                   return (
                     <tr key={s.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-4 font-medium text-slate-800">#{s.id}</td>
-                      {isAdmin && (
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-slate-800">{s.clientes?.nombre || 'Sin cliente'}</p>
-                          {s.clientes?.empresa && <p className="text-xs text-slate-400">{s.clientes.empresa}</p>}
-                        </td>
-                      )}
+                      <td className="py-3 px-4">
+                        <p className="font-medium text-slate-800">{s.cliente_nombre || 'Sin cliente'}</p>
+                        {s.cliente_empresa && <p className="text-xs text-slate-400">{s.cliente_empresa}</p>}
+                      </td>
                       <td className="py-3 px-4 max-w-xs"><p className="text-slate-600 truncate">{s.contenido}</p></td>
                       <td className="py-3 px-4"><span className="px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{s.canal}</span></td>
                       <td className="py-3 px-4"><span className={`px-2 py-1 rounded-full text-xs font-medium ${pri.cls}`}>{pri.label}</span></td>
@@ -247,7 +262,7 @@ export const Solicitudes = () => {
                     </tr>
                   );
                 })}
-                {filtrados.length === 0 && <tr><td colSpan={isAdmin ? 8 : 7} className="py-12 text-center text-slate-400 text-sm">No hay solicitudes</td></tr>}
+                {filtrados.length === 0 && <tr><td colSpan={8} className="py-12 text-center text-slate-400 text-sm">No hay solicitudes</td></tr>}
               </tbody>
             </table>
           </div>
@@ -277,6 +292,10 @@ export const Solicitudes = () => {
                 </div>
               )}
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Asunto</label>
+                <input type="text" value={asunto} onChange={e => setAsunto(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" placeholder="Ej: Problema con factura, Solicitud de soporte..." />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Describe tu solicitud</label>
                 <textarea value={contenido} onChange={e => setContenido(e.target.value)} rows={4} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" placeholder="Escribe aqui tu solicitud..." />
               </div>
@@ -300,7 +319,7 @@ export const Solicitudes = () => {
             </div>
             <div className="flex items-center justify-end gap-3 p-5 border-t border-slate-100">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg transition">Cancelar</button>
-              <button onClick={handleSubmit} disabled={saving || !contenido.trim()} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
+              <button onClick={handleSubmit} disabled={saving || (!contenido.trim() && !asunto.trim())} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
                 {saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} Enviar
               </button>
             </div>
@@ -332,7 +351,7 @@ export const Solicitudes = () => {
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 uppercase">Cliente</p>
-                  <p className="text-sm text-slate-700 mt-1">{showDetailModal.clientes?.nombre || 'Sin cliente'}</p>
+                  <p className="text-sm text-slate-700 mt-1">{showDetailModal.cliente_nombre || 'Sin cliente'}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 uppercase">Canal</p>
