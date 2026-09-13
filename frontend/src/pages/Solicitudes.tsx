@@ -51,8 +51,16 @@ export const Solicitudes = () => {
   const [prioridad, setPrioridad] = useState('normal');
   const [saving, setSaving] = useState(false);
   const [clientes, setClientes] = useState<ClienteOption[]>([]);
+  const [miCliente, setMiCliente] = useState<{ nombre: string; empresa: string } | null>(null);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); fetchMiCliente(); }, []);
+
+  const fetchMiCliente = async () => {
+    if (!user?.id) return;
+    const userId = Number(user.id);
+    const { data } = await supabase.from('clientes').select('nombre, empresa').eq('usuario_id', userId).maybeSingle();
+    if (data) setMiCliente(data);
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -254,6 +262,20 @@ export const Solicitudes = () => {
               <button onClick={() => setShowModal(false)} className="p-1 rounded-lg hover:bg-slate-50 transition"><X size={18} /></button>
             </div>
             <div className="p-5 space-y-4">
+              {miCliente && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">{miCliente.nombre.charAt(0).toUpperCase()}</div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">{miCliente.nombre}</p>
+                    {miCliente.empresa && <p className="text-xs text-slate-500">{miCliente.empresa}</p>}
+                  </div>
+                </div>
+              )}
+              {!miCliente && !isAdmin && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700">
+                  No se encontro un cliente vinculado a tu cuenta.
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Describe tu solicitud</label>
                 <textarea value={contenido} onChange={e => setContenido(e.target.value)} rows={4} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" placeholder="Escribe aqui tu solicitud..." />
