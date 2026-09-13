@@ -12,7 +12,7 @@ from app.core.deps import get_current_user
 router = APIRouter()
 
 @router.post("/analizar", response_model=AnalisisResponse)
-async def analizar_texto(req: AnalisisRequest, user: dict = Depends(get_current_user)):
+async def analizar_texto(req: AnalisisRequest):
     return nltk_service.analizar_texto(req.texto)
 
 @router.get("/centro-inteligente")
