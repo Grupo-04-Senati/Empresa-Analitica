@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
-import { Clock, CheckCircle2, AlertTriangle, TrendingUp, TrendingDown, Loader2, Filter } from 'lucide-react';
+import { Clock, CheckCircle2, AlertTriangle, TrendingUp, TrendingDown, Loader2, Filter, RefreshCw } from 'lucide-react';
 import { fetchTiempos, fetchClientes, fetchOperadores, calcStats, agruparPorDia, agruparPorOperador, FiltrosCompletos } from '@/services/statsService';
 
 const SLA = 30;
