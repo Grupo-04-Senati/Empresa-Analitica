@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   BrainCircuit, Send, Sparkles, Tag, Hash, Loader2, ThumbsUp, ThumbsDown,
+  Pencil, Trash2, X, AlertTriangle,
 } from 'lucide-react';
 import { supabase } from '@/services/supabase';
+import { useAuth } from '@/hooks/useAuth';
 
 interface CategoriaDB {
   id: number;
@@ -100,6 +102,7 @@ function analizarConCategorias(texto: string, categorias: CategoriaDB[], customW
 
 export const AnalizarComentario = () => {
   const [searchParams] = useSearchParams();
+  const { isAdmin } = useAuth();
   const [texto, setTexto] = useState('');
   const [canal, setCanal] = useState('web');
   const [resultado, setResultado] = useState<ResultadoLocal | null>(null);
@@ -112,6 +115,16 @@ export const AnalizarComentario = () => {
   const [newWordType, setNewWordType] = useState('positivas');
   const [newCategoryName, setNewCategoryName] = useState('');
   const [showWordEditor, setShowWordEditor] = useState(false);
+
+  // Modal para editar/borrar comentario (admin)
+  const [editModal, setEditModal] = useState<AnalisisReciente | null>(null);
+  const [editTexto, setEditTexto] = useState('');
+  const [editCategoria, setEditCategoria] = useState('');
+  const [editEstado, setEditEstado] = useState('');
+  const [editResultado, setEditResultado] = useState<ResultadoLocal | null>(null);
+  const [editGuardando, setEditGuardando] = useState(false);
+  const [editAnalizando, setEditAnalizando] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<AnalisisReciente | null>(null);
 
   useEffect(() => {
     const comentarioParam = searchParams.get('comentario');
@@ -127,19 +140,11 @@ export const AnalizarComentario = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [comentariosRes, catsRes] = await Promise.all([
-          supabase
-            .from('comentarios')
-            .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes)')
-            .eq('tipo', 'comentario')
-            .order('fecha', { ascending: false })
-            .limit(20),
-          supabase
-            .from('categorias')
-            .select('id, nombre, descripcion, activo')
-            .eq('activo', true)
-        ]);
-        if (comentariosRes.data) setRecientes(comentariosRes.data as unknown as AnalisisReciente[]);
+        await cargarRecientes();
+        const catsRes = await supabase
+          .from('categorias')
+          .select('id, nombre, descripcion, activo')
+          .eq('activo', true);
         if (catsRes.data) setCategorias(catsRes.data as CategoriaDB[]);
       } catch { /* empty */ }
     };
@@ -187,6 +192,93 @@ export const AnalizarComentario = () => {
     if (newWordType === type) setNewWordType('positivas');
   };
 
+  const openEditModal = (comentario: AnalisisReciente) => {
+    setEditModal(comentario);
+    setEditTexto(comentario.contenido);
+    setEditCategoria(comentario.analisis_nlp?.categoria_detectada || '');
+    setEditEstado('procesado');
+    setEditResultado(null);
+  };
+
+  const analizarEdit = async () => {
+    if (!editTexto.trim()) return;
+    setEditAnalizando(true);
+    const result = analizarConCategorias(editTexto, categorias, customWords);
+    setEditResultado(result);
+    setEditCategoria(result.categoria);
+    setEditAnalizando(false);
+  };
+
+  const guardarEdicion = async () => {
+    if (!editModal || !editTexto.trim()) return;
+    setEditGuardando(true);
+    try {
+      // Actualizar comentario
+      const { error: err1 } = await supabase
+        .from('comentarios')
+        .update({
+          contenido: editTexto,
+          categoria: editCategoria || undefined,
+          estado: editEstado,
+          procesado: true,
+        })
+        .eq('id', editModal.id);
+      if (err1) throw err1;
+
+      // Actualizar o crear analisis_nlp
+      const { data: existente } = await supabase
+        .from('analisis_nlp')
+        .select('id')
+        .eq('comentario_id', editModal.id)
+        .maybeSingle();
+
+      const nlpData = {
+        idioma: 'es',
+        cantidad_palabras: editResultado?.tokens.length || editTexto.split(/\s+/).length,
+        palabras_limpias: editResultado?.tokens || [],
+        palabras_frecuentes: editResultado?.palabrasFrecuentes.map(p => p.palabra) || [],
+        categoria_detectada: editCategoria,
+        confianza: editResultado ? editResultado.confianza / 100 : 0.5,
+        sentimiento: editResultado?.sentimiento || 'neutro',
+        fecha_analisis: new Date().toISOString(),
+      };
+
+      if (existente) {
+        await supabase.from('analisis_nlp').update(nlpData).eq('id', existente.id);
+      } else {
+        await supabase.from('analisis_nlp').insert({ comentario_id: editModal.id, ...nlpData });
+      }
+
+      setEditModal(null);
+      await cargarRecientes();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setEditGuardando(false);
+    }
+  };
+
+  const eliminarComentario = async (comentario: AnalisisReciente) => {
+    try {
+      await supabase.from('analisis_nlp').delete().eq('comentario_id', comentario.id);
+      await supabase.from('comentarios').delete().eq('id', comentario.id);
+      setDeleteConfirm(null);
+      await cargarRecientes();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const cargarRecientes = async () => {
+    const { data } = await supabase
+      .from('comentarios')
+      .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes, sentimiento)')
+      .eq('tipo', 'comentario')
+      .order('fecha', { ascending: false })
+      .limit(20);
+    if (data) setRecientes(data as unknown as AnalisisReciente[]);
+  };
+
   const guardarEnBD = async () => {
     if (!resultado || !texto.trim()) return;
     setGuardando(true);
@@ -216,13 +308,7 @@ export const AnalizarComentario = () => {
       }
       setTexto('');
       setResultado(null);
-      const { data } = await supabase
-        .from('comentarios')
-        .select('id, contenido, canal, fecha, analisis_nlp(idioma, categoria_detectada, confianza, palabras_frecuentes)')
-        .eq('tipo', 'comentario')
-        .order('fecha', { ascending: false })
-        .limit(20);
-      if (data) setRecientes(data as unknown as AnalisisReciente[]);
+      await cargarRecientes();
     } catch (err) {
       console.error(err);
     } finally {
@@ -444,6 +530,9 @@ export const AnalizarComentario = () => {
         <div className="flex items-center gap-2 mb-4">
           <Sparkles size={18} className="text-blue-600" />
           <h3 className="font-semibold text-slate-700">Analisis Recientes</h3>
+          {isAdmin && (
+            <span className="text-xs text-slate-400 ml-2">— haz clic en un comentario para editar o borrar</span>
+          )}
         </div>
         {recientes.length === 0 ? (
           <p className="text-sm text-slate-400 text-center py-8">No hay analisis recientes en la base de datos.</p>
@@ -458,11 +547,18 @@ export const AnalizarComentario = () => {
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Categoria</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Confianza</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">Sentimiento</th>
+                  {isAdmin && <th className="text-right py-3 px-4 text-xs font-medium text-slate-500 uppercase">Acciones</th>}
                 </tr>
               </thead>
               <tbody>
                 {recientes.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50 transition">
+                  <tr
+                    key={r.id}
+                    className={`border-b border-slate-50 transition ${
+                      isAdmin ? 'hover:bg-blue-50/50 cursor-pointer' : 'hover:bg-slate-50'
+                    }`}
+                    onClick={() => isAdmin && openEditModal(r)}
+                  >
                     <td className="py-3 px-4 text-slate-500 whitespace-nowrap">
                       {new Date(r.fecha).toLocaleDateString('es-ES')}
                     </td>
@@ -491,6 +587,26 @@ export const AnalizarComentario = () => {
                         <span className="px-2 py-1 bg-slate-100 text-slate-500 text-xs rounded-full">Neutro</span>
                       )}
                     </td>
+                    {isAdmin && (
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => openEditModal(r)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition"
+                            title="Editar"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(r)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
+                            title="Borrar"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -498,6 +614,146 @@ export const AnalizarComentario = () => {
           </div>
         )}
       </div>
+
+      {/* Modal de editar comentario */}
+      {editModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Pencil size={18} className="text-blue-600" />
+                <h3 className="font-semibold text-slate-700">Editar Comentario #{editModal.id}</h3>
+              </div>
+              <button onClick={() => setEditModal(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Canal de origen — solo lectura */}
+              <div>
+                <label className="text-xs font-medium text-slate-500 mb-1 block">Canal de origen (solo lectura)</label>
+                <div className="px-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 capitalize">
+                  {editModal.canal}
+                </div>
+              </div>
+              {/* Comentario */}
+              <div>
+                <label className="text-xs font-medium text-slate-500 mb-1 block">Comentario</label>
+                <textarea
+                  className="w-full h-28 p-3 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  value={editTexto}
+                  onChange={e => setEditTexto(e.target.value)}
+                />
+              </div>
+              {/* Categoria + Estado */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium text-slate-500 mb-1 block">Categoria</label>
+                  <input
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    value={editCategoria}
+                    onChange={e => setEditCategoria(e.target.value)}
+                    placeholder="Ej: RECLAMO"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 mb-1 block">Estado</label>
+                  <select
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    value={editEstado}
+                    onChange={e => setEditEstado(e.target.value)}
+                  >
+                    <option value="pendiente">Pendiente</option>
+                    <option value="procesado">Procesado</option>
+                    <option value="resuelto">Resuelto</option>
+                  </select>
+                </div>
+              </div>
+              {/* Boton Analizar */}
+              <button
+                onClick={analizarEdit}
+                disabled={editAnalizando || !editTexto.trim()}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+              >
+                {editAnalizando ? <Loader2 size={14} className="animate-spin" /> : <BrainCircuit size={14} />}
+                Re-analizar texto
+              </button>
+              {/* Resultado del re-analisis */}
+              {editResultado && (
+                <div className="bg-slate-50 rounded-lg p-4 space-y-2 text-sm">
+                  <div className="flex items-center gap-4">
+                    <span className="font-medium text-slate-600">Categoria: <span className="text-blue-600">{editResultado.categoria}</span></span>
+                    <span className="font-medium text-slate-600">Confianza: <span className="text-blue-600">{editResultado.confianza}%</span></span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-slate-600">Sentimiento:</span>
+                    {editResultado.sentimiento === 'positivo' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 text-xs rounded-full"><ThumbsUp size={12} /> Positivo</span>
+                    )}
+                    {editResultado.sentimiento === 'negativo' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 text-xs rounded-full"><ThumbsDown size={12} /> Negativo</span>
+                    )}
+                    {editResultado.sentimiento === 'neutro' && (
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-xs rounded-full">Neutro</span>
+                    )}
+                  </div>
+                  {editResultado.palabrasFrecuentes.length > 0 && (
+                    <div>
+                      <span className="text-slate-500 text-xs">Palabras frecuentes: </span>
+                      <span className="text-slate-600 text-xs">{editResultado.palabrasFrecuentes.map(p => p.palabra).join(', ')}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 p-5 border-t border-slate-100">
+              <button
+                onClick={() => setEditModal(null)}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={guardarEdicion}
+                disabled={editGuardando || !editTexto.trim()}
+                className="px-5 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition"
+              >
+                {editGuardando ? <Loader2 size={14} className="animate-spin inline mr-2" /> : null}
+                Guardar cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmar eliminacion */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4">
+            <div className="p-6 text-center">
+              <AlertTriangle size={40} className="text-red-500 mx-auto mb-3" />
+              <h3 className="text-lg font-semibold text-slate-700 mb-2">Eliminar comentario</h3>
+              <p className="text-sm text-slate-500 mb-1">Comentario #{deleteConfirm.id}:</p>
+              <p className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3 mx-4 mb-2">"{deleteConfirm.contenido}"</p>
+              <p className="text-xs text-red-500">Esta accion no se puede deshacer.</p>
+            </div>
+            <div className="flex justify-center gap-3 p-5 border-t border-slate-100">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => eliminarComentario(deleteConfirm)}
+                className="px-5 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
