@@ -56,14 +56,23 @@ export const Solicitudes = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    const [solRes, cliRes] = await Promise.all([
-      supabase.from('solicitudes')
-        .select('*, clientes(nombre, empresa)')
-        .order('fecha_solicitud', { ascending: false }),
-      supabase.from('clientes').select('id, nombre').eq('activo', true).order('nombre'),
-    ]);
-    if (solRes.data) setSolicitudes(solRes.data as unknown as SolicitudDB[]);
-    if (cliRes.data) setClientes(cliRes.data);
+    try {
+      const [solRes, cliRes] = await Promise.all([
+        supabase.from('solicitudes')
+          .select('*')
+          .order('fecha_solicitud', { ascending: false }),
+        supabase.from('clientes').select('id, nombre, empresa').eq('activo', true).order('nombre'),
+      ]);
+      if (solRes.error) {
+        setError('Error cargando solicitudes: ' + solRes.error.message);
+        setSolicitudes([]);
+      } else if (solRes.data) {
+        setSolicitudes(solRes.data as SolicitudDB[]);
+      }
+      if (cliRes.data) setClientes(cliRes.data);
+    } catch (e) {
+      setError('Error de conexion con la base de datos');
+    }
     setLoading(false);
   };
 

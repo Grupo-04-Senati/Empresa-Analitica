@@ -104,12 +104,16 @@ export const Notificaciones = () => {
 
   const fetchNotifs = async () => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('notificaciones')
-        .select('*')
+        .select('id, tipo, titulo, mensaje, enlace, leida, destinatario, created_at')
         .order('created_at', { ascending: false })
         .limit(50);
-      if (data) setNotifs(data);
+      if (error) {
+        setNotifs([]);
+      } else if (data) {
+        setNotifs(data as Notif[]);
+      }
     } catch {} finally { setLoading(false); }
   };
 

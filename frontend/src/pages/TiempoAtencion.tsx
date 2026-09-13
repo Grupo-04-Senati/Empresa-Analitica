@@ -40,14 +40,23 @@ export const TiempoAtencion = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    const [tiemposRes, clientesRes] = await Promise.all([
-      supabase.from('tiempos_atencion')
-        .select('id, cliente_id, solicitud_id, tiempo_minutos, fecha, operador, estado, sla_cumplido, created_at, clientes(nombre, empresa), solicitudes(contenido, estado, canal)')
-        .order('fecha', { ascending: false }),
-      supabase.from('clientes').select('id, nombre').eq('activo', true).order('nombre'),
-    ]);
-    if (tiemposRes.data) setDatos(tiemposRes.data as unknown as TiempoRow[]);
-    if (clientesRes.data) setClientes(clientesRes.data);
+    try {
+      const [tiemposRes, clientesRes] = await Promise.all([
+        supabase.from('tiempos_atencion')
+          .select('*')
+          .order('fecha', { ascending: false }),
+        supabase.from('clientes').select('id, nombre').eq('activo', true).order('nombre'),
+      ]);
+      if (tiemposRes.error) {
+        setError('Error: ' + tiemposRes.error.message);
+        setDatos([]);
+      } else if (tiemposRes.data) {
+        setDatos(tiemposRes.data as TiempoRow[]);
+      }
+      if (clientesRes.data) setClientes(clientesRes.data);
+    } catch (e) {
+      setError('Error de conexion');
+    }
     setLoading(false);
   };
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Users, MessageSquare, Clock, CheckCircle2, Hash, Tags, Loader2, AlertTriangle, ClipboardList, Send, Plus, ArrowRight } from 'lucide-react';
+import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { Users, MessageSquare, Clock, CheckCircle2, Hash, Tags, Loader2, AlertTriangle, ClipboardList, Send, Plus, ArrowRight, Activity, TrendingUp } from 'lucide-react';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
 
@@ -15,6 +15,9 @@ interface CategoriaDist { nombre: string; total: number; porcentaje: number; }
 interface PalabraFreq { palabra: string; frecuencia: number; }
 interface TiempoPunto { fecha: string; minutos: number; sla: number; }
 interface ItemReciente { id: number; contenido: string; estado: string; fecha: string; tipo: string; canal: string; categoria: string | null; }
+interface CanalDist { name: string; value: number; }
+interface EstadoDist { name: string; value: number; color: string; }
+interface SolicitudDist { name: string; value: number; color: string; }
 
 export const Dashboard = () => {
   const { user, isAdmin } = useAuth();
@@ -23,6 +26,9 @@ export const Dashboard = () => {
   const [palabras, setPalabras] = useState<PalabraFreq[]>([]);
   const [tiempos, setTiempos] = useState<TiempoPunto[]>([]);
   const [recentes, setRecentes] = useState<ItemReciente[]>([]);
+  const [canalDist, setCanalDist] = useState<CanalDist[]>([]);
+  const [estadoDist, setEstadoDist] = useState<EstadoDist[]>([]);
+  const [solicitudesDist, setSolicitudesDist] = useState<SolicitudDist[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -32,7 +38,7 @@ export const Dashboard = () => {
         const [clientesRes, comentariosRes, tiemposRes, analisisRes] = await Promise.all([
           isAdmin ? supabase.from('clientes').select('id, created_at') : Promise.resolve({ data: [] }),
           isAdmin ? supabase.from('comentarios').select('id, procesado, canal, estado, fecha, tipo, usuario_id, clientes(usuario_id)') : supabase.from('comentarios').select('id, procesado, canal, estado, fecha, tipo, usuario_id, clientes(usuario_id)'),
-          isAdmin ? supabase.from('tiempos_atencion').select('tiempo_minutos, fecha') : Promise.resolve({ data: [] }),
+          isAdmin ? supabase.from('tiempos_atencion').select('tiempo_minutos, fecha, sla_cumplido') : Promise.resolve({ data: [] }),
           isAdmin ? supabase.from('analisis_nlp').select('categoria_detectada, palabras_frecuentes') : Promise.resolve({ data: [] }),
         ]);
 
@@ -74,6 +80,27 @@ export const Dashboard = () => {
           const tiemposPorFecha: Record<string, number[]> = {};
           tiemposData.forEach((t: any) => { const f = t.fecha?.split('T')[0] || 'sin fecha'; if (!tiemposPorFecha[f]) tiemposPorFecha[f] = []; tiemposPorFecha[f].push(t.tiempo_minutos); });
           setTiempos(Object.entries(tiemposPorFecha).map(([fecha, mins]) => ({ fecha: fecha.slice(5), minutos: Math.round(mins.reduce((s, v) => s + v, 0) / mins.length), sla: 30 })).slice(-14));
+
+          const canalMap: Record<string, number> = {};
+          allComentarios.forEach((c) => { const canal = c.canal || 'web'; canalMap[canal] = (canalMap[canal] || 0) + 1; });
+          setCanalDist(Object.entries(canalMap).map(([name, value]) => ({ name, value })));
+
+          const estadoMap: Record<string, number> = {};
+          allComentarios.forEach((c) => { const est = c.estado || 'pendiente'; estadoMap[est] = (estadoMap[est] || 0) + 1; });
+          const estadoColors: Record<string, string> = { pendiente: '#f59e0b', en_proceso: '#3b82f6', resuelto: '#10b981', cancelado: '#6b7280' };
+          setEstadoDist(Object.entries(estadoMap).map(([name, value]) => ({ name, value, color: estadoColors[name] || '#6b7280' })));
+
+          const solCount = allComentarios.filter((c) => c.tipo === 'solicitud').length;
+          const solPend = allComentarios.filter((c) => c.tipo === 'solicitud' && c.estado === 'pendiente').length;
+          const solProc = allComentarios.filter((c) => c.tipo === 'solicitud' && c.estado === 'en_proceso').length;
+          const solRes = allComentarios.filter((c) => c.tipo === 'solicitud' && c.estado === 'resuelto').length;
+          if (solCount > 0) {
+            setSolicitudesDist([
+              { name: 'Pendientes', value: solPend, color: '#f59e0b' },
+              { name: 'En Proceso', value: solProc, color: '#3b82f6' },
+              { name: 'Resueltas', value: solRes, color: '#10b981' },
+            ].filter((s) => s.value > 0));
+          }
         }
       } catch (err) { console.error('Dashboard error:', err); }
       finally { setLoading(false); }
@@ -86,6 +113,7 @@ export const Dashboard = () => {
   if (loading) return <div className="min-h-[60vh] flex items-center justify-center"><div className="flex flex-col items-center gap-3"><Loader2 size={32} className="animate-spin text-blue-600" /><p className="text-slate-500 text-sm font-medium">Cargando dashboard...</p></div></div>;
 
   const catColors = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#e11d48', '#0891b2'];
+  const PIE_COLORS = ['#2563eb', '#059669', '#f59e0b', '#7c3aed', '#e11d48', '#0891b2'];
 
   const estadoConfig: Record<string, { label: string; cls: string }> = {
     pendiente: { label: 'Pendiente', cls: 'bg-amber-100 text-amber-700' },
@@ -109,85 +137,52 @@ export const Dashboard = () => {
             <p className="text-slate-500 text-sm mt-1">Bienvenido, {user?.nombre || user?.email}. Aqui tienes un resumen de tu actividad.</p>
           </div>
         </div>
-
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="px-5 py-3 bg-slate-800">
-            <h2 className="text-xs font-bold text-white tracking-widest uppercase">Mis Metricas</h2>
-          </div>
+          <div className="px-5 py-3 bg-slate-800"><h2 className="text-xs font-bold text-white tracking-widest uppercase">Mis Metricas</h2></div>
           <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100">
-            {kpis.map((k) => {
-              const Icon = k.icono;
-              return (
-                <div key={k.label} className="px-5 py-4 flex flex-col items-center justify-center text-center hover:bg-slate-50/50:bg-slate-700/30 transition-colors">
-                  <span className={`flex items-center justify-center w-10 h-10 rounded-xl mb-2 ${k.bg} ${k.color}`}><Icon size={20} /></span>
-                  <p className="text-[11px] font-semibold text-slate-400 tracking-wider uppercase mb-0.5">{k.label}</p>
-                  <p className="text-2xl font-bold text-slate-800">{k.valor}</p>
-                </div>
-              );
-            })}
+            {kpis.map((k) => { const Icon = k.icono; return (
+              <div key={k.label} className="px-5 py-4 flex flex-col items-center justify-center text-center hover:bg-slate-50/50 transition-colors">
+                <span className={`flex items-center justify-center w-10 h-10 rounded-xl mb-2 ${k.bg} ${k.color}`}><Icon size={20} /></span>
+                <p className="text-[11px] font-semibold text-slate-400 tracking-wider uppercase mb-0.5">{k.label}</p>
+                <p className="text-2xl font-bold text-slate-800">{k.valor}</p>
+              </div>
+            ); })}
           </div>
         </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2"><ClipboardList size={18} className="text-blue-600" /><h3 className="font-semibold text-slate-700 text-sm">Mis Solicitudes Recientes</h3></div>
-              <button onClick={() => navigate('/solicitudes')} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">Ver todas <ArrowRight size={12} /></button>
+              <button onClick={() => navigate('/dashboard/solicitudes')} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">Ver todas <ArrowRight size={12} /></button>
             </div>
             {recentes.filter((r) => r.tipo === 'solicitud').length === 0 ? (
-              <div className="text-center py-8">
-                <ClipboardList size={32} className="text-slate-300 mx-auto mb-2" />
-                <p className="text-sm text-slate-400">No tienes solicitudes aun</p>
-                <button onClick={() => navigate('/solicitudes')} className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition"><Plus size={12} /> Crear solicitud</button>
-              </div>
+              <div className="text-center py-8"><ClipboardList size={32} className="text-slate-300 mx-auto mb-2" /><p className="text-sm text-slate-400">No tienes solicitudes aun</p><button onClick={() => navigate('/dashboard/solicitudes')} className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition"><Plus size={12} /> Crear solicitud</button></div>
             ) : (
-              <div className="space-y-3">
-                {recentes.filter((r) => r.tipo === 'solicitud').slice(0, 4).map((s) => (
-                  <div key={s.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-700 truncate">{s.contenido}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{new Date(s.fecha).toLocaleDateString('es-ES')}</p>
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${(estadoConfig[s.estado] || estadoConfig.pendiente).cls}`}>{(estadoConfig[s.estado] || estadoConfig.pendiente).label}</span>
-                  </div>
-                ))}
-              </div>
+              <div className="space-y-3">{recentes.filter((r) => r.tipo === 'solicitud').slice(0, 4).map((s) => (
+                <div key={s.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"><div className="flex-1 min-w-0"><p className="text-sm font-medium text-slate-700 truncate">{s.contenido}</p><p className="text-xs text-slate-400 mt-0.5">{new Date(s.fecha).toLocaleDateString('es-ES')}</p></div><span className={`px-2 py-1 rounded-full text-xs font-medium ${(estadoConfig[s.estado] || estadoConfig.pendiente).cls}`}>{(estadoConfig[s.estado] || estadoConfig.pendiente).label}</span></div>
+              ))}</div>
             )}
           </div>
-
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2"><MessageSquare size={18} className="text-violet-600" /><h3 className="font-semibold text-slate-700 text-sm">Mis Comentarios Recientes</h3></div>
-              <button onClick={() => navigate('/comentarios')} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">Ver todos <ArrowRight size={12} /></button>
+              <button onClick={() => navigate('/dashboard/comentarios')} className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">Ver todos <ArrowRight size={12} /></button>
             </div>
             {recentes.filter((r) => r.tipo === 'comentario').length === 0 ? (
-              <div className="text-center py-8">
-                <MessageSquare size={32} className="text-slate-300 mx-auto mb-2" />
-                <p className="text-sm text-slate-400">No tienes comentarios aun</p>
-                <button onClick={() => navigate('/comentarios')} className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-violet-600 text-white text-xs font-medium rounded-lg hover:bg-violet-700 transition"><Plus size={12} /> Escribir comentario</button>
-              </div>
+              <div className="text-center py-8"><MessageSquare size={32} className="text-slate-300 mx-auto mb-2" /><p className="text-sm text-slate-400">No tienes comentarios aun</p><button onClick={() => navigate('/dashboard/comentarios')} className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-violet-600 text-white text-xs font-medium rounded-lg hover:bg-violet-700 transition"><Plus size={12} /> Escribir comentario</button></div>
             ) : (
-              <div className="space-y-3">
-                {recentes.filter((r) => r.tipo === 'comentario').slice(0, 4).map((c) => (
-                  <div key={c.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-700 truncate">{c.contenido}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{c.canal} - {new Date(c.fecha).toLocaleDateString('es-ES')}</p>
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${(estadoConfig[c.estado] || estadoConfig.pendiente).cls}`}>{(estadoConfig[c.estado] || estadoConfig.pendiente).label}</span>
-                  </div>
-                ))}
-              </div>
+              <div className="space-y-3">{recentes.filter((r) => r.tipo === 'comentario').slice(0, 4).map((c) => (
+                <div key={c.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"><div className="flex-1 min-w-0"><p className="text-sm font-medium text-slate-700 truncate">{c.contenido}</p><p className="text-xs text-slate-400 mt-0.5">{c.canal} - {new Date(c.fecha).toLocaleDateString('es-ES')}</p></div><span className={`px-2 py-1 rounded-full text-xs font-medium ${(estadoConfig[c.estado] || estadoConfig.pendiente).cls}`}>{(estadoConfig[c.estado] || estadoConfig.pendiente).label}</span></div>
+              ))}</div>
             )}
           </div>
         </div>
-
         <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
           <h3 className="font-semibold mb-2">Necesitas ayuda?</h3>
           <p className="text-blue-100 text-sm mb-4">Crea una solicitud de atencion y nuestro equipo te respondera lo antes posible.</p>
           <div className="flex gap-3">
-            <button onClick={() => navigate('/solicitudes')} className="inline-flex items-center gap-2 px-4 py-2 bg-white text-blue-600 text-sm font-medium rounded-lg hover:bg-blue-50 transition"><Send size={14} /> Nueva Solicitud</button>
-            <button onClick={() => navigate('/comentarios')} className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 text-white text-sm font-medium rounded-lg hover:bg-white/20 transition border border-white/20"><MessageSquare size={14} /> Escribir Comentario</button>
+            <button onClick={() => navigate('/dashboard/solicitudes')} className="inline-flex items-center gap-2 px-4 py-2 bg-white text-blue-600 text-sm font-medium rounded-lg hover:bg-blue-50 transition"><Send size={14} /> Nueva Solicitud</button>
+            <button onClick={() => navigate('/dashboard/comentarios')} className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 text-white text-sm font-medium rounded-lg hover:bg-white/20 transition border border-white/20"><MessageSquare size={14} /> Escribir Comentario</button>
           </div>
         </div>
       </div>
@@ -216,16 +211,13 @@ export const Dashboard = () => {
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
         <div className="px-5 py-3 bg-slate-800"><h2 className="text-xs font-bold text-white tracking-widest uppercase">Centro Inteligente</h2></div>
         <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100">
-          {kpis.map((k) => {
-            const Icon = k.icono;
-            return (
-              <div key={k.label} className="px-5 py-4 flex flex-col items-center justify-center text-center hover:bg-slate-50/50:bg-slate-700/30 transition-colors">
-                <span className={`flex items-center justify-center w-10 h-10 rounded-xl mb-2 ${k.bg} ${k.color}`}><Icon size={20} /></span>
-                <p className="text-[11px] font-semibold text-slate-400 tracking-wider uppercase mb-0.5">{k.label}</p>
-                <p className="text-2xl font-bold text-slate-800">{k.valor}</p>
-              </div>
-            );
-          })}
+          {kpis.map((k) => { const Icon = k.icono; return (
+            <div key={k.label} className="px-5 py-4 flex flex-col items-center justify-center text-center hover:bg-slate-50/50 transition-colors">
+              <span className={`flex items-center justify-center w-10 h-10 rounded-xl mb-2 ${k.bg} ${k.color}`}><Icon size={20} /></span>
+              <p className="text-[11px] font-semibold text-slate-400 tracking-wider uppercase mb-0.5">{k.label}</p>
+              <p className="text-2xl font-bold text-slate-800">{k.valor}</p>
+            </div>
+          ); })}
         </div>
       </div>
 
@@ -271,6 +263,61 @@ export const Dashboard = () => {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {canalDist.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4"><Activity size={18} className="text-blue-600" /><h3 className="font-semibold text-slate-700 text-sm">Comentarios por Canal</h3></div>
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={canalDist} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={35} paddingAngle={3} strokeWidth={0}>
+                    {canalDist.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {estadoDist.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4"><TrendingUp size={18} className="text-emerald-600" /><h3 className="font-semibold text-slate-700 text-sm">Estado de Comentarios</h3></div>
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={estadoDist}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Bar dataKey="value" name="Cantidad" radius={[6, 6, 0, 0]}>
+                    {estadoDist.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {solicitudesDist.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4"><ClipboardList size={18} className="text-amber-600" /><h3 className="font-semibold text-slate-700 text-sm">Solicitudes por Estado</h3></div>
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={solicitudesDist} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={35} paddingAngle={3} strokeWidth={0}>
+                    {solicitudesDist.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
