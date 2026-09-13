@@ -8,19 +8,19 @@ interface TiempoRow {
   id: number;
   cliente_id: number | null;
   solicitud_id: number | null;
-  comentario_id: number | null;
   tiempo_minutos: number;
   fecha: string;
   operador: string | null;
+  estado: string | null;
   sla_cumplido: boolean | null;
   created_at: string;
   clientes?: { nombre: string; empresa: string } | null;
+  solicitudes?: { contenido: string; estado: string; canal: string } | null;
 }
 
 interface ClienteOption { id: number; nombre: string; }
 
 const SLA_MINUTOS = 30;
-const COLORS = ['#059669', '#dc2626'];
 const emptyForm = { cliente_id: '', tiempo_minutos: '', fecha: new Date().toISOString().split('T')[0], operador: '' };
 
 export const TiempoAtencion = () => {
@@ -42,7 +42,7 @@ export const TiempoAtencion = () => {
     setLoading(true);
     const [tiemposRes, clientesRes] = await Promise.all([
       supabase.from('tiempos_atencion')
-        .select('id, cliente_id, solicitud_id, comentario_id, tiempo_minutos, fecha, operador, sla_cumplido, created_at, clientes(nombre, empresa)')
+        .select('id, cliente_id, solicitud_id, tiempo_minutos, fecha, operador, estado, sla_cumplido, created_at, clientes(nombre, empresa), solicitudes(contenido, estado, canal)')
         .order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').eq('activo', true).order('nombre'),
     ]);
@@ -83,7 +83,9 @@ export const TiempoAtencion = () => {
   ];
 
   const filtrados = datos.filter(d => {
-    const matchBusq = `${d.clientes?.nombre || ''} ${d.operador || ''}`.toLowerCase().includes(busqueda.toLowerCase());
+    const clientName = d.clientes?.nombre || '';
+    const solicitudText = d.solicitudes?.contenido || '';
+    const matchBusq = `${clientName} ${d.operador || ''} ${solicitudText}`.toLowerCase().includes(busqueda.toLowerCase());
     const tiempo = Number(d.tiempo_minutos);
     const cumple = d.sla_cumplido !== null ? d.sla_cumplido : tiempo <= SLA_MINUTOS;
     const matchFiltro = filtroCumple === 'todos' || (filtroCumple === 'cumple' && cumple) || (filtroCumple === 'excede' && !cumple);
@@ -93,7 +95,7 @@ export const TiempoAtencion = () => {
   const openCreate = () => { setEditando(null); setForm(emptyForm); setShowModal(true); };
   const openEdit = (d: TiempoRow) => {
     setEditando(d);
-    setForm({ cliente_id: d.cliente_id?.toString() || '', tiempo_minutos: d.tiempo_minutos.toString(), fecha: d.fecha?.split('T')[0] || '', operador: d.operador || '' });
+    setForm({ cliente_id: d.cliente_id?.toString() || '', tiempo_minutos: d.tiempo_minutos.toString(), fecha: d.fecha || '', operador: d.operador || '' });
     setShowModal(true);
   };
   const closeModal = () => { setShowModal(false); setEditando(null); setForm(emptyForm); };
@@ -238,7 +240,7 @@ export const TiempoAtencion = () => {
           <h3 className="font-semibold text-slate-700">Registros</h3>
           <div className="relative flex-1 max-w-sm ml-auto">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input placeholder="Buscar por cliente u operador..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
+            <input placeholder="Buscar por cliente, solicitud u operador..." value={busqueda} onChange={e => setBusqueda(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
           </div>
           <div className="flex items-center gap-1">
@@ -258,6 +260,7 @@ export const TiempoAtencion = () => {
               <thead>
                 <tr className="border-b border-slate-100">
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Cliente</th>
+                  <th className="text-left py-3 px-4 font-medium text-slate-500">Solicitud</th>
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Tiempo</th>
                   <th className="text-left py-3 px-4 font-medium text-slate-500">SLA</th>
                   <th className="text-left py-3 px-4 font-medium text-slate-500">Operador</th>
@@ -267,7 +270,7 @@ export const TiempoAtencion = () => {
               </thead>
               <tbody>
                 {filtrados.length === 0 ? (
-                  <tr><td colSpan={6} className="py-12 text-center text-slate-400">No hay registros</td></tr>
+                  <tr><td colSpan={7} className="py-12 text-center text-slate-400">No hay registros</td></tr>
                 ) : filtrados.map(d => {
                   const tiempo = Number(d.tiempo_minutos);
                   const cumple = d.sla_cumplido !== null ? d.sla_cumplido : tiempo <= SLA_MINUTOS;
@@ -277,6 +280,16 @@ export const TiempoAtencion = () => {
                         <p className="font-medium text-slate-800">{d.clientes?.nombre || 'Sin cliente'}</p>
                         {d.clientes?.empresa && <p className="text-xs text-slate-400">{d.clientes.empresa}</p>}
                       </td>
+                      <td className="py-3 px-4 max-w-[200px]">
+                        {d.solicitudes ? (
+                          <div>
+                            <p className="text-slate-600 truncate text-xs">{d.solicitudes.contenido}</p>
+                            <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${d.solicitudes.estado === 'resuelto' ? 'bg-emerald-100 text-emerald-700' : d.solicitudes.estado === 'en_proceso' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {d.solicitudes.estado}
+                            </span>
+                          </div>
+                        ) : <span className="text-slate-400 text-xs">—</span>}
+                      </td>
                       <td className="py-3 px-4 font-medium text-slate-800">{tiempo} min</td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${cumple ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
@@ -284,7 +297,7 @@ export const TiempoAtencion = () => {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-slate-600">{d.operador || 'Sin operador'}</td>
-                      <td className="py-3 px-4 text-slate-500 text-xs whitespace-nowrap">{d.fecha ? new Date(d.fecha).toLocaleDateString('es-ES') : '—'}</td>
+                      <td className="py-3 px-4 text-slate-500 text-xs whitespace-nowrap">{d.fecha || '—'}</td>
                       {canEdit && (
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
