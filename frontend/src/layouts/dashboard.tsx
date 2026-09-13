@@ -82,6 +82,34 @@ export const DashboardLayout = () => {
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
+  // Heartbeat: actualizar last_seen del cliente cada 60 segundos
+  useEffect(() => {
+    if (!user) return;
+    let clienteId: number | null = null;
+
+    const updateLastSeen = async () => {
+      try {
+        if (!clienteId) {
+          // Buscar el cliente asociado a este usuario
+          const { data } = await supabase
+            .from('clientes')
+            .select('id')
+            .eq('usuario_id', Number(user.id))
+            .maybeSingle();
+          if (data) clienteId = data.id;
+          else return;
+        }
+        await supabase.rpc('update_cliente_last_seen', { p_cliente_id: clienteId });
+      } catch { /* empty */ }
+    };
+
+    // Actualizar inmediatamente al cargar
+    updateLastSeen();
+    // Y luego cada 60 segundos
+    const interval = setInterval(updateLastSeen, 60000);
+    return () => clearInterval(interval);
+  }, [user]);
+
   const markAsRead = async (id: number) => {
     await supabase.from('notificaciones').update({ leida: true }).eq('id', id);
     setNotificaciones((prev) => prev.map((n) => n.id === id ? { ...n, leida: true } : n));

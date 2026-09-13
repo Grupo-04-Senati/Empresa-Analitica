@@ -4,6 +4,8 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Ba
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
 
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutos
+
 interface ClienteDB {
   id: number;
   nombre: string;
@@ -14,7 +16,13 @@ interface ClienteDB {
   usuario_id: number | null;
   created_at: string;
   updated_at: string;
+  last_seen: string | null;
   usuarios?: { rol: string } | null;
+}
+
+function isOnline(lastSeen: string | null): boolean {
+  if (!lastSeen) return false;
+  return Date.now() - new Date(lastSeen).getTime() < ONLINE_THRESHOLD_MS;
 }
 
 const COLORS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#0891b2', '#dc2626'];
@@ -50,9 +58,29 @@ export const Clientes = () => {
 
   useEffect(() => { fetchClientes(); }, []);
 
+  // Realtime: escuchar cambios en clientes (actualiza last_seen, estado, etc.)
+  useEffect(() => {
+    const channel = supabase
+      .channel('clientes-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, () => {
+        fetchClientes();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // Refrescar cada 30s para actualizar indicadores online/offline
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setClientes(prev => [...prev]); // fuerza re-render para recalcula isOnline
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   const activos = clientes.filter(c => c.activo).length;
   const inactivos = clientes.length - activos;
   const empresas = [...new Set(clientes.map(c => c.empresa).filter(Boolean))].length;
+  const enLinea = clientes.filter(c => isOnline(c.last_seen)).length;
 
   const filtrados = clientes.filter(c => {
     if (filtroEstado === 'activo' && !c.activo) return false;
@@ -143,13 +171,22 @@ export const Clientes = () => {
           </div>
         )}
 
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-5">
           <div className="rounded-xl bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-slate-500">Total Clientes</span>
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><Users size={18} /></span>
             </div>
             <p className="mt-2 text-2xl font-bold text-slate-900">{clientes.length}</p>
+          </div>
+          <div className="rounded-xl bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-500">En Linea</span>
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse" />
+              </span>
+            </div>
+            <p className="mt-2 text-2xl font-bold text-emerald-600">{enLinea}</p>
           </div>
           <div className="rounded-xl bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
@@ -242,9 +279,16 @@ export const Clientes = () => {
                   <tr><td colSpan={canEdit ? 8 : 7} className="px-5 py-12 text-center text-slate-400"><Loader2 className="mx-auto mb-2 animate-spin" size={24} /> Cargando...</td></tr>
                 ) : filtrados.length === 0 ? (
                   <tr><td colSpan={canEdit ? 8 : 7} className="px-5 py-12 text-center text-slate-400">No se encontraron clientes</td></tr>
-                ) : filtrados.map(c => (
+                ) : filtrados.map(c => {
+                  const online = isOnline(c.last_seen);
+                  return (
                   <tr key={c.id} className="border-b border-slate-50 transition hover:bg-slate-50">
-                    <td className="px-5 py-3 font-medium text-slate-900">{c.nombre}</td>
+                    <td className="px-5 py-3 font-medium text-slate-900">
+                      <span className="inline-flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${online ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} title={online ? 'En linea' : 'Fuera de linea'} />
+                        {c.nombre}
+                      </span>
+                    </td>
                     <td className="px-5 py-3 text-slate-600"><span className="inline-flex items-center gap-1.5"><Mail size={14} className="text-slate-400" />{c.email || '—'}</span></td>
                     <td className="px-5 py-3 text-slate-600"><span className="inline-flex items-center gap-1.5"><Phone size={14} className="text-slate-400" />{c.telefono || '—'}</span></td>
                     <td className="px-5 py-3 text-slate-600"><span className="inline-flex items-center gap-1.5"><Building2 size={14} className="text-slate-400" />{c.empresa || '—'}</span></td>
@@ -272,8 +316,9 @@ export const Clientes = () => {
                         </div>
                       </td>
                     )}
-                  </tr>
-                ))}
+                   </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
