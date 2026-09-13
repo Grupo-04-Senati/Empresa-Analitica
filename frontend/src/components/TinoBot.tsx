@@ -7,6 +7,7 @@ interface Message {
   sender: 'bot' | 'user';
   timestamp: Date;
   options?: { label: string; action: string }[];
+  image?: string;
 }
 
 const saludos = [
@@ -64,7 +65,8 @@ const MENU_OPTIONS = [
 ];
 
 function detectIntent(input: string): string {
-  const l = input.toLowerCase();
+  const l = input.toLowerCase().trim();
+  if (l === 'a') return 'imagen_a';
   if (l.includes('femboy mode') || l.includes('femboymode')) return 'femboy';
   if (l.includes('broma') || l.includes('chiste') || l.includes('reir') || l.includes('jaja')) return 'broma';
   if (l.includes('adivinanza') || l.includes('adivina') || l.includes('que es')) return 'adivinanza';
@@ -86,9 +88,10 @@ function detectIntent(input: string): string {
 
 function pickRandom<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 
-function getResponse(intent: string): { text: string; options?: { label: string; action: string }[] } {
+function getResponse(intent: string): { text: string; options?: { label: string; action: string }[]; image?: string } {
   const quickMenu = [{ label: 'Menu', action: 'menu' }];
   switch (intent) {
+    case 'imagen_a': return { text: 'Mira lo que encontre! 👀', image: '/img/a.jpeg', options: quickMenu };
     case 'femboy': return { text: pickRandom(femboyRespuestas), options: quickMenu };
     case 'broma': return { text: pickRandom(bromas), options: [...quickMenu, { label: 'Otra broma!', action: 'broma' }] };
     case 'adivinanza': { const a = pickRandom(adivinanzas); return { text: `🧩 ${a.pregunta}\n\nTu: ...no se\n\n🤖 ${a.respuesta}`, options: [...quickMenu, { label: 'Otra adivinanza!', action: 'adivinanza' }] }; }
@@ -153,7 +156,7 @@ export const TinoBot = () => {
     setTimeout(() => {
       const response = getResponse(action);
       playAudio();
-      setMessages(prev => [...prev, { id: Date.now(), text: response.text, sender: 'bot', timestamp: new Date(), options: response.options }]);
+      setMessages(prev => [...prev, { id: Date.now(), text: response.text, sender: 'bot', timestamp: new Date(), options: response.options, image: response.image }]);
       setIsTyping(false);
     }, 600 + Math.random() * 600);
   };
@@ -168,7 +171,7 @@ export const TinoBot = () => {
     setTimeout(() => {
       const response = getResponse(intent);
       playAudio();
-      setMessages(prev => [...prev, { id: Date.now(), text: response.text, sender: 'bot', timestamp: new Date(), options: response.options }]);
+      setMessages(prev => [...prev, { id: Date.now(), text: response.text, sender: 'bot', timestamp: new Date(), options: response.options, image: response.image }]);
       setIsTyping(false);
     }, 800 + Math.random() * 700);
   };
@@ -228,6 +231,9 @@ export const TinoBot = () => {
                     )}
                     <div className={`px-4 py-2.5 rounded-2xl text-[13px] leading-relaxed whitespace-pre-line ${msg.sender === 'user' ? 'bg-blue-600 text-white rounded-br-md' : 'bg-white text-slate-700 border border-slate-200 rounded-bl-md shadow-sm'}`}>
                       {msg.text}
+                      {msg.image && (
+                        <img src={msg.image} alt="TinoBot image" className="mt-2 rounded-lg max-w-full h-auto border border-slate-200" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      )}
                     </div>
                   </div>
                   {msg.options && msg.sender === 'bot' && (
