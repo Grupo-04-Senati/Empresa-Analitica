@@ -23,12 +23,23 @@ interface AnalisisReciente {
 
 const STORAGE_KEY = 'badi_custom_words';
 
+const DEFAULT_POSITIVAS = ['excelente','bueno','buen','buenas','genial','increible','perfecto','agradecido','agradecida','gracias','feliz','satisfecho','satisfecha','recomiendo','me gusta','maravilloso','fantastico','rapido','rapida','eficiente','calidad','profesional','amable','resolvio','ayuda','mejor','bien','ok','servicio bueno','todo bien','funciona bien'];
+const DEFAULT_NEGATIVAS = ['malo','mala','terrible','pesimo','horrible','lento','lenta','error','problema','queja','reclamo','insatisfecho','decepcionado','no funciona','no sirve','muy lento','deficiente','lamentable','estafa','fraude','furioso','furiosa','molesto','molesta','incumplimiento','carajo','mierda','puta','maldito','maldita','culo','pendejo','pendeja','estupido','estupida','imbécil','imbecil','idiota','basura','asco','asqueroso','desastre','falso','robo','robado','corrupto','corrupta','inutil','verguenza','odio','odioso','detesto','desesperado','desesperada','hartado','hartada','harto','harta','jodido','jodida','hijueputa','malparido','careverga','marica','maricon','puto','pedo','caca','verga','torpe'];
+const DEFAULT_NEUTRAS = ['informacion','consulta','datos','estado','proceso','tiempo','fecha','numero','detalle','general'];
+
 function loadCustomWords(): Record<string, string[]> {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        positivas: [...new Set([...DEFAULT_POSITIVAS, ...(parsed.positivas || [])])],
+        negativas: [...new Set([...DEFAULT_NEGATIVAS, ...(parsed.negativas || [])])],
+        neutras: [...new Set([...DEFAULT_NEUTRAS, ...(parsed.neutras || [])])],
+      };
+    }
   } catch { /* empty */ }
-  return { positivas: [], negativas: [], neutras: [] };
+  return { positivas: DEFAULT_POSITIVAS, negativas: DEFAULT_NEGATIVAS, neutras: DEFAULT_NEUTRAS };
 }
 
 function saveCustomWords(words: Record<string, string[]>) {
