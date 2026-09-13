@@ -508,17 +508,40 @@ export const Perfil: React.FC = () => {
         <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/60 rounded-2xl border border-slate-700/80 p-5 backdrop-blur-md">
           <div className="flex items-center gap-2 mb-4">
             <Bell size={18} className="text-sky-400" />
-            <h4 className="text-sm font-semibold text-slate-50">Configuracion de Notificaciones</h4>
+            <h4 className="text-sm font-semibold text-slate-50">Configuracion de Sonido</h4>
           </div>
           <div className="flex flex-col gap-3">
-            {[{ key: 'email' as const, label: 'Notificaciones por correo' }, { key: 'web' as const, label: 'Notificaciones en la plataforma' }, { key: 'pendientes' as const, label: 'Alertas de comentarios pendientes' }].map((n) => (
-              <label key={n.key} className="flex items-center justify-between cursor-pointer group">
-                <span className="text-sm text-slate-300 group-hover:text-slate-100 transition-colors">{n.label}</span>
-                <div onClick={() => handleToggleNotif(n.key)} className={`relative w-10 h-5 rounded-full transition-colors ${notifSettings[n.key] ? 'bg-sky-500' : 'bg-slate-600'}`}>
-                  <div className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform" style={{ left: notifSettings[n.key] ? '22px' : '2px' }} />
-                </div>
-              </label>
-            ))}
+            <label className="flex items-center justify-between cursor-pointer group">
+              <span className="text-sm text-slate-300 group-hover:text-slate-100 transition-colors">Activar sonido de notificaciones</span>
+              <div onClick={() => {
+                const newVal = !notifSettings.email;
+                setNotifSettings(prev => ({ ...prev, email: newVal }));
+                if (newVal) {
+                  try {
+                    const audio = new Audio('/aud/ad.mp3');
+                    audio.volume = 0.7;
+                    audio.play().catch(() => {});
+                  } catch {}
+                }
+              }} className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${notifSettings.email ? 'bg-sky-500' : 'bg-slate-600'}`}>
+                <div className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform" style={{ left: notifSettings.email ? '22px' : '2px' }} />
+              </div>
+            </label>
+            {notifSettings.email && (
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    const audio = new Audio('/aud/ad.mp3');
+                    audio.volume = 0.7;
+                    audio.play().catch(() => {});
+                  } catch {}
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-medium hover:bg-sky-500/20 transition-colors w-fit"
+              >
+                🔊 Probar sonido
+              </button>
+            )}
           </div>
         </div>
 
