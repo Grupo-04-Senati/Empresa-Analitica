@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '@/services/supabase';
 import { logAudit } from '../services/audit';
-import { User, Shield, Bell, LogOut, Edit3, Save, X, CheckCircle, ArrowLeft, Eye, EyeOff, Camera, AlertTriangle, Trash2, Scan } from 'lucide-react';
+import { User, Shield, Bell, LogOut, Edit3, Save, X, CheckCircle, ArrowLeft, Eye, EyeOff, Camera, AlertTriangle, Trash2, Scan, Crown } from 'lucide-react';
 import { FaceCapture } from '../components/FaceCapture';
 import { hasFaceRegistered } from '../services/faceRecognition';
 import { faceApiRegister, faceApiHealth } from '../services/faceApi';
@@ -125,6 +125,10 @@ export const Perfil: React.FC = () => {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [showFaceCapture, setShowFaceCapture] = useState(false);
   const [faceRegistered, setFaceRegistered] = useState(false);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [selectedRole, setSelectedRole] = useState('');
+  const [roleLoading, setRoleLoading] = useState(false);
+  const [roleMsg, setRoleMsg] = useState('');
 
   useEffect(() => {
     const fetchFace = async () => {
@@ -153,6 +157,44 @@ export const Perfil: React.FC = () => {
 
   const handleToggleNotif = (key: keyof typeof notifSettings) => {
     setNotifSettings(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleRoleChange = async () => {
+    if (!selectedRole || !user) return;
+    setRoleLoading(true);
+    setRoleMsg('');
+    try {
+      const rolAnterior = user.rol || 'usuario';
+      const { error } = await supabase.from('usuarios').update({
+        rol: selectedRole.toUpperCase(),
+        updated_at: new Date().toISOString(),
+      }).eq('id', Number(user.id));
+      if (error) throw error;
+
+      await supabase.auth.updateUser({
+        data: { rol: selectedRole.toUpperCase() },
+      });
+
+      logAudit({
+        usuario_id: Number(user.id),
+        usuario_email: user.email,
+        accion: 'cambio_rol',
+        tabla: 'usuarios',
+        registro_id: Number(user.id),
+        datos_anteriores: { rol: rolAnterior },
+        datos_nuevos: { rol: selectedRole.toUpperCase() },
+        modulo: 'Perfil',
+        detalles: `Rol cambiado de "${rolAnterior}" a "${selectedRole.toUpperCase()}"`,
+      });
+
+      updateUser({ rol: selectedRole.toUpperCase() as any });
+      setRoleMsg('Rol actualizado correctamente');
+      setTimeout(() => { setRoleMsg(''); setShowRoleModal(false); }, 1500);
+    } catch (err) {
+      setRoleMsg('Error al actualizar rol: ' + (err instanceof Error ? err.message : 'Error desconocido'));
+    } finally {
+      setRoleLoading(false);
+    }
   };
 
   const handleDeleteAccount = async (e: React.FormEvent) => {
@@ -215,7 +257,7 @@ export const Perfil: React.FC = () => {
     { icon: User, title: 'Informacion Personal', desc: 'Consulta tu nombre y datos de contacto registrados.', onClick: () => setIsViewModalOpen(true) },
     { icon: Shield, title: 'Seguridad & Contrasena', desc: 'Cambia tu clave de acceso de forma segura.', onClick: () => setShowPassModal(true) },
     { icon: Scan, title: 'Reconocimiento Facial', desc: faceRegistered ? 'Tu rostro esta registrado. Puedes reemplazarlo.' : 'Configura el inicio de sesion con tu rostro.', onClick: () => setShowFaceCapture(true) },
-    { icon: Shield, title: 'Roles & Permisos', desc: `Tu rol actual: ${user?.rol || 'usuario'}. Solo los administradores pueden gestionar roles.`, onClick: () => {} },
+    { icon: Crown, title: 'Modo Administrador', desc: `Rol actual: ${user?.rol || 'usuario'}. Cambia tu rol para acceder a diferentes secciones.`, onClick: () => { setSelectedRole(user?.rol || 'usuario'); setShowRoleModal(true); } },
     { icon: Bell, title: 'Notificaciones', desc: 'Configura alertas para solicitudes pendientes y reportes.', onClick: () => {} },
   ];
 
@@ -502,6 +544,57 @@ export const Perfil: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {showRoleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-sky-500/30 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-5">
+              <div className="flex items-center gap-3">
+                <div className="bg-sky-500/10 p-2 rounded-lg border border-sky-500/20">
+                  <Crown size={20} className="text-sky-400" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-50">Modo Administrador</h3>
+              </div>
+              <button type="button" onClick={() => { setShowRoleModal(false); setRoleMsg(''); }} className="text-slate-400 hover:text-slate-200 transition-colors p-1"><X size={18} /></button>
+            </div>
+            <p className="text-sm text-slate-400 mb-4 leading-relaxed">
+              Selecciona el rol que deseas asignar. Este cambio se registrara en la auditoria del sistema.
+            </p>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {[
+                { value: 'ADMIN', label: 'Admin', desc: 'Control total del sistema', color: 'border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20' },
+                { value: 'ANALISTA', label: 'Analista', desc: 'Acceso a reportes y datos', color: 'border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20' },
+                { value: 'SUPERVISOR', label: 'Supervisor', desc: 'Supervision de operaciones', color: 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20' },
+                { value: 'USUARIO', label: 'Usuario', desc: 'Acceso basico', color: 'border-slate-500/40 bg-slate-500/10 text-slate-300 hover:bg-slate-500/20' },
+              ].map(r => (
+                <button
+                  key={r.value}
+                  type="button"
+                  onClick={() => setSelectedRole(r.value)}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${selectedRole === r.value ? `${r.color} border-current` : 'border-slate-600 bg-slate-900 text-slate-400 hover:border-slate-500'}`}
+                >
+                  <p className="text-sm font-semibold">{r.label}</p>
+                  <p className="text-[10px] mt-0.5 opacity-70">{r.desc}</p>
+                </button>
+              ))}
+            </div>
+            {roleMsg && (
+              <p className={`text-xs font-medium mb-3 ${roleMsg.includes('Error') ? 'text-red-400' : 'text-emerald-400'}`}>{roleMsg}</p>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button type="button" onClick={() => { setShowRoleModal(false); setRoleMsg(''); }} className="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 text-sm hover:bg-slate-700 transition-colors">Cancelar</button>
+              <button
+                type="button"
+                onClick={handleRoleChange}
+                disabled={!selectedRole || selectedRole.toUpperCase() === (user?.rol || 'usuario').toUpperCase() || roleLoading}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 text-white text-sm font-semibold hover:bg-sky-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {roleLoading ? 'Guardando...' : 'Aplicar Rol'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showFaceCapture && user && (
         <FaceCapture
