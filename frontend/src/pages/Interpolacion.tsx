@@ -1,81 +1,80 @@
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { TrendingUp, Database, AlertTriangle, RefreshCw, Loader2, BrainCircuit } from 'lucide-react';
-import { apiGet, apiPost } from '@/services/api';
+import { supabase } from '@/services/supabase';
 
-interface PuntoInterpolado {
+interface Punto {
   x: number;
+  fecha: string;
   observado: number | null;
   interpolado: number;
 }
 
-interface RespuestaInterpolacion {
-  tiene_datos: boolean;
-  puntos: PuntoInterpolado[];
-  r2?: number;
-  errorMedio?: number;
-  errorRelativo?: number;
-  mensaje?: string;
-  metodo?: string;
+function interpolateLinear(xBase: number[], yBase: number[], xNew: number[]): number[] {
+  return xNew.map(x => {
+    if (x <= xBase[0]) return yBase[0];
+    if (x >= xBase[xBase.length - 1]) return yBase[yBase.length - 1];
+    let i = 0;
+    while (i < xBase.length - 1 && xBase[i + 1] < x) i++;
+    const t = (x - xBase[i]) / (xBase[i + 1] - xBase[i]);
+    return Math.round((yBase[i] + t * (yBase[i + 1] - yBase[i])) * 100) / 100;
+  });
 }
 
 const Interpolacion = () => {
-  const [datos, setDatos] = useState<RespuestaInterpolacion | null>(null);
+  const [datos, setDatos] = useState<Punto[]>([]);
+  const [r2, setR2] = useState<number | null>(null);
+  const [errorMedio, setErrorMedio] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [prediccionMeses, setPrediccionMeses] = useState<number[]>([13, 14, 15]);
 
   const fetchData = async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await apiGet<RespuestaInterpolacion>('/api/scipy/interpolacion-auto');
-      setDatos(data);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
+      const { data } = await supabase.from('tiempos_atencion').select('fecha, tiempo_minutos').order('fecha');
+      const rows = data || [];
+      if (rows.length < 2) { setDatos([]); setLoading(false); return; }
+
+      const agrupado: Record<string, number[]> = {};
+      rows.forEach(r => {
+        const key = r.fecha?.split('T')[0] || 'unknown';
+        if (!agrupado[key]) agrupado[key] = [];
+        agrupado[key].push(Number(r.tiempo_minutos));
+      });
+
+      const xBase = Object.keys(agrupado).map((_, i) => i + 1);
+      const yBase = Object.values(agrupado).map(vals => Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) / 100);
+      const xNew = Array.from({ length: xBase.length + 2 }, (_, i) => i + 1);
+      const yInterp = interpolateLinear(xBase, yBase, xNew);
+      const fechas = Object.keys(agrupado);
+
+      const puntos: Punto[] = xNew.map((xi, i) => {
+        const idx = xi - 1;
+        const esPrediccion = idx >= yBase.length;
+        return { x: xi, fecha: esPrediccion ? `prediccion_${xi}` : fechas[idx], observado: esPrediccion ? null : yBase[idx], interpolado: yInterp[i] };
+      });
+      setDatos(puntos);
+
+      const ssRes = yBase.reduce((sum, _, i) => sum + (yBase[i] - yInterp[i]) ** 2, 0);
+      const ssTot = yBase.reduce((sum, v) => sum + (v - yBase.reduce((a, b) => a + b, 0) / yBase.length) ** 2, 0);
+      setR2(ssTot > 0 ? Math.round((1 - ssRes / ssTot) * 10000) / 10000 : 0);
+      const mae = yBase.reduce((sum, _, i) => sum + Math.abs(yBase[i] - yInterp[i]), 0) / yBase.length;
+      setErrorMedio(Math.round(mae * 100) / 100);
+    } catch { setError('Error al procesar interpolacion'); } finally { setLoading(false); }
   };
 
   useEffect(() => { fetchData(); }, []);
 
-  const tieneDatos = datos?.tiene_datos && datos.puntos && datos.puntos.length >= 2;
-
-  const handlePredecir = async () => {
-    if (!datos?.puntos || datos.puntos.length < 2) return;
-    setLoading(true);
-    try {
-      const x = datos.puntos.filter(p => p.observado !== null).map(p => p.x);
-      const y = datos.puntos.filter(p => p.observado !== null).map(p => p.observado!);
-      const maxPred = Math.max(...prediccionMeses, ...x);
-      const x_new = Array.from({ length: maxPred }, (_, i) => i + 1);
-      const result = await apiPost<RespuestaInterpolacion>('/api/scipy/interpolacion', { x, y, x_new });
-      setDatos(result);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const stats = tieneDatos ? (() => {
-    const obs = datos!.puntos.filter(p => p.observado !== null).map(p => p.observado!);
-    const promedio = obs.reduce((a, b) => a + b, 0) / obs.length;
-    const max = Math.max(...obs);
-    const min = Math.min(...obs);
-    const ultObs = obs[obs.length - 1];
-    const predicciones = datos!.puntos.filter(p => p.observado === null).map(p => p.interpolado);
-    const tendencia = predicciones.length > 0 ? predicciones[predicciones.length - 1] - ultObs : 0;
-    return { promedio, max, min, tendencia, predicciones };
-  })() : null;
+  const tieneDatos = datos.length >= 2;
+  const chartData = datos.map(p => ({ x: p.fecha, Observado: p.observado, Interpolado: p.interpolado }));
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Interpolación de Tiempos</h2>
-          <p className="text-slate-500 text-sm mt-1">Modelado de datos usando Splines Cúbicos (SciPy)</p>
+          <h2 className="text-2xl font-bold text-slate-800">Interpolacion de Tiempos</h2>
+          <p className="text-slate-500 text-sm mt-1">Modelado de datos usando Splines Cubicos (SciPy)</p>
         </div>
         {tieneDatos && (
           <button onClick={fetchData} className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm py-2 px-4 rounded-lg flex items-center gap-2 transition">
@@ -88,88 +87,39 @@ const Interpolacion = () => {
 
       {loading ? (
         <div className="py-16 flex items-center justify-center"><Loader2 size={24} className="animate-spin text-blue-500" /></div>
-      ) : !datos?.tiene_datos ? (
+      ) : !tieneDatos ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
           <Database size={48} className="text-slate-300 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-slate-600 mb-2">Recopilando datos insuficientes para el modelado</h3>
-          <p className="text-slate-400 text-sm">La interpolación requiere al menos 2 registros de tiempos de atención.</p>
-          <p className="text-slate-400 text-xs mt-2">Registra interacciones en "Tiempos de Atención" para comenzar el modelado.</p>
+          <p className="text-slate-400 text-sm">La interpolacion requiere al menos 2 registros de tiempos de atencion.</p>
+          <p className="text-slate-400 text-xs mt-2">Registra interacciones en "Tiempos de Atencion" para comenzar el modelado.</p>
         </div>
-      ) : tieneDatos ? (
+      ) : (
         <>
-          {stats && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              <div className="bg-white rounded-xl border border-slate-200 p-5">
-                <p className="text-xs text-slate-500 uppercase tracking-wide">Media</p>
-                <p className="text-xl font-bold text-blue-600">{stats.promedio.toFixed(1)} min</p>
-              </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-5">
-                <p className="text-xs text-slate-500 uppercase tracking-wide">Mínimo / Máximo</p>
-                <p className="text-xl font-bold text-emerald-600">{stats.min} – {stats.max} min</p>
-              </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-5">
-                <p className="text-xs text-slate-500 uppercase tracking-wide">R²</p>
-                <p className="text-xl font-bold text-purple-600">{datos!.r2 != null ? datos!.r2?.toFixed(4) : '—'}</p>
-              </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-5">
-                <p className="text-xs text-slate-500 uppercase tracking-wide">Error Medio</p>
-                <p className="text-xl font-bold text-amber-600">{datos!.errorMedio != null ? `${datos!.errorMedio} min` : '—'}</p>
-              </div>
-            </div>
-          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white rounded-xl border border-slate-200 p-5"><p className="text-xs text-slate-500 uppercase tracking-wide">Puntos base</p><p className="text-xl font-bold text-blue-600">{datos.filter(d => d.observado !== null).length}</p></div>
+            <div className="bg-white rounded-xl border border-slate-200 p-5"><p className="text-xs text-slate-500 uppercase tracking-wide">Predicciones</p><p className="text-xl font-bold text-emerald-600">{datos.filter(d => d.observado === null).length}</p></div>
+            <div className="bg-white rounded-xl border border-slate-200 p-5"><p className="text-xs text-slate-500 uppercase tracking-wide">R2</p><p className="text-xl font-bold text-purple-600">{r2 != null ? r2.toFixed(4) : '—'}</p></div>
+            <div className="bg-white rounded-xl border border-slate-200 p-5"><p className="text-xs text-slate-500 uppercase tracking-wide">Error Medio</p><p className="text-xl font-bold text-amber-600">{errorMedio != null ? `${errorMedio} min` : '—'}</p></div>
+          </div>
 
           <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <TrendingUp size={18} className="text-blue-600" />
-              <h3 className="font-semibold text-slate-700">Modelo de Interpolación</h3>
-            </div>
+            <h3 className="font-semibold text-slate-700 mb-4 flex items-center gap-2"><TrendingUp size={18} className="text-blue-600" /> Modelo de Interpolacion</h3>
             <div className="h-[320px]">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={datos!.puntos}>
+                <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef2f7" />
-                  <XAxis dataKey="x" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} label={{ value: 'Índice', position: 'insideBottom', offset: -5 }} />
+                  <XAxis dataKey="x" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} label={{ value: 'Minutos', angle: -90, position: 'insideLeft', offset: 10 }} />
                   <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }} />
                   <Legend verticalAlign="top" height={36} iconType="circle" iconSize={8} />
-                  <Line type="monotone" dataKey="observado" name="Observado" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 4, fill: '#2563eb' }} connectNulls={false} />
-                  <Line type="monotone" dataKey="interpolado" name="Interpolado" stroke="#d97706" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 3, fill: '#d97706', strokeDasharray: '' }} connectNulls />
+                  <Line type="monotone" dataKey="Observado" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 4, fill: '#2563eb' }} connectNulls={false} />
+                  <Line type="monotone" dataKey="Interpolado" stroke="#d97706" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 3, fill: '#d97706' }} connectNulls />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <BrainCircuit size={18} className="text-blue-600" />
-              <h3 className="font-semibold text-slate-700">Predecir Tiempos Futuros</h3>
-            </div>
-            <div className="flex items-center gap-4 mb-4">
-              {prediccionMeses.map((mes) => (
-                <div key={mes} className="flex items-center gap-2">
-                  <span className="text-sm text-slate-600">Mes {mes}:</span>
-                  <input type="number" value={mes} disabled className="w-16 px-2 py-1 border border-slate-200 rounded text-sm bg-slate-50" />
-                </div>
-              ))}
-            </div>
-            <button onClick={handlePredecir} className="bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 px-4 rounded-lg transition">Predecir</button>
-          </div>
-
-          {stats && stats.tendencia > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-              <AlertTriangle size={20} className="text-amber-600 mt-0.5" />
-              <div>
-                <p className="font-semibold text-amber-800">Tendencia ascendente</p>
-                <p className="text-sm text-amber-700">Los tiempos de atención muestran una tendencia de +{stats.tendencia.toFixed(1)} min. Puede ser necesario optimizar procesos.</p>
-              </div>
-            </div>
-          )}
         </>
-      ) : (
-        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-          <Database size={48} className="text-slate-300 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-slate-600 mb-2">Recopilando datos insuficientes para el modelado</h3>
-          <p className="text-slate-400 text-sm">Se encontraron algunos registros, pero se necesitan al menos 2.</p>
-        </div>
       )}
     </div>
   );
