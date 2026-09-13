@@ -1,0 +1,8 @@
+{
+  "name": "nexus-face-api",
+  "version": "1.0.1",
+  "private": true,
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0"
+  }
+}

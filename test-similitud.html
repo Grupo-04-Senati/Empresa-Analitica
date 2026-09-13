@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Similitud Facial - face-api.js</title>
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { text-align: center; margin-bottom: 20px; color: #00d4ff; }
+    .section { background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+    .section h2 { margin-bottom: 15px; color: #00d4ff; font-size: 18px; }
+    .btn { background: #00d4ff; color: #1a1a2e; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; margin: 5px; }
+    .btn:hover { background: #00b8d9; }
+    .btn:disabled { background: #555; cursor: not-allowed; }
+    .result { background: #0f3460; padding: 15px; border-radius: 8px; margin-top: 15px; white-space: pre-wrap; font-family: monospace; font-size: 14px; }
+    .match { color: #00ff88; }
+    .no-match { color: #ff6b6b; }
+    .warning { color: #ffd93d; }
+    video { width: 100%; max-width: 400px; border-radius: 8px; margin: 10px 0; }
+    .hidden { display: none; }
+    .status { padding: 10px; border-radius: 5px; margin: 10px 0; }
+    .status.ok { background: #1a4a1a; border: 1px solid #00ff88; }
+    .status.error { background: #4a1a1a; border: 1px solid #ff6b6b; }
+    .thresholds { display: flex; gap: 20px; flex-wrap: wrap; margin: 15px 0; }
+    .threshold-card { background: #0f3460; padding: 15px; border-radius: 8px; flex: 1; min-width: 200px; }
+    .threshold-card h3 { color: #00d4ff; margin-bottom: 10px; }
+    .threshold-card .value { font-size: 24px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Test de Similitud Facial</h1>
+    
+    <div class="section">
+      <h2>1. Cargar Modelos</h2>
+      <button id="loadBtn" class="btn" onclick="loadModels()">Cargar Modelos face-api.js</button>
+      <div id="modelStatus" class="status hidden"></div>
+    </div>
+
+    <div class="section">
+      <h2>2. Capturar Rostros</h2>
+      <p>Captura el mismo rostro en diferentes poses o captura dos personas distintas.</p>
+      <video id="video" autoplay muted></video>
+      <br>
+      <button id="captureBtn1" class="btn" onclick="captureFace(1)" disabled> Capturar Rostro 1</button>
+      <button id="captureBtn2" class="btn" onclick="captureFace(2)" disabled> Capturar Rostro 2</button>
+      <div id="captureStatus" class="status hidden"></div>
+    </div>
+
+    <div class="section">
+      <h2>3. Resultados</h2>
+      <div class="thresholds">
+        <div class="threshold-card">
+          <h3>Misma Persona</h3>
+          <div class="value match">Similitud > 0.6</div>
+          <p>Distancia < 0.4</p>
+        </div>
+        <div class="threshold-card">
+          <h3>Zona Gris</h3>
+          <div class="value warning">0.4 - 0.6</div>
+          <p>Puede ser la misma persona</p>
+        </div>
+        <div class="threshold-card">
+          <h3>Persona Diferente</h3>
+          <div class="value no-match">Similitud < 0.4</div>
+          <p>Distancia > 0.6</p>
+        </div>
+      </div>
+      <div id="results" class="result">Esperando capturas...</div>
+    </div>
+
+    <div class="section">
+      <h2>4. Verificar Normalizacion L2</h2>
+      <button class="btn" onclick="verifyNormalization()">Verificar Normas</button>
+      <div id="normResults" class="result">Haz capturas primero</div>
+    </div>
+  </div>
+
+  <script>
+    const MODEL_URL = '/models';
+    let modelsLoaded = false;
+    let faces = { 1: null, 2: null };
+    let descriptors = { 1: null, 2: null };
+
+    async function loadModels() {
+      const status = document.getElementById('modelStatus');
+      status.className = 'status';
+      status.textContent = 'Cargando modelos...';
+      
+      try {
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        ]);
+        modelsLoaded = true;
+        status.className = 'status ok';
+        status.textContent = 'Modelos cargados correctamente';
+        
+        document.getElementById('captureBtn1').disabled = false;
+        document.getElementById('captureBtn2').disabled = false;
+        
+        startVideo();
+      } catch (e) {
+        status.className = 'status error';
+        status.textContent = 'Error cargando modelos: ' + e.message;
+      }
+    }
+
+    async function startVideo() {
+      const video = document.getElementById('video');
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+      } catch (e) {
+        console.error('Error accessing camera:', e);
+      }
+    }
+
+    async function captureFace(num) {
+      if (!modelsLoaded) {
+        alert('Carga los modelos primero');
+        return;
+      }
+
+      const video = document.getElementById('video');
+      const status = document.getElementById('captureStatus');
+      status.className = 'status';
+      status.textContent = `Detectando rostro ${num}...`;
+
+      const detection = await faceapi
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (!detection) {
+        status.className = 'status error';
+        status.textContent = `No se detecto rostro en la captura ${num}`;
+        return;
+      }
+
+      faces[num] = detection;
+      descriptors[num] = Array.from(detection.descriptor);
+      
+      status.className = 'status ok';
+      status.textContent = `Rostro ${num} capturado (${detection.detection.score.toFixed(3)} score)`;
+      
+      if (descriptors[1] && descriptors[2]) {
+        compareFaces();
+      }
+    }
+
+    function l2Normalize(arr) {
+      let norm = 0;
+      for (let i = 0; i < arr.length; i++) norm += arr[i] * arr[i];
+      norm = Math.sqrt(norm);
+      if (norm > 0) {
+        for (let i = 0; i < arr.length; i++) arr[i] /= norm;
+      }
+      return arr;
+    }
+
+    function cosineSimilarity(a, b) {
+      if (a.length !== b.length) return 0;
+      let dot = 0;
+      for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+      return Math.max(-1, Math.min(1, dot));
+    }
+
+    function cosineDistance(a, b) {
+      return 1 - cosineSimilarity(a, b);
+    }
+
+    function compareFaces() {
+      const norm1 = l2Normalize([...descriptors[1]]);
+      const norm2 = l2Normalize([...descriptors[2]]);
+      
+      const sim = cosineSimilarity(norm1, norm2);
+      const dist = cosineDistance(norm1, norm2);
+      
+      const results = document.getElementById('results');
+      let interpretation = '';
+      let className = '';
+      
+      if (sim >= 0.6) {
+        interpretation = 'MISMA PERSONA (similitud >= 0.6)';
+        className = 'match';
+      } else if (sim >= 0.4) {
+        interpretation = 'ZONA GRIS (similitud entre 0.4-0.6)';
+        className = 'warning';
+      } else {
+        interpretation = 'PERSONAS DIFERENTES (similitud < 0.4)';
+        className = 'no-match';
+      }
+      
+      results.innerHTML = `
+        <span class="${className}"><strong>${interpretation}</strong></span>
+
+        Similitud Coseno: <strong class="${className}">${sim.toFixed(4)}</strong>
+        Distancia Coseno: <strong>${dist.toFixed(4)}</strong>
+
+        Dimensiones: ${descriptors[1].length}D
+
+        Rostro 1 - Norma L2: ${Math.sqrt(norm1.reduce((s, v) => s + v * v, 0)).toFixed(6)}
+        Rostro 2 - Norma L2: ${Math.sqrt(norm2.reduce((s, v) => s + v * v, 0)).toFixed(6)}
+
+        Primeros 5 valores (Rostro 1, normalizado):
+        ${norm1.slice(0, 5).map(v => v.toFixed(6)).join(', ')}
+
+        Primeros 5 valores (Rostro 2, normalizado):
+        ${norm2.slice(0, 5).map(v => v.toFixed(6)).join(', ')}
+      `;
+    }
+
+    function verifyNormalization() {
+      const normResults = document.getElementById('normResults');
+      
+      if (!descriptors[1] && !descriptors[2]) {
+        normResults.textContent = 'Haz capturas primero';
+        return;
+      }
+      
+      let output = 'Verificacion de Normalizacion L2:\n\n';
+      
+      for (const num of [1, 2]) {
+        if (descriptors[num]) {
+          const raw = descriptors[num];
+          const norm = l2Normalize([...raw]);
+          const rawNorm = Math.sqrt(raw.reduce((s, v) => s + v * v, 0));
+          const normNorm = Math.sqrt(norm.reduce((s, v) => s + v * v, 0));
+          
+          output += `Rostro ${num}:\n`;
+          output += `  - Dimensiones: ${raw.length}\n`;
+          output += `  - Norma original: ${rawNorm.toFixed(6)}\n`;
+          output += `  - Norma normalizada: ${normNorm.toFixed(6)}\n`;
+          output += `  - Correctamente normalizado: ${Math.abs(normNorm - 1.0) < 0.0001 ? 'SI' : 'NO'}\n\n`;
+        }
+      }
+      
+      normResults.textContent = output;
+    }
+  </script>
+</body>
+</html>
