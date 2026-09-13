@@ -31,9 +31,9 @@ const menuAdmin: MenuItem[] = [
     { label: 'Optimizacion', path: '/dashboard/optimizacion' },
   ]},
   { title: 'REPORTES', icon: <FileText size={18} />, adminOnly: true, items: [
-    { label: 'Atencion', path: '/dashboard/reportes/atencion' },
-    { label: 'NLP', path: '/dashboard/reportes/nlp' },
-    { label: 'Estadisticas', path: '/dashboard/reportes/estadisticas' },
+    { label: 'Tiempos de Atencion', path: '/dashboard/reportes/atencion' },
+    { label: 'Analisis NLP', path: '/dashboard/reportes/nlp' },
+    { label: 'Resumen General', path: '/dashboard/reportes/estadisticas' },
   ]},
   { title: 'CONFIGURACION', icon: <Settings size={18} />, adminOnly: true, items: [
     { label: 'Usuarios', path: '/dashboard/usuarios', adminOnly: true },
