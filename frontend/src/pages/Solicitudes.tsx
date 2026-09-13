@@ -168,6 +168,35 @@ export const Solicitudes = () => {
         cambiado_por: userId,
       });
       setSolicitudes((prev) => prev.map((s) => s.id === id ? { ...s, ...updates } : s));
+
+      const sol = solicitudes.find(s => s.id === id);
+      if (sol && (nuevoEstado === 'en_proceso' || nuevoEstado === 'resuelto')) {
+        if (nuevoEstado === 'en_proceso') {
+          const { data: existing } = await supabase.from('tiempos_atencion')
+            .select('id').eq('comentario_id', id).single();
+          if (!existing) {
+            await supabase.from('tiempos_atencion').insert({
+              cliente_id: sol.cliente_id || null,
+              comentario_id: id,
+              tiempo_minutos: 0,
+              fecha: new Date().toISOString(),
+              operador: sol.asignado_a ? String(sol.asignado_a) : (userId ? String(userId) : null),
+            });
+          }
+        }
+        if (nuevoEstado === 'resuelto') {
+          const { data: tiempo } = await supabase.from('tiempos_atencion')
+            .select('id, fecha').eq('comentario_id', id).single();
+          if (tiempo) {
+            const fechaInicio = new Date(tiempo.fecha);
+            const fechaFin = new Date();
+            const diffMin = Math.round((fechaFin.getTime() - fechaInicio.getTime()) / 60000);
+            await supabase.from('tiempos_atencion').update({
+              tiempo_minutos: diffMin > 0 ? diffMin : 0,
+            }).eq('id', tiempo.id);
+          }
+        }
+      }
     }
   };
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Clock, Plus, Edit3, Trash2, Loader2, X, Search, Filter, BarChart3, AlertTriangle } from 'lucide-react';
+import { Clock, Plus, Edit3, Trash2, Loader2, X, Search, Filter, BarChart3, AlertTriangle, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -7,10 +7,12 @@ import { useAuth } from '../context/AuthContext';
 interface TiempoRow {
   id: number;
   cliente_id: number | null;
+  solicitud_id: number | null;
   comentario_id: number | null;
   tiempo_minutos: number;
   fecha: string;
   operador: string | null;
+  sla_cumplido: boolean | null;
   created_at: string;
   clientes?: { nombre: string; empresa: string } | null;
 }
@@ -39,7 +41,9 @@ export const TiempoAtencion = () => {
   const fetchData = async () => {
     setLoading(true);
     const [tiemposRes, clientesRes] = await Promise.all([
-      supabase.from('tiempos_atencion').select('*, clientes(nombre, empresa)').order('fecha', { ascending: false }),
+      supabase.from('tiempos_atencion')
+        .select('id, cliente_id, solicitud_id, comentario_id, tiempo_minutos, fecha, operador, sla_cumplido, created_at, clientes(nombre, empresa)')
+        .order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').eq('activo', true).order('nombre'),
     ]);
     if (tiemposRes.data) setDatos(tiemposRes.data as unknown as TiempoRow[]);
@@ -50,7 +54,10 @@ export const TiempoAtencion = () => {
   const stats = useMemo(() => {
     const total = datos.length;
     const promedio = total > 0 ? Math.round(datos.reduce((s, d) => s + Number(d.tiempo_minutos), 0) / total) : 0;
-    const cumple = datos.filter(d => Number(d.tiempo_minutos) <= SLA_MINUTOS).length;
+    const cumple = datos.filter(d => {
+      const tiempo = Number(d.tiempo_minutos);
+      return d.sla_cumplido !== null ? d.sla_cumplido : tiempo <= SLA_MINUTOS;
+    }).length;
     const pctCumple = total > 0 ? Math.round((cumple / total) * 100) : 0;
     const menor = total > 0 ? Math.min(...datos.map(d => Number(d.tiempo_minutos))) : 0;
     const mayor = total > 0 ? Math.max(...datos.map(d => Number(d.tiempo_minutos))) : 0;
@@ -78,7 +85,8 @@ export const TiempoAtencion = () => {
   const filtrados = datos.filter(d => {
     const matchBusq = `${d.clientes?.nombre || ''} ${d.operador || ''}`.toLowerCase().includes(busqueda.toLowerCase());
     const tiempo = Number(d.tiempo_minutos);
-    const matchFiltro = filtroCumple === 'todos' || (filtroCumple === 'cumple' && tiempo <= SLA_MINUTOS) || (filtroCumple === 'excede' && tiempo > SLA_MINUTOS);
+    const cumple = d.sla_cumplido !== null ? d.sla_cumplido : tiempo <= SLA_MINUTOS;
+    const matchFiltro = filtroCumple === 'todos' || (filtroCumple === 'cumple' && cumple) || (filtroCumple === 'excede' && !cumple);
     return matchBusq && matchFiltro;
   });
 
@@ -95,11 +103,13 @@ export const TiempoAtencion = () => {
     setSaving(true);
     setError('');
     try {
+      const tiempoMin = parseFloat(form.tiempo_minutos);
       const payload = {
         cliente_id: form.cliente_id ? Number(form.cliente_id) : null,
-        tiempo_minutos: parseFloat(form.tiempo_minutos),
+        tiempo_minutos: tiempoMin,
         fecha: form.fecha,
         operador: form.operador || null,
+        sla_cumplido: tiempoMin <= SLA_MINUTOS,
       };
       if (editando) {
         const { error: err } = await supabase.from('tiempos_atencion').update(payload).eq('id', editando.id);
@@ -130,11 +140,16 @@ export const TiempoAtencion = () => {
           <h2 className="text-2xl font-bold text-slate-800">Tiempos de Atencion</h2>
           <p className="text-slate-500 text-sm mt-1">Control de tiempos de respuesta (SLA: {SLA_MINUTOS} min)</p>
         </div>
-        {canEdit && (
-          <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition">
-            <Plus size={16} /> Nuevo Registro
+        <div className="flex items-center gap-2">
+          <button onClick={fetchData} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition" title="Actualizar">
+            <RefreshCw size={14} />
           </button>
-        )}
+          {canEdit && (
+            <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition">
+              <Plus size={16} /> Nuevo Registro
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm p-3 mb-4 flex items-center gap-2"><X size={14} />{error}</div>}
@@ -159,7 +174,7 @@ export const TiempoAtencion = () => {
           <AlertTriangle size={20} className="text-red-600 mt-0.5" />
           <div>
             <p className="font-semibold text-red-800">Alerta SLA: Cumplimiento bajo ({stats.pctCumple}%)</p>
-            <p className="text-sm text-red-700">El {100 - stats.pctCumple}% de las interacciones exceden el límite de {SLA_MINUTOS} minutos. Se requiere optimización de procesos.</p>
+            <p className="text-sm text-red-700">El {100 - stats.pctCumple}% de las interacciones exceden el limite de {SLA_MINUTOS} minutos.</p>
           </div>
         </div>
       )}
@@ -179,7 +194,7 @@ export const TiempoAtencion = () => {
           <Clock size={20} className="text-amber-600 mt-0.5" />
           <div>
             <p className="font-semibold text-amber-800">Sin datos de tiempos</p>
-            <p className="text-sm text-amber-700">Registra interacciones para comenzar a medir el cumplimiento SLA (límite: {SLA_MINUTOS} min).</p>
+            <p className="text-sm text-amber-700">Los registros se crean automaticamente al cambiar el estado de una solicitud a "En Proceso".</p>
           </div>
         </div>
       )}
@@ -255,7 +270,7 @@ export const TiempoAtencion = () => {
                   <tr><td colSpan={6} className="py-12 text-center text-slate-400">No hay registros</td></tr>
                 ) : filtrados.map(d => {
                   const tiempo = Number(d.tiempo_minutos);
-                  const cumple = tiempo <= SLA_MINUTOS;
+                  const cumple = d.sla_cumplido !== null ? d.sla_cumplido : tiempo <= SLA_MINUTOS;
                   return (
                     <tr key={d.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
                       <td className="py-3 px-4">
@@ -268,7 +283,7 @@ export const TiempoAtencion = () => {
                           {cumple ? 'Cumple' : 'Excede'}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-slate-600">{d.operador || '—'}</td>
+                      <td className="py-3 px-4 text-slate-600">{d.operador || 'Sin operador'}</td>
                       <td className="py-3 px-4 text-slate-500 text-xs whitespace-nowrap">{d.fecha ? new Date(d.fecha).toLocaleDateString('es-ES') : '—'}</td>
                       {canEdit && (
                         <td className="py-3 px-4 text-right">
