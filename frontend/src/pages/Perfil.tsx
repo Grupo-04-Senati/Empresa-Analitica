@@ -586,8 +586,6 @@ export const Perfil: React.FC = () => {
             <div className="grid grid-cols-2 gap-3 mb-4">
               {[
                 { value: 'ADMIN', label: 'Admin', desc: 'Control total del sistema', color: 'border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20', activeBg: 'bg-red-500/20 border-red-500' },
-                { value: 'ANALISTA', label: 'Analista', desc: 'Acceso a reportes y datos', color: 'border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20', activeBg: 'bg-blue-500/20 border-blue-500' },
-                { value: 'SUPERVISOR', label: 'Supervisor', desc: 'Supervision de operaciones', color: 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20', activeBg: 'bg-amber-500/20 border-amber-500' },
                 { value: 'USUARIO', label: 'Usuario', desc: 'Acceso basico', color: 'border-slate-500/40 bg-slate-500/10 text-slate-300 hover:bg-slate-500/20', activeBg: 'bg-slate-500/20 border-slate-400' },
               ].map(r => {
                 const isActive = selectedRole === r.value;
