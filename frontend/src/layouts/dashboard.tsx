@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Headphones, Brain, Database, FileText, Settings,
@@ -63,6 +63,7 @@ export const DashboardLayout = () => {
   const [notificaciones, setNotificaciones] = useState<{ id: number; titulo: string; mensaje: string; tipo: string; enlace: string | null; leida: boolean; created_at: string }[]>([]);
   const [showNotif, setShowNotif] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const prevNotifCountRef = useRef(0);
 
   const menuData = isAdmin ? menuAdmin : menuUser;
 
@@ -84,8 +85,7 @@ export const DashboardLayout = () => {
 
   useEffect(() => {
     if (!user) return;
-    let prevCount = notificaciones.length;
-    if (notificaciones.length > prevCount) {
+    if (notificaciones.length > prevNotifCountRef.current && prevNotifCountRef.current > 0) {
       const nueva = notificaciones[0];
       if (nueva && !nueva.leida) {
         try {
@@ -95,7 +95,7 @@ export const DashboardLayout = () => {
         } catch {}
       }
     }
-    prevCount = notificaciones.length;
+    prevNotifCountRef.current = notificaciones.length;
   }, [notificaciones.length, user]);
 
   // Heartbeat: actualizar last_seen del cliente cada 60 segundos
