@@ -107,8 +107,12 @@ export const Solicitudes = () => {
       const userId = user?.id ? Number(user.id) : null;
       let clienteIdVal: number | null = null;
       if (userId) {
-        const { data: cli } = await supabase.from('clientes').select('id').eq('usuario_id', userId).single();
-        clienteIdVal = cli?.id || null;
+        const { data: cli } = await supabase.from('clientes').select('id').eq('usuario_id', userId).maybeSingle();
+        if (cli) clienteIdVal = cli.id;
+      }
+      if (!clienteIdVal && user?.email) {
+        const { data: cliByEmail } = await supabase.from('clientes').select('id').eq('email', user.email).maybeSingle();
+        if (cliByEmail) clienteIdVal = cliByEmail.id;
       }
       const contenidoFinal = asunto.trim() ? `[${asunto.trim()}] ${contenido.trim()}` : contenido.trim();
       const { error: err } = await supabase.from('solicitudes').insert({
