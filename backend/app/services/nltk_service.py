@@ -122,6 +122,16 @@ def analizar_texto(texto: str) -> dict:
     else:
         sentimiento = "neutro"
 
+    neg_penalty = min(35.0, neg_matches * 12.0)
+    mixed_penalty = 0.0
+    if pos_matches > 0 and neg_matches > 0:
+        mixed_penalty = min(20.0, abs(pos_matches - neg_matches) * 5.0)
+    total_penalty = neg_penalty + mixed_penalty
+    confianza_pct = max(15.0, confianza_pct - total_penalty)
+
+    if sentimiento == "negativo":
+        confianza_pct = min(confianza_pct, 70.0)
+
     # 3. Frecuencia y keywords
     conteo = Counter(tokens_limpios)
     palabras_frecuentes = [{"palabra": w, "frecuencia": c} for w, c in conteo.most_common(10)]
