@@ -1,116 +1,120 @@
 import { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { BarChart3, TrendingUp, Activity, Loader2 } from 'lucide-react';
-import { supabase } from '@/services/supabase';
+import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { Database, BarChart3, Loader2, FileText } from 'lucide-react';
+import { apiGet } from '@/services/api';
 
-const CHART_COLORS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#e11d48', '#0891b2'];
+const CAT_COLORS: Record<string, string> = {
+  FELICITACION: '#059669',
+  RECLAMO: '#dc2626',
+  SOPORTE: '#2563eb',
+  VENTAS: '#d97706',
+  CONSULTA: '#7c3aed',
+};
 
-interface TiempoRow { tiempo_minutos: number; }
-interface ComentarioRow { estado: string | null; categoria: string | null; }
-
-function calcStats(values: number[]) {
-  if (values.length === 0) return { count: 0, mean: 0, median: 0, stdDev: 0, min: 0, max: 0 };
-  const sorted = [...values].sort((a, b) => a - b);
-  const count = sorted.length;
-  const mean = sorted.reduce((s, v) => s + v, 0) / count;
-  const mid = Math.floor(count / 2);
-  const median = count % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  const stdDev = Math.sqrt(sorted.reduce((s, v) => s + (v - mean) ** 2, 0) / count);
-  return { count, mean: Math.round(mean * 100) / 100, median: Math.round(median * 100) / 100, stdDev: Math.round(stdDev * 100) / 100, min: sorted[0], max: sorted[count - 1] };
+interface ReporteEstadisticas {
+  stats_tiempos: {
+    cantidad: number;
+    media: number;
+    mediana: number;
+    desviacion_estandar: number;
+    minimo: number;
+    maximo: number;
+    percentil_25: number;
+    percentil_75: number;
+  } | null;
+  categorias: { nombre: string; total: number }[];
+  total_comentarios: number;
+  procesados: number;
+  total_analisis: number;
+  interpolacion: any;
+  tiene_datos: boolean;
 }
 
 export const ReportesEstadisticas = () => {
-  const [stats, setStats] = useState<ReturnType<typeof calcStats> | null>(null);
-  const [catData, setCatData] = useState<{ name: string; value: number }[]>([]);
+  const [data, setData] = useState<ReporteEstadisticas | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      const [tiemposRes, compsRes] = await Promise.all([
-        supabase.from('tiempos_atencion').select('tiempo_minutos'),
-        supabase.from('comentarios').select('estado, categoria'),
-      ]);
-
-      const tiempos = (tiemposRes.data || []).map((t: TiempoRow) => Number(t.tiempo_minutos)).filter((v) => !isNaN(v) && v > 0);
-      if (tiempos.length > 0) setStats(calcStats(tiempos));
-
-      const comps = (compsRes.data || []) as ComentarioRow[];
-      const catMap = new Map<string, number>();
-      comps.forEach((c) => { const cat = c.categoria || 'Sin categoría'; catMap.set(cat, (catMap.get(cat) || 0) + 1); });
-      setCatData(Array.from(catMap.entries()).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value));
-
-      if (tiemposRes.error) setError(tiemposRes.error.message);
-      else if (compsRes.error) setError(compsRes.error.message);
-      setLoading(false);
+      try {
+        const result = await apiGet<ReporteEstadisticas>('/api/reportes/estadisticas');
+        setData(result);
+      } catch (e: any) {
+        setError(e.message || 'Error al cargar reportes');
+      } finally {
+        setLoading(false);
+      }
     };
     fetchData();
   }, []);
 
-  const barData = stats ? [
-    { name: 'Media', value: stats.mean },
-    { name: 'Mediana', value: stats.median },
-    { name: 'Mín', value: stats.min },
-    { name: 'Máx', value: stats.max },
-    { name: 'Desv Std', value: stats.stdDev },
-  ] : [];
-
-  const kpis = [
-    { label: 'Registros tiempo', valor: stats?.count?.toString() || '—', icono: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Media (min)', valor: stats ? stats.mean.toString() : '—', icono: Activity, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Categorías', valor: catData.length.toString(), icono: BarChart3, color: 'text-amber-600', bg: 'bg-amber-50' },
-    { label: 'Desv. Estándar', valor: stats ? stats.stdDev.toString() : '—', icono: Activity, color: 'text-purple-600', bg: 'bg-purple-50' },
-  ];
+  const catData = (data?.categorias || []).map(c => ({ name: c.nombre, total: c.total }));
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Reportes de Estadísticas</h2>
-          <p className="text-slate-500 text-sm mt-1">Análisis cuantitativo de tiempos y distribución de categorías</p>
+          <h2 className="text-2xl font-bold text-slate-800">Reportes Estadísticos</h2>
+          <p className="text-slate-500 text-sm mt-1">Análisis de datos históricos y métricas computadas</p>
         </div>
       </div>
 
       {error && <div className="rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 mb-4">{error}</div>}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        {kpis.map((k) => {
-          const Icon = k.icono;
-          return (
-            <div key={k.label} className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
-              <span className={`flex items-center justify-center w-10 h-10 rounded-lg ${k.bg} ${k.color}`}><Icon size={20} /></span>
-              <div>
-                <p className="text-xs text-slate-500 uppercase tracking-wide">{k.label}</p>
-                <p className="text-xl font-bold text-slate-800">{k.valor}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
       {loading ? (
         <div className="py-16 flex items-center justify-center"><Loader2 size={24} className="animate-spin text-blue-500" /></div>
+      ) : !data?.tiene_datos ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+          <Database size={48} className="text-slate-300 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-slate-600 mb-2">No hay datos suficientes</h3>
+          <p className="text-slate-400 text-sm">Los reportes estadísticos se generarán cuando haya datos suficientes en el sistema.</p>
+          <p className="text-slate-400 text-xs mt-2">Se necesitan al menos 2 registros para calcular estadísticas.</p>
+        </div>
       ) : (
         <>
+          {data.stats_tiempos && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Promedio</p>
+                <p className="text-2xl font-bold text-blue-600">{data.stats_tiempos.media} min</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Mediana</p>
+                <p className="text-2xl font-bold text-emerald-600">{data.stats_tiempos.mediana} min</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Desv. Estándar</p>
+                <p className="text-2xl font-bold text-amber-600">{data.stats_tiempos.desviacion_estandar} min</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Rango (min-max)</p>
+                <p className="text-2xl font-bold text-purple-600">{data.stats_tiempos.minimo} – {data.stats_tiempos.maximo}</p>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <div className="bg-white rounded-xl border border-slate-200 p-5">
               <div className="flex items-center gap-2 mb-4">
                 <BarChart3 size={18} className="text-blue-600" />
-                <h3 className="font-semibold text-slate-700">Tiempos de Atención</h3>
+                <h3 className="font-semibold text-slate-700">Distribución por Categoría</h3>
               </div>
-              {barData.length === 0 ? (
-                <div className="h-[260px] flex items-center justify-center text-slate-400 text-sm">Sin datos de tiempos</div>
+              {catData.length === 0 ? (
+                <div className="h-[260px] flex items-center justify-center text-slate-400 text-sm">Sin datos de categorías</div>
               ) : (
                 <div className="h-[260px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={barData} barGap={4} barCategoryGap="22%">
+                    <BarChart data={catData}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef2f7" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
                       <YAxis hide />
-                      <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0' }} />
-                      <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                        {barData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                      <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                      <Bar dataKey="total" name="Comentarios" radius={[6, 6, 0, 0]}>
+                        {catData.map((c) => (
+                          <Cell key={c.name} fill={CAT_COLORS[c.name] || '#6366f1'} />
+                        ))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
@@ -120,52 +124,30 @@ export const ReportesEstadisticas = () => {
 
             <div className="bg-white rounded-xl border border-slate-200 p-5">
               <div className="flex items-center gap-2 mb-4">
-                <Activity size={18} className="text-emerald-600" />
-                <h3 className="font-semibold text-slate-700">Distribución por Categoría</h3>
+                <FileText size={18} className="text-amber-600" />
+                <h3 className="font-semibold text-slate-700">Estadísticas de Tiempos</h3>
               </div>
-              {catData.length === 0 ? (
-                <div className="h-[260px] flex items-center justify-center text-slate-400 text-sm">Sin categorías</div>
-              ) : (
-                <div className="h-[260px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={catData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90} paddingAngle={3} strokeWidth={0}>
-                        {catData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0' }} />
-                      <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
+              {data.stats_tiempos ? (
+                <div className="flex flex-col gap-3">
+                  {[
+                    { label: 'Media', value: `${data.stats_tiempos.media} min` },
+                    { label: 'Mediana', value: `${data.stats_tiempos.mediana} min` },
+                    { label: 'Desviación estándar', value: `${data.stats_tiempos.desviacion_estandar} min` },
+                    { label: 'Percentil 25', value: `${data.stats_tiempos.percentil_25} min` },
+                    { label: 'Percentil 75', value: `${data.stats_tiempos.percentil_75} min` },
+                    { label: 'Mínimo', value: `${data.stats_tiempos.minimo} min` },
+                    { label: 'Máximo', value: `${data.stats_tiempos.maximo} min` },
+                  ].map((s) => (
+                    <div key={s.label} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+                      <span className="text-sm text-slate-500">{s.label}</span>
+                      <span className="text-sm font-semibold text-slate-800">{s.value}</span>
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <div className="h-[260px] flex items-center justify-center text-slate-400 text-sm">Sin datos de tiempos</div>
               )}
             </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <TrendingUp size={18} className="text-amber-600" />
-              <h3 className="font-semibold text-slate-700">Detalle Estadístico</h3>
-            </div>
-            {stats ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead><tr className="border-b border-slate-200">
-                    <th className="text-left py-3 px-4 font-medium text-slate-500">Métrica</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-500">Valor</th>
-                  </tr></thead>
-                  <tbody>
-                    <tr className="border-b border-slate-100"><td className="py-3 px-4 text-slate-700">Total de datos</td><td className="py-3 px-4 font-medium text-slate-800">{stats.count}</td></tr>
-                    <tr className="border-b border-slate-100"><td className="py-3 px-4 text-slate-700">Media</td><td className="py-3 px-4 font-medium text-slate-800">{stats.mean} min</td></tr>
-                    <tr className="border-b border-slate-100"><td className="py-3 px-4 text-slate-700">Mediana</td><td className="py-3 px-4 font-medium text-slate-800">{stats.median} min</td></tr>
-                    <tr className="border-b border-slate-100"><td className="py-3 px-4 text-slate-700">Desviación Estándar</td><td className="py-3 px-4 font-medium text-slate-800">{stats.stdDev}</td></tr>
-                    <tr className="border-b border-slate-100"><td className="py-3 px-4 text-slate-700">Mínimo</td><td className="py-3 px-4 font-medium text-slate-800">{stats.min} min</td></tr>
-                    <tr><td className="py-3 px-4 text-slate-700">Máximo</td><td className="py-3 px-4 font-medium text-slate-800">{stats.max} min</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="py-12 text-center text-slate-400 text-sm">Sin datos estadísticos disponibles</div>
-            )}
           </div>
         </>
       )}

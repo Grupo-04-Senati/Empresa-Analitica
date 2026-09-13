@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Clock, Plus, Edit3, Trash2, Loader2, X, Search, Filter, BarChart3 } from 'lucide-react';
+import { Clock, Plus, Edit3, Trash2, Loader2, X, Search, Filter, BarChart3, AlertTriangle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -153,6 +153,36 @@ export const TiempoAtencion = () => {
           </div>
         ))}
       </div>
+
+      {stats.total > 0 && stats.pctCumple < 80 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex items-start gap-3">
+          <AlertTriangle size={20} className="text-red-600 mt-0.5" />
+          <div>
+            <p className="font-semibold text-red-800">Alerta SLA: Cumplimiento bajo ({stats.pctCumple}%)</p>
+            <p className="text-sm text-red-700">El {100 - stats.pctCumple}% de las interacciones exceden el límite de {SLA_MINUTOS} minutos. Se requiere optimización de procesos.</p>
+          </div>
+        </div>
+      )}
+
+      {stats.total > 0 && stats.pctCumple >= 80 && stats.pctCumple < 100 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-6 flex items-start gap-3">
+          <Clock size={20} className="text-emerald-600 mt-0.5" />
+          <div>
+            <p className="font-semibold text-emerald-800">SLA dentro de objetivo ({stats.pctCumple}%)</p>
+            <p className="text-sm text-emerald-700">El cumplimiento supera el 80%. Mantener el ritmo actual.</p>
+          </div>
+        </div>
+      )}
+
+      {stats.total === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-start gap-3">
+          <Clock size={20} className="text-amber-600 mt-0.5" />
+          <div>
+            <p className="font-semibold text-amber-800">Sin datos de tiempos</p>
+            <p className="text-sm text-amber-700">Registra interacciones para comenzar a medir el cumplimiento SLA (límite: {SLA_MINUTOS} min).</p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 mb-6 lg:grid-cols-2">
         <div className="bg-white rounded-xl border border-slate-200 p-5">

@@ -1,238 +1,175 @@
 import { useState, useEffect } from 'react';
-import { LineChart as ReLineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { LineChart as LineIcon, Database, Ruler, Sigma, Percent, Loader2 } from 'lucide-react';
-import { supabase } from '@/services/supabase';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Intersect, Database, TrendingUp, AlertTriangle, RefreshCw, Loader2, BrainCircuit } from 'lucide-react';
+import { apiGet, apiPost } from '@/services/api';
 
-interface TiempoRow { fecha: string; tiempo_minutos: number; }
-interface PuntoInterpolado { x: number; observado: number | null; interpolado: number; }
-
-function linearInterpolate(data: { x: number; y: number }[], predictCount: number): PuntoInterpolado[] {
-  if (data.length === 0) return [];
-  const sorted = [...data].sort((a, b) => a.x - b.x);
-  const minX = sorted[0].x;
-  const maxX = sorted[sorted.length - 1].x;
-  const step = (maxX - minX) / Math.max(sorted.length - 1, 1);
-
-  const result: PuntoInterpolado[] = [];
-  const origMap = new Map(sorted.map((d) => [d.x, d.y]));
-
-  for (let i = 0; i < sorted.length + predictCount; i++) {
-    const x = minX + i * step;
-    const observed = origMap.get(Math.round(x * 100) / 100) ?? null;
-
-    let interpolated = 0;
-    if (x <= maxX) {
-      for (let j = 0; j < sorted.length - 1; j++) {
-        if (x >= sorted[j].x && x <= sorted[j + 1].x) {
-          const t = (x - sorted[j].x) / (sorted[j + 1].x - sorted[j].x || 1);
-          interpolated = sorted[j].y + t * (sorted[j + 1].y - sorted[j].y);
-          break;
-        }
-      }
-    } else {
-      const lastTwo = sorted.slice(-2);
-      const slope = (lastTwo[1].y - lastTwo[0].y) / (lastTwo[1].x - lastTwo[0].x || 1);
-      interpolated = lastTwo[1].y + slope * (x - lastTwo[1].x);
-    }
-    result.push({ x: Math.round(x * 100) / 100, observado: observed, interpolado: Math.round(interpolated * 100) / 100 });
-  }
-  return result;
+interface PuntoInterpolado {
+  x: number;
+  observado: number | null;
+  interpolado: number;
 }
 
-function calcR2(points: PuntoInterpolado[]) {
-  const withObs = points.filter((p) => p.observado !== null);
-  if (withObs.length < 2) return 0;
-  const mean = withObs.reduce((s, p) => s + p.observado!, 0) / withObs.length;
-  const ssRes = withObs.reduce((s, p) => s + (p.observado! - p.interpolado) ** 2, 0);
-  const ssTot = withObs.reduce((s, p) => s + (p.observado! - mean) ** 2, 0);
-  return ssTot === 0 ? 1 : 1 - ssRes / ssTot;
+interface RespuestaInterpolacion {
+  tiene_datos: boolean;
+  puntos: PuntoInterpolado[];
+  r2?: number;
+  errorMedio?: number;
+  errorRelativo?: number;
+  mensaje?: string;
+  metodo?: string;
 }
 
-export const Interpolacion = () => {
-  const [datos, setDatos] = useState<PuntoInterpolado[]>([]);
-  const [r2, setR2] = useState(0);
-  const [errorMedio, setErrorMedio] = useState(0);
-  const [errorRelativo, setErrorRelativo] = useState(0);
+const Interpolacion = () => {
+  const [datos, setDatos] = useState<RespuestaInterpolacion | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [prediccionMeses, setPrediccionMeses] = useState<number[]>([13, 14, 15]);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase.from('tiempos_atencion').select('fecha, tiempo_minutos').order('fecha');
-        console.log('[Interpolacion] data:', data?.length, 'error:', error);
-        if (error) throw error;
-        const rows = (data || []) as TiempoRow[];
-        const grouped: Record<string, number[]> = {};
-        rows.forEach((r) => {
-          const key = r.fecha?.split('T')[0] || 'unknown';
-          if (!grouped[key]) grouped[key] = [];
-          grouped[key].push(Number(r.tiempo_minutos));
-        });
-        const series = Object.entries(grouped).map(([fecha, vals]) => ({
-          x: new Date(fecha).getTime(),
-          y: Math.round(vals.reduce((s, v) => s + v, 0) / vals.length),
-        }));
-        if (series.length >= 2) {
-          const interpolated = linearInterpolate(series, Math.min(6, series.length));
-          setDatos(interpolated);
-          setR2(calcR2(interpolated));
-          const withObs = interpolated.filter((p) => p.observado !== null);
-          const mae = withObs.length > 0 ? withObs.reduce((s, p) => s + Math.abs(p.observado! - p.interpolado), 0) / withObs.length : 0;
-          setErrorMedio(Math.round(mae * 100) / 100);
-          const meanObs = withObs.length > 0 ? withObs.reduce((s, p) => s + p.observado!, 0) / withObs.length : 1;
-          setErrorRelativo(meanObs !== 0 ? Math.round((mae / meanObs) * 10000) / 100 : 0);
-        }
-      } catch (e) {
-        console.error('[Interpolacion] Error:', e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+  const fetchData = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiGet<RespuestaInterpolacion>('/api/scipy/interpolacion-auto');
+      setDatos(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const chartData = datos.map((p) => ({
-    x: new Date(p.x).toLocaleDateString('es-ES', { month: 'short', day: 'numeric' }),
-    observado: p.observado,
-    interpolado: p.interpolado,
-  }));
+  useEffect(() => { fetchData(); }, []);
 
-  const precisionPct = Math.round(r2 * 100);
-  const coberturaPct = datos.length > 0 ? Math.round((datos.filter((p) => p.observado !== null).length / datos.length) * 100) : 0;
-  const consistenciaPct = errorRelativo > 0 ? Math.min(100, Math.round(100 - errorRelativo)) : 0;
+  const tieneDatos = datos?.tiene_datos && datos.puntos && datos.puntos.length >= 2;
 
-  const kpis = [
-    { label: 'Puntos de datos', valor: datos.length.toString(), icono: Database, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Coeficiente R²', valor: r2.toFixed(4), icono: Ruler, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Error medio (MAE)', valor: errorMedio.toFixed(2), icono: Sigma, color: 'text-amber-600', bg: 'bg-amber-50' },
-    { label: 'Error relativo', valor: `${errorRelativo}%`, icono: Percent, color: 'text-purple-600', bg: 'bg-purple-50' },
-  ];
+  const handlePredecir = async () => {
+    if (!datos?.puntos || datos.puntos.length < 2) return;
+    setLoading(true);
+    try {
+      const x = datos.puntos.filter(p => p.observado !== null).map(p => p.x);
+      const y = datos.puntos.filter(p => p.observado !== null).map(p => p.observado!);
+      const maxPred = Math.max(...prediccionMeses, ...x);
+      const x_new = Array.from({ length: maxPred }, (_, i) => i + 1);
+      const result = await apiPost<RespuestaInterpolacion>('/api/scipy/interpolacion', { x, y, x_new });
+      setDatos(result);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stats = tieneDatos ? (() => {
+    const obs = datos!.puntos.filter(p => p.observado !== null).map(p => p.observado!);
+    const promedio = obs.reduce((a, b) => a + b, 0) / obs.length;
+    const max = Math.max(...obs);
+    const min = Math.min(...obs);
+    const ultObs = obs[obs.length - 1];
+    const predicciones = datos!.puntos.filter(p => p.observado === null).map(p => p.interpolado);
+    const tendencia = predicciones.length > 0 ? predicciones[predicciones.length - 1] - ultObs : 0;
+    return { promedio, max, min, tendencia, predicciones };
+  })() : null;
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Interpolación de Datos</h2>
-          <p className="text-slate-500 text-sm mt-1">Modelado y ajuste de series con interpolación lineal</p>
+          <h2 className="text-2xl font-bold text-slate-800">Interpolación de Tiempos</h2>
+          <p className="text-slate-500 text-sm mt-1">Modelado de datos usando Splines Cúbicos (SciPy)</p>
         </div>
-        <span className="px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full">Método: Lineal</span>
+        {tieneDatos && (
+          <button onClick={fetchData} className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm py-2 px-4 rounded-lg flex items-center gap-2 transition">
+            <RefreshCw size={16} /> Recalcular
+          </button>
+        )}
       </div>
+
+      {error && <div className="rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 mb-4">{error}</div>}
 
       {loading ? (
         <div className="py-16 flex items-center justify-center"><Loader2 size={24} className="animate-spin text-blue-500" /></div>
-      ) : (
+      ) : !datos?.tiene_datos ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+          <Database size={48} className="text-slate-300 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-slate-600 mb-2">Recopilando datos insuficientes para el modelado</h3>
+          <p className="text-slate-400 text-sm">La interpolación requiere al menos 2 registros de tiempos de atención.</p>
+          <p className="text-slate-400 text-xs mt-2">Registra interacciones en "Tiempos de Atención" para comenzar el modelado.</p>
+        </div>
+      ) : tieneDatos ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            {kpis.map((k) => {
-              const Icon = k.icono;
-              return (
-                <div key={k.label} className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
-                  <span className={`flex items-center justify-center w-10 h-10 rounded-lg ${k.bg} ${k.color}`}><Icon size={20} /></span>
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wide">{k.label}</p>
-                    <p className="text-xl font-bold text-slate-800">{k.valor}</p>
-                  </div>
+          {stats && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Media</p>
+                <p className="text-xl font-bold text-blue-600">{stats.promedio.toFixed(1)} min</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Mínimo / Máximo</p>
+                <p className="text-xl font-bold text-emerald-600">{stats.min} – {stats.max} min</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">R²</p>
+                <p className="text-xl font-bold text-purple-600">{datos!.r2 != null ? datos!.r2?.toFixed(4) : '—'}</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Error Medio</p>
+                <p className="text-xl font-bold text-amber-600">{datos!.errorMedio != null ? `${datos!.errorMedio} min` : '—'}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Intersect size={18} className="text-blue-600" />
+              <h3 className="font-semibold text-slate-700">Modelo de Interpolación</h3>
+            </div>
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={datos!.puntos}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef2f7" />
+                  <XAxis dataKey="x" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} label={{ value: 'Índice', position: 'insideBottom', offset: -5 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} label={{ value: 'Minutos', angle: -90, position: 'insideLeft', offset: 10 }} />
+                  <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Legend verticalAlign="top" height={36} iconType="circle" iconSize={8} />
+                  <Line type="monotone" dataKey="observado" name="Observado" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 4, fill: '#2563eb' }} connectNulls={false} />
+                  <Line type="monotone" dataKey="interpolado" name="Interpolado" stroke="#d97706" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 3, fill: '#d97706', strokeDasharray: '' }} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <BrainCircuit size={18} className="text-blue-600" />
+              <h3 className="font-semibold text-slate-700">Predecir Tiempos Futuros</h3>
+            </div>
+            <div className="flex items-center gap-4 mb-4">
+              {prediccionMeses.map((mes) => (
+                <div key={mes} className="flex items-center gap-2">
+                  <span className="text-sm text-slate-600">Mes {mes}:</span>
+                  <input type="number" value={mes} disabled className="w-16 px-2 py-1 border border-slate-200 rounded text-sm bg-slate-50" />
                 </div>
-              );
-            })}
+              ))}
+            </div>
+            <button onClick={handlePredecir} className="bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 px-4 rounded-lg transition">Predecir</button>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <div className="bg-white rounded-xl border border-slate-200 p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <LineIcon size={18} className="text-blue-600" />
-                <h3 className="font-semibold text-slate-700">Series: Observado vs Interpolado</h3>
-              </div>
-              {datos.length === 0 ? (
-                <div className="h-[280px] flex items-center justify-center text-slate-400 text-sm">Sin datos de tiempos de atención</div>
-              ) : (
-                <div className="h-[280px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ReLineChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef2f7" />
-                      <XAxis dataKey="x" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                      <YAxis hide />
-                      <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }} />
-                      <Legend verticalAlign="top" iconType="plainline" wrapperStyle={{ fontSize: 12 }} />
-                      <Line type="monotone" dataKey="observado" name="Observado" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 4 }} />
-                      <Line type="monotone" dataKey="interpolado" name="Interpolado" stroke="#059669" strokeWidth={2.5} strokeDasharray="6 4" dot={{ r: 3 }} />
-                    </ReLineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <Ruler size={18} className="text-emerald-600" />
-                <h3 className="font-semibold text-slate-700">Calidad del Ajuste</h3>
-              </div>
-              <div className="flex flex-col items-center py-4">
-                <span className="text-4xl font-bold text-slate-800">{r2.toFixed(4)}</span>
-                <span className="text-xs text-slate-500 mt-1">Coeficiente de determinación R²</span>
-              </div>
-              <div className="flex flex-col gap-4 mt-4">
-                {[
-                  { nombre: 'Precisión del modelo', valor: precisionPct, color: '#2563eb' },
-                  { nombre: 'Cobertura de datos', valor: coberturaPct, color: '#059669' },
-                  { nombre: 'Consistencia', valor: consistenciaPct, color: '#d97706' },
-                ].map((f) => (
-                  <div key={f.nombre}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm text-slate-700">{f.nombre}</span>
-                      <span className="text-xs font-medium text-slate-500">{f.valor}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{ width: `${f.valor}%`, background: f.color }} />
-                    </div>
-                  </div>
-                ))}
+          {stats && stats.tendencia > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle size={20} className="text-amber-600 mt-0.5" />
+              <div>
+                <p className="font-semibold text-amber-800">Tendencia ascendente</p>
+                <p className="text-sm text-amber-700">Los tiempos de atención muestran una tendencia de +{stats.tendencia.toFixed(1)} min. Puede ser necesario optimizar procesos.</p>
               </div>
             </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200">
-            <div className="flex items-center gap-2 p-5 border-b border-slate-100">
-              <Database size={18} className="text-blue-600" />
-              <h3 className="font-semibold text-slate-700">Tabla de Interpolación</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="text-left py-3 px-4 font-medium text-slate-500">Punto (x)</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-500">Observado</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-500">Interpolado</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-500">Error relativo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {datos.map((p, i) => {
-                    const errorRel = p.observado !== null && p.observado !== 0
-                      ? Math.abs(((p.interpolado - p.observado) / p.observado) * 100).toFixed(2)
-                      : '—';
-                    return (
-                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                        <td className="py-3 px-4 font-medium text-slate-800">{new Date(p.x).toLocaleDateString('es-ES')}</td>
-                        <td className="py-3 px-4 text-slate-600">{p.observado ?? '—'}</td>
-                        <td className="py-3 px-4 font-medium text-slate-800">{p.interpolado}</td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            errorRel === '—' ? 'bg-slate-100 text-slate-500' : parseFloat(errorRel) < 5 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                          }`}>
-                            {errorRel === '—' ? '—' : `${errorRel}%`}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {datos.length === 0 && <tr><td colSpan={4} className="py-12 text-center text-slate-400 text-sm">Sin datos</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          )}
         </>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+          <Database size={48} className="text-slate-300 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-slate-600 mb-2">Recopilando datos insuficientes para el modelado</h3>
+          <p className="text-slate-400 text-sm">Se encontraron algunos registros, pero se necesitan al menos 2.</p>
+        </div>
       )}
     </div>
   );

@@ -76,6 +76,83 @@ async def obtener_tiempos_atencion(db: AsyncSession = Depends(get_db)):
         {"hora": "18:00", "minutos": 12.0, "sla": 30},
     ]
 
+@router.get("/estadisticas-auto")
+async def estadisticas_automaticas(db: AsyncSession = Depends(get_db)):
+    try:
+        res = await db.execute(select(TiempoAtencion.tiempo_minutos).where(TiempoAtencion.tiempo_minutos.isnot(None)))
+        tiempos = [float(r[0]) for r in res.all() if r[0] is not None]
+        if len(tiempos) >= 2:
+            stats = scipy_service.calcular_estadisticas(tiempos)
+            stats["tiene_datos"] = True
+            stats["metodo"] = "scipy"
+            return stats
+        elif len(tiempos) == 1:
+            return {
+                "cantidad": 1, "media": tiempos[0], "mediana": tiempos[0],
+                "desviacion_estandar": 0, "minimo": tiempos[0], "maximo": tiempos[0],
+                "percentil_25": tiempos[0], "percentil_75": tiempos[0],
+                "tiene_datos": True, "metodo": "single_point",
+            }
+        return {"tiene_datos": False, "metodo": "none", "mensaje": "Recopilando datos insuficientes para el modelado"}
+    except Exception:
+        return {"tiene_datos": False, "metodo": "error", "mensaje": "Recopilando datos insuficientes para el modelado"}
+
+@router.get("/interpolacion-auto")
+async def interpolacion_automatica(db: AsyncSession = Depends(get_db)):
+    try:
+        res = await db.execute(
+            select(TiempoAtencion.fecha, TiempoAtencion.tiempo_minutos)
+            .where(TiempoAtencion.tiempo_minutos.isnot(None))
+            .order_by(TiempoAtencion.fecha)
+        )
+        rows = res.all()
+        if len(rows) < 2:
+            return {"tiene_datos": False, "mensaje": "Recopilando datos insuficientes para el modelado (minimo 2 registros)"}
+
+        agrupado: dict[str, list[float]] = {}
+        for fecha, tiempo in rows:
+            key = str(fecha)
+            if key not in agrupado:
+                agrupado[key] = []
+            agrupado[key].append(float(tiempo))
+
+        x_base = list(range(1, len(agrupado) + 1))
+        y_base = [round(sum(vals) / len(vals), 2) for vals in agrupado.values()]
+        x_new = list(range(1, len(agrupado) + 3))
+
+        interp = scipy_service.interpolar_datos(x_base, y_base, x_new)
+        fechas = list(agrupado.keys())
+        puntos = []
+        for i, xi in enumerate(interp["x"]):
+            idx = xi - 1
+            observado = y_base[idx] if idx < len(y_base) else None
+            puntos.append({
+                "x": xi,
+                "fecha": fechas[idx] if idx < len(fechas) else f"prediccion_{xi}",
+                "observado": observado,
+                "interpolado": interp["y"][i],
+                "es_prediccion": observado is None,
+            })
+
+        ss_res = sum((y_base[i] - interp["y"][i]) ** 2 for i in range(len(y_base)))
+        ss_tot = sum((v - sum(y_base) / len(y_base)) ** 2 for v in y_base)
+        r2 = round(1 - ss_res / ss_tot, 4) if ss_tot > 0 else 0
+        mae = round(sum(abs(y_base[i] - interp["y"][i]) for i in range(len(y_base))) / len(y_base), 2)
+        mean_obs = sum(y_base) / len(y_base) if y_base else 1
+        error_relativo = round((mae / mean_obs) * 100, 2) if mean_obs else 0
+
+        return {
+            "tiene_datos": True,
+            "puntos": puntos,
+            "r2": r2,
+            "errorMedio": mae,
+            "errorRelativo": error_relativo,
+            "metodo": "lineal",
+        }
+    except Exception:
+        return {"tiene_datos": False, "mensaje": "Error al procesar interpolacion"}
+
+
 @router.get("/optimizacion")
 async def obtener_optimizacion():
     supabase = get_supabase()

@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from app.api import clientes, comentarios, metricas, scipy, nltk, admin, tiempos, auth
+from app.api import clientes, comentarios, metricas, scipy, nltk, admin, tiempos, auth, reportes
 from app.database.models import Base
 from app.database.connection import engine
 
@@ -33,6 +33,7 @@ app.include_router(nltk.router, prefix="/api/nltk", tags=["NLTK"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(tiempos.router, prefix="/api/tiempos", tags=["Tiempos"])
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.include_router(reportes.router, prefix="/api/reportes", tags=["Reportes"])
 
 @app.on_event("startup")
 async def startup():
